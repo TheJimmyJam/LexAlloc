@@ -63,8 +63,8 @@ export default function Layout() {
       {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-30 w-60 bg-white border-r border-slate-200 flex flex-col transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:flex ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         {/* Logo */}
-        <div className="flex items-center px-4 h-16 border-b border-slate-200 flex-shrink-0">
-          <img src="/logo.svg" alt="LexAlloc" className="h-12 w-auto" />
+        <div className="flex items-center px-3 h-24 border-b border-slate-200 flex-shrink-0">
+          <img src="/logo.svg" alt="LexAlloc" className="w-full h-auto" />
         </div>
 
         {/* Org badge */}
