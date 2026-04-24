@@ -6,19 +6,19 @@ import { FolderOpen, FileText, DollarSign, TrendingUp, Plus, ArrowRight } from '
 import { formatCurrency } from '../lib/calculations.js'
 import { format, parseISO } from 'date-fns'
 
-function StatCard({ icon: Icon, label, value, color }) {
+function StatCard({ icon: Icon, label, value, color, to }) {
   return (
-    <div className="card p-5">
+    <Link to={to} className="card p-5 block hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 group">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm text-slate-500">{label}</p>
+          <p className="text-sm text-slate-500 group-hover:text-slate-700 transition-colors">{label}</p>
           <p className="text-2xl font-bold text-slate-900 mt-1">{value}</p>
         </div>
-        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${color}`}>
+        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${color} group-hover:scale-110 transition-transform duration-150`}>
           <Icon className="h-5 w-5 text-white" />
         </div>
       </div>
-    </div>
+    </Link>
   )
 }
 
@@ -93,10 +93,10 @@ export default function Dashboard() {
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard icon={FolderOpen}   label="Active Matters"     value={stats?.matters || 0}       color="bg-brand-600" />
-        <StatCard icon={FileText}     label="Invoices Processed" value={stats?.invoices || 0}       color="bg-blue-500" />
-        <StatCard icon={TrendingUp}   label="Apportionments Run" value={stats?.apportionments || 0} color="bg-purple-500" />
-        <StatCard icon={DollarSign}   label="Total Invoiced"     value={formatCurrency(stats?.totalInvoiced)} color="bg-green-500" />
+        <StatCard icon={FolderOpen}   label="Active Matters"     value={stats?.matters || 0}       color="bg-brand-600"  to="/matters" />
+        <StatCard icon={FileText}     label="Invoices Processed" value={stats?.invoices || 0}       color="bg-blue-500"   to="/matters" />
+        <StatCard icon={TrendingUp}   label="Apportionments Run" value={stats?.apportionments || 0} color="bg-purple-500" to="/matters" />
+        <StatCard icon={DollarSign}   label="Total Invoiced"     value={formatCurrency(stats?.totalInvoiced)} color="bg-green-500" to="/matters" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
