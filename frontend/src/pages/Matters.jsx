@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { useForm } from 'react-hook-form'
-import { Plus, Search, FolderOpen, X, ChevronRight, Filter } from 'lucide-react'
+import { Plus, Search, FolderOpen, X, ChevronRight, Filter, Upload } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
+import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
 
 function CreateMatterModal({ onClose }) {
   const { profile } = useAuth()
@@ -68,9 +69,11 @@ function CreateMatterModal({ onClose }) {
 export default function Matters() {
   const { profile } = useAuth()
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
+  const [uploadMatterId, setUploadMatterId] = useState(null)
 
   const { data: matters = [], isLoading } = useQuery({
     queryKey: ['matters', profile?.org_id],
@@ -187,17 +190,19 @@ export default function Matters() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filtered.map((m) => (
-                <tr key={m.id} className="hover:bg-slate-50 transition-colors">
+                <tr
+                  key={m.id}
+                  className="hover:bg-slate-50 transition-colors cursor-pointer"
+                  onClick={() => navigate(`/matters/${m.id}`)}
+                >
                   <td className="px-5 py-4">
-                    <Link to={`/matters/${m.id}`} className="font-medium text-slate-800 hover:text-brand-600 transition-colors">
-                      {m.name}
-                    </Link>
+                    <p className="font-medium text-slate-800">{m.name}</p>
                     {m.description && <p className="text-xs text-slate-400 mt-0.5 truncate max-w-xs">{m.description}</p>}
                   </td>
                   <td className="px-4 py-4 text-sm text-slate-500">{m.matter_number || '—'}</td>
                   <td className="px-4 py-4 text-sm text-slate-500">{m.la_parties?.[0]?.count ?? 0}</td>
                   <td className="px-4 py-4 text-sm text-slate-500">{m.la_invoices?.[0]?.count ?? 0}</td>
-                  <td className="px-4 py-4">
+                  <td className="px-4 py-4" onClick={e => e.stopPropagation()}>
                     <select
                       value={m.status}
                       onChange={e => quickUpdateStatus(m.id, e.target.value)}
@@ -209,10 +214,18 @@ export default function Matters() {
                     </select>
                   </td>
                   <td className="px-4 py-4 text-sm text-slate-400">{format(parseISO(m.created_at), 'MMM d, yyyy')}</td>
-                  <td className="px-4 py-4">
-                    <Link to={`/matters/${m.id}`} className="text-slate-400 hover:text-brand-600 transition-colors">
-                      <ChevronRight className="h-4 w-4" />
-                    </Link>
+                  <td className="px-4 py-4" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center gap-2 justify-end">
+                      <button
+                        onClick={() => setUploadMatterId(m.id)}
+                        className="flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-800 bg-brand-50 hover:bg-brand-100 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+                        title="Upload invoice for this matter"
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        Add Invoice
+                      </button>
+                      <ChevronRight className="h-4 w-4 text-slate-400" />
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -222,6 +235,15 @@ export default function Matters() {
       </div>
 
       {showModal && <CreateMatterModal onClose={() => setShowModal(false)} />}
+      {uploadMatterId && (
+        <InvoiceUploadModal
+          matterId={uploadMatterId}
+          onClose={() => {
+            setUploadMatterId(null)
+            qc.invalidateQueries({ queryKey: ['matters', profile?.org_id] })
+          }}
+        />
+      )}
     </div>
   )
 }
