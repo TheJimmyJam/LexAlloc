@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft } from 'lucide-react'
+import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
@@ -15,18 +15,17 @@ const TABS = [
 
 // ─── Invite User Modal ────────────────────────────────────────────────────────
 
-function InviteUserModal({ onClose, orgs }) {
-  const { profile } = useAuth()
+function InviteUserModal({ onClose, orgs, defaultOrgId }) {
   const qc = useQueryClient()
   const [sent, setSent] = useState(false)
   const [sentEmail, setSentEmail] = useState('')
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({
-    defaultValues: { role: 'user', org_id: profile?.org_id || '' }
+    defaultValues: { role: 'user', org_id: defaultOrgId || '' }
   })
 
   const onSubmit = async (values) => {
     try {
-      await api.inviteUser(values.email, values.role, values.org_id || profile.org_id)
+      await api.inviteUser(values.email, values.role, values.org_id)
       setSentEmail(values.email)
       setSent(true)
       qc.invalidateQueries({ queryKey: ['admin-users'] })
@@ -66,7 +65,7 @@ function InviteUserModal({ onClose, orgs }) {
             <label className="form-label">Organization *</label>
             <select className="form-input" {...register('org_id', { required: true })}>
               {orgs.map(o => (
-                <option key={o.id} value={o.id}>{o.name}{o.id === profile?.org_id ? ' (yours)' : ''}</option>
+                <option key={o.id} value={o.id}>{o.name}</option>
               ))}
             </select>
           </div>
@@ -145,8 +144,6 @@ function AddOrgModal({ onClose }) {
 
 function AssignUserModal({ org, allUsers, onClose, onAssigned }) {
   const { register, handleSubmit, formState: { isSubmitting } } = useForm()
-
-  // Users not already in this org
   const eligible = allUsers.filter(u => u.org_id !== org.id)
 
   const onSubmit = async ({ userId }) => {
@@ -174,7 +171,10 @@ function AssignUserModal({ org, allUsers, onClose, onAssigned }) {
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
           {eligible.length === 0 ? (
-            <p className="text-sm text-slate-500 text-center py-4">All users are already in this organization.</p>
+            <>
+              <p className="text-sm text-slate-500 text-center py-4">All users are already in this organization.</p>
+              <button onClick={onClose} className="btn-secondary w-full justify-center">Close</button>
+            </>
           ) : (
             <>
               <div>
@@ -183,7 +183,7 @@ function AssignUserModal({ org, allUsers, onClose, onAssigned }) {
                   <option value="">— choose a user —</option>
                   {eligible.map(u => (
                     <option key={u.id} value={u.id}>
-                      {u.first_name || u.last_name
+                      {(u.first_name || u.last_name)
                         ? `${u.first_name || ''} ${u.last_name || ''}`.trim()
                         : u.email}
                       {' '}({u.la_organizations?.name || 'no org'})
@@ -193,10 +193,7 @@ function AssignUserModal({ org, allUsers, onClose, onAssigned }) {
               </div>
               <div className="flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-lg p-3 text-xs text-amber-700">
                 <ArrowRightLeft className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                <span>
-                  Moving a user changes their organization and clears any insurer assignment,
-                  since insurers are org-specific. Their matters and access follow the new org.
-                </span>
+                <span>Moving a user changes their organization and clears any insurer assignment, since insurers are org-specific.</span>
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
@@ -205,9 +202,6 @@ function AssignUserModal({ org, allUsers, onClose, onAssigned }) {
                 </button>
               </div>
             </>
-          )}
-          {eligible.length === 0 && (
-            <button onClick={onClose} className="btn-secondary w-full justify-center">Close</button>
           )}
         </form>
       </div>
@@ -218,34 +212,34 @@ function AssignUserModal({ org, allUsers, onClose, onAssigned }) {
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 export default function AdminPanel() {
-  const { profile } = useAuth()
+  const { profile, refetchProfile } = useAuth()
   const [tab, setTab] = useState('users')
   const [showInvite,  setShowInvite]  = useState(false)
   const [showAddOrg,  setShowAddOrg]  = useState(false)
-  const [assignModal, setAssignModal] = useState(null)  // org object
+  const [assignModal, setAssignModal] = useState(null)
 
   const qc = useQueryClient()
+  const isPlatformAdmin = profile?.is_platform_admin === true
 
-  // All users across all orgs (platform-wide view)
+  // Platform admins see everyone; org admins see their org only
   const { data: users = [] } = useQuery({
-    queryKey: ['admin-users'],
+    queryKey: ['admin-users', isPlatformAdmin ? 'all' : profile?.org_id],
+    enabled: !!profile,
     queryFn: async () => {
-      const { data } = await supabase
+      let q = supabase
         .from('la_profiles')
         .select('*, la_organizations(name), la_insurers(name)')
         .order('created_at', { ascending: false })
+      if (!isPlatformAdmin) q = q.eq('org_id', profile.org_id)
+      const { data } = await q
       return data || []
     }
   })
 
   const { data: insurers = [] } = useQuery({
-    queryKey: ['admin-insurers', profile?.org_id],
-    enabled: !!profile?.org_id,
+    queryKey: ['admin-insurers'],
     queryFn: async () => {
-      const { data } = await supabase
-        .from('la_insurers')
-        .select('id, name, org_id')
-        .order('name')
+      const { data } = await supabase.from('la_insurers').select('id, name, org_id').order('name')
       return data || []
     }
   })
@@ -253,13 +247,26 @@ export default function AdminPanel() {
   const { data: orgs = [] } = useQuery({
     queryKey: ['admin-orgs'],
     queryFn: async () => {
-      const { data } = await supabase
-        .from('la_organizations')
-        .select('*, la_profiles(count)')
-        .order('created_at', { ascending: false })
+      let q = supabase.from('la_organizations').select('*, la_profiles(count)').order('created_at', { ascending: false })
+      if (!isPlatformAdmin) q = q.eq('id', profile?.org_id)
+      const { data } = await q
       return data || []
     }
   })
+
+  // Bootstrap: check if any platform admins exist yet
+  const { data: existingPlatformAdmins = [] } = useQuery({
+    queryKey: ['platform-admins'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('la_profiles')
+        .select('id')
+        .eq('is_platform_admin', true)
+      return data || []
+    }
+  })
+
+  const noPlatformAdminsYet = existingPlatformAdmins.length === 0
 
   const roleColors = {
     admin:  'bg-brand-100 text-brand-700',
@@ -271,18 +278,17 @@ export default function AdminPanel() {
     const { error } = await supabase.from('la_profiles').update({ role }).eq('id', userId)
     if (error) { toast.error(error.message); return }
     toast.success('Role updated')
-    qc.invalidateQueries({ queryKey: ['admin-users'] })
+    qc.invalidateQueries({ queryKey: ['admin-users', isPlatformAdmin ? 'all' : profile?.org_id] })
   }
 
   const changeOrg = async (userId, orgId) => {
-    // Clear insurer_id since insurers are org-scoped
     const { error } = await supabase
       .from('la_profiles')
       .update({ org_id: orgId, insurer_id: null })
       .eq('id', userId)
     if (error) { toast.error(error.message); return }
     toast.success('Organization updated')
-    qc.invalidateQueries({ queryKey: ['admin-users'] })
+    qc.invalidateQueries({ queryKey: ['admin-users', isPlatformAdmin ? 'all' : profile?.org_id] })
     qc.invalidateQueries({ queryKey: ['admin-orgs'] })
   }
 
@@ -293,25 +299,75 @@ export default function AdminPanel() {
       .eq('id', userId)
     if (error) { toast.error(error.message); return }
     toast.success('Insurer assigned')
-    qc.invalidateQueries({ queryKey: ['admin-users'] })
+    qc.invalidateQueries({ queryKey: ['admin-users', isPlatformAdmin ? 'all' : profile?.org_id] })
   }
 
-  // Insurers for a given org (for the client insurer dropdown)
+  const togglePlatformAdmin = async (userId, current) => {
+    if (userId === profile?.id && current) {
+      toast.error("Can't remove your own DB Admin status")
+      return
+    }
+    const { error } = await supabase
+      .from('la_profiles')
+      .update({ is_platform_admin: !current })
+      .eq('id', userId)
+    if (error) { toast.error(error.message); return }
+    toast.success(current ? 'DB Admin revoked' : 'DB Admin granted')
+    qc.invalidateQueries({ queryKey: ['admin-users', isPlatformAdmin ? 'all' : profile?.org_id] })
+    qc.invalidateQueries({ queryKey: ['platform-admins'] })
+  }
+
+  const claimPlatformAdmin = async () => {
+    const { error } = await supabase
+      .from('la_profiles')
+      .update({ is_platform_admin: true })
+      .eq('id', profile?.id)
+    if (error) { toast.error(error.message); return }
+    toast.success('DB Admin claimed — refreshing…')
+    await refetchProfile()
+    qc.invalidateQueries({ queryKey: ['admin-users', isPlatformAdmin ? 'all' : profile?.org_id] })
+    qc.invalidateQueries({ queryKey: ['platform-admins'] })
+  }
+
   const insurersForOrg = (orgId) => insurers.filter(i => i.org_id === orgId)
 
-  const orgCount = orgs.length
+  const orgCount  = orgs.length
   const userCount = users.length
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-9 h-9 bg-brand-100 rounded-lg flex items-center justify-center">
-          <Shield className="h-5 w-5 text-brand-600" />
+      {/* Header */}
+      <div className="flex items-start justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-brand-100 rounded-lg flex items-center justify-center">
+            <Shield className="h-5 w-5 text-brand-600" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold text-slate-900">Admin Panel</h1>
+              {isPlatformAdmin && (
+                <span className="flex items-center gap-1 badge bg-violet-100 text-violet-700 text-xs font-semibold">
+                  <Database className="h-3 w-3" /> DB Admin
+                </span>
+              )}
+            </div>
+            <p className="text-slate-500 text-sm">
+              {isPlatformAdmin
+                ? `${userCount} users across ${orgCount} organization${orgCount !== 1 ? 's' : ''} (platform-wide)`
+                : `Manage users and settings for your organization`}
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Admin Panel</h1>
-          <p className="text-slate-500 text-sm">{userCount} users across {orgCount} organization{orgCount !== 1 ? 's' : ''}</p>
-        </div>
+
+        {/* Bootstrap claim button — only shows when nobody is platform admin yet */}
+        {noPlatformAdminsYet && profile?.role === 'admin' && !isPlatformAdmin && (
+          <button
+            onClick={claimPlatformAdmin}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium transition-colors"
+          >
+            <Database className="h-4 w-4" /> Claim DB Admin
+          </button>
+        )}
       </div>
 
       {/* Tabs */}
@@ -331,7 +387,8 @@ export default function AdminPanel() {
         <div>
           <div className="flex items-center justify-between mb-4">
             <p className="text-sm text-slate-500">
-              {userCount} user{userCount !== 1 ? 's' : ''} across {orgCount} org{orgCount !== 1 ? 's' : ''}
+              {userCount} user{userCount !== 1 ? 's' : ''}
+              {isPlatformAdmin && ` across ${orgCount} org${orgCount !== 1 ? 's' : ''}`}
             </p>
             <button onClick={() => setShowInvite(true)} className="btn-primary">
               <Plus className="h-4 w-4" /> Invite User
@@ -343,33 +400,47 @@ export default function AdminPanel() {
                 <tr className="border-b border-slate-100 bg-slate-50">
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Name</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Email</th>
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Organization</th>
+                  {isPlatformAdmin && (
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Organization</th>
+                  )}
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Role</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Insurer (clients)</th>
+                  {isPlatformAdmin && (
+                    <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">DB Admin</th>
+                  )}
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Joined</th>
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Actions</th>
+                  <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {users.map(u => (
                   <tr key={u.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-4 font-medium text-slate-800">
-                      {u.first_name} {u.last_name}
-                      {u.id === profile?.id && <span className="ml-2 text-xs text-slate-400">(you)</span>}
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-slate-800">{u.first_name} {u.last_name}</span>
+                        {u.id === profile?.id && <span className="text-xs text-slate-400">(you)</span>}
+                        {u.is_platform_admin && (
+                          <span className="flex items-center gap-0.5 badge bg-violet-100 text-violet-700 text-xs">
+                            <Database className="h-2.5 w-2.5" /> DB
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-4 text-sm text-slate-500">{u.email}</td>
-                    <td className="px-4 py-4">
-                      <select
-                        value={u.org_id || ''}
-                        onChange={e => changeOrg(u.id, e.target.value)}
-                        disabled={u.id === profile?.id}
-                        className="form-input text-xs py-1 px-2 h-auto min-w-[160px] disabled:opacity-50"
-                      >
-                        {orgs.map(o => (
-                          <option key={o.id} value={o.id}>{o.name}</option>
-                        ))}
-                      </select>
-                    </td>
+                    {isPlatformAdmin && (
+                      <td className="px-4 py-4">
+                        <select
+                          value={u.org_id || ''}
+                          onChange={e => changeOrg(u.id, e.target.value)}
+                          disabled={u.id === profile?.id}
+                          className="form-input text-xs py-1 px-2 h-auto min-w-[160px] disabled:opacity-50"
+                        >
+                          {orgs.map(o => (
+                            <option key={o.id} value={o.id}>{o.name}</option>
+                          ))}
+                        </select>
+                      </td>
+                    )}
                     <td className="px-4 py-4">
                       <select
                         value={u.role}
@@ -398,6 +469,22 @@ export default function AdminPanel() {
                         <span className="text-xs text-slate-300">—</span>
                       )}
                     </td>
+                    {isPlatformAdmin && (
+                      <td className="px-4 py-4 text-center">
+                        <button
+                          onClick={() => togglePlatformAdmin(u.id, u.is_platform_admin)}
+                          disabled={u.id === profile?.id && u.is_platform_admin}
+                          title={u.is_platform_admin ? 'Revoke DB Admin' : 'Grant DB Admin'}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            u.is_platform_admin
+                              ? 'text-violet-600 bg-violet-50 hover:bg-violet-100'
+                              : 'text-slate-300 hover:text-violet-500 hover:bg-violet-50'
+                          } disabled:opacity-40 disabled:cursor-not-allowed`}
+                        >
+                          <Database className="h-4 w-4" />
+                        </button>
+                      </td>
+                    )}
                     <td className="px-4 py-4 text-sm text-slate-400">
                       {u.created_at ? format(parseISO(u.created_at), 'MM/dd/yyyy') : '—'}
                     </td>
@@ -422,9 +509,11 @@ export default function AdminPanel() {
         <div>
           <div className="flex items-center justify-between mb-4">
             <p className="text-sm text-slate-500">{orgCount} organization{orgCount !== 1 ? 's' : ''}</p>
-            <button onClick={() => setShowAddOrg(true)} className="btn-primary">
-              <Plus className="h-4 w-4" /> Add Organization
-            </button>
+            {isPlatformAdmin && (
+              <button onClick={() => setShowAddOrg(true)} className="btn-primary">
+                <Plus className="h-4 w-4" /> Add Organization
+              </button>
+            )}
           </div>
           <div className="card overflow-hidden">
             <table className="w-full">
@@ -433,7 +522,9 @@ export default function AdminPanel() {
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Organization</th>
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Users</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Created</th>
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Actions</th>
+                  {isPlatformAdmin && (
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Actions</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -466,14 +557,16 @@ export default function AdminPanel() {
                       <td className="px-4 py-4 text-sm text-slate-400">
                         {org.created_at ? format(parseISO(org.created_at), 'MM/dd/yyyy') : '—'}
                       </td>
-                      <td className="px-4 py-4">
-                        <button
-                          onClick={() => setAssignModal(org)}
-                          className="btn-secondary text-xs py-1.5 px-3"
-                        >
-                          <UserPlus className="h-3.5 w-3.5" /> Assign User
-                        </button>
-                      </td>
+                      {isPlatformAdmin && (
+                        <td className="px-4 py-4">
+                          <button
+                            onClick={() => setAssignModal(org)}
+                            className="btn-secondary text-xs py-1.5 px-3"
+                          >
+                            <UserPlus className="h-3.5 w-3.5" /> Assign User
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   )
                 })}
@@ -487,6 +580,7 @@ export default function AdminPanel() {
       {showInvite && (
         <InviteUserModal
           orgs={orgs}
+          defaultOrgId={profile?.org_id}
           onClose={() => setShowInvite(false)}
         />
       )}
@@ -499,7 +593,7 @@ export default function AdminPanel() {
           allUsers={users}
           onClose={() => setAssignModal(null)}
           onAssigned={() => {
-            qc.invalidateQueries({ queryKey: ['admin-users'] })
+            qc.invalidateQueries({ queryKey: ['admin-users', isPlatformAdmin ? 'all' : profile?.org_id] })
             qc.invalidateQueries({ queryKey: ['admin-orgs'] })
           }}
         />

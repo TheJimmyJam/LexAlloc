@@ -2,7 +2,7 @@ import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import {
   LayoutDashboard, FolderOpen, Settings, LogOut,
-  Scale, Shield, Menu, X, UserCircle, ShieldCheck
+  Shield, Menu, X, UserCircle, ShieldCheck, Database
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -97,7 +97,14 @@ export default function Layout() {
               <p className="text-sm font-medium text-slate-800 truncate">
                 {profile?.first_name} {profile?.last_name}
               </p>
-              <p className="text-xs text-slate-400 capitalize">{profile?.role || 'user'}</p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <p className="text-xs text-slate-400 capitalize">{profile?.role || 'user'}</p>
+                {profile?.is_platform_admin && (
+                  <span className="flex items-center gap-0.5 text-xs font-semibold text-violet-600 bg-violet-50 rounded px-1 py-0.5 leading-none">
+                    <Database className="h-2.5 w-2.5" /> DB Admin
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <button onClick={handleSignOut} className="btn-secondary w-full justify-center text-xs">
