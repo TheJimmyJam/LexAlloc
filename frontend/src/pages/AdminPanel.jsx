@@ -89,10 +89,57 @@ function InviteUserModal({ onClose }) {
   )
 }
 
+function AddOrgModal({ onClose }) {
+  const qc = useQueryClient()
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm()
+
+  const onSubmit = async ({ orgName }) => {
+    const { error } = await supabase
+      .from('la_organizations')
+      .insert({ name: orgName.trim() })
+    if (error) { toast.error(error.message); return }
+    toast.success(`Organization "${orgName.trim()}" created`)
+    qc.invalidateQueries({ queryKey: ['admin-orgs'] })
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between p-6 border-b border-slate-200">
+          <h2 className="font-semibold text-lg">Add Organization</h2>
+          <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
+        </div>
+        <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
+          <div>
+            <label className="form-label">Organization / Firm Name *</label>
+            <input
+              className="form-input"
+              placeholder="Smith & Associates LLP"
+              {...register('orgName', { required: 'Name is required', minLength: { value: 2, message: 'Must be at least 2 characters' } })}
+            />
+            {errors.orgName && <p className="text-red-500 text-xs mt-1">{errors.orgName.message}</p>}
+          </div>
+          <p className="text-xs text-slate-400">
+            The new organization will have no users until someone registers or is invited with this org.
+          </p>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
+            <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
+              <Building2 className="h-4 w-4" /> {isSubmitting ? 'Creating…' : 'Create Organization'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 export default function AdminPanel() {
   const { profile } = useAuth()
   const [tab, setTab] = useState('users')
   const [showInvite, setShowInvite] = useState(false)
+  const [showAddOrg, setShowAddOrg] = useState(false)
 
   const qc = useQueryClient()
 
@@ -257,6 +304,12 @@ export default function AdminPanel() {
 
       {tab === 'orgs' && (
         <div>
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm text-slate-500">{orgs.length} organization{orgs.length !== 1 ? 's' : ''}</p>
+            <button onClick={() => setShowAddOrg(true)} className="btn-primary">
+              <Plus className="h-4 w-4" /> Add Organization
+            </button>
+          </div>
           <div className="card overflow-hidden">
             <table className="w-full">
               <thead>
@@ -287,7 +340,8 @@ export default function AdminPanel() {
         </div>
       )}
 
-      {showInvite && <InviteUserModal onClose={() => setShowInvite(false)} />}
+      {showInvite  && <InviteUserModal onClose={() => setShowInvite(false)} />}
+      {showAddOrg  && <AddOrgModal    onClose={() => setShowAddOrg(false)} />}
     </div>
   )
 }
