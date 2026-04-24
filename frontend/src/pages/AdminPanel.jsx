@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck } from 'lucide-react'
+import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, Link2 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
@@ -94,15 +94,30 @@ export default function AdminPanel() {
   const [tab, setTab] = useState('users')
   const [showInvite, setShowInvite] = useState(false)
 
+  const qc = useQueryClient()
+
   const { data: users = [] } = useQuery({
     queryKey: ['admin-users', profile?.org_id],
     enabled: !!profile?.org_id,
     queryFn: async () => {
       const { data } = await supabase
         .from('la_profiles')
-        .select('*, la_organizations(name)')
+        .select('*, la_organizations(name), la_insurers(name)')
         .eq('org_id', profile.org_id)
         .order('created_at', { ascending: false })
+      return data || []
+    }
+  })
+
+  const { data: insurers = [] } = useQuery({
+    queryKey: ['admin-insurers', profile?.org_id],
+    enabled: !!profile?.org_id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('la_insurers')
+        .select('id, name')
+        .eq('org_id', profile.org_id)
+        .order('name')
       return data || []
     }
   })
@@ -128,6 +143,17 @@ export default function AdminPanel() {
     const { error } = await supabase.from('la_profiles').update({ role }).eq('id', userId)
     if (error) { toast.error(error.message); return }
     toast.success('Role updated')
+    qc.invalidateQueries({ queryKey: ['admin-users', profile?.org_id] })
+  }
+
+  const assignInsurer = async (userId, insurer_id) => {
+    const { error } = await supabase
+      .from('la_profiles')
+      .update({ insurer_id: insurer_id || null })
+      .eq('id', userId)
+    if (error) { toast.error(error.message); return }
+    toast.success('Insurer assigned')
+    qc.invalidateQueries({ queryKey: ['admin-users', profile?.org_id] })
   }
 
   return (
@@ -169,6 +195,7 @@ export default function AdminPanel() {
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Name</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Email</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Role</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Insurer (clients)</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Joined</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Actions</th>
                 </tr>
@@ -192,6 +219,22 @@ export default function AdminPanel() {
                         <option value="client">Client</option>
                         <option value="user">User</option>
                       </select>
+                    </td>
+                    <td className="px-4 py-4">
+                      {u.role === 'client' ? (
+                        <select
+                          value={u.insurer_id || ''}
+                          onChange={e => assignInsurer(u.id, e.target.value)}
+                          className="form-input text-xs py-1 px-2 h-auto min-w-[160px]"
+                        >
+                          <option value="">— unassigned —</option>
+                          {insurers.map(ins => (
+                            <option key={ins.id} value={ins.id}>{ins.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-xs text-slate-300">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-4 text-sm text-slate-400">
                       {u.created_at ? format(parseISO(u.created_at), 'MM/dd/yyyy') : '—'}

@@ -15,6 +15,7 @@ import InvoiceDetail  from './pages/InvoiceDetail.jsx'
 import Apportionment  from './pages/Apportionment.jsx'
 import AdminPanel     from './pages/AdminPanel.jsx'
 import Settings       from './pages/Settings.jsx'
+import ClientPortal   from './pages/ClientPortal.jsx'
 
 function ProtectedRoute({ children, requiredRole }) {
   const { user, profile, loading } = useAuth()
@@ -27,10 +28,17 @@ function ProtectedRoute({ children, requiredRole }) {
 }
 
 function PublicRoute({ children }) {
-  const { user, loading } = useAuth()
+  const { user, profile, loading } = useAuth()
   if (loading) return null
-  if (user) return <Navigate to="/dashboard" replace />
+  if (user) return <Navigate to={profile?.role === 'client' ? '/portal' : '/dashboard'} replace />
   return children
+}
+
+function DashboardRedirect() {
+  const { profile, loading } = useAuth()
+  if (loading) return <div className="flex items-center justify-center h-screen"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"/></div>
+  if (profile?.role === 'client') return <Navigate to="/portal" replace />
+  return <Navigate to="/dashboard" replace />
 }
 
 export default function App() {
@@ -63,6 +71,7 @@ export default function App() {
         {/* Protected */}
         <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route path="/dashboard"  element={<Dashboard />} />
+          <Route path="/portal"     element={<ClientPortal />} />
           <Route path="/matters"    element={<Matters />} />
           <Route path="/matters/:matterId" element={<MatterDetail />} />
           <Route path="/matters/:matterId/invoices/:invoiceId" element={<InvoiceDetail />} />
@@ -71,7 +80,7 @@ export default function App() {
           <Route path="/admin"      element={<ProtectedRoute requiredRole="admin"><AdminPanel /></ProtectedRoute>} />
         </Route>
 
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<DashboardRedirect />} />
       </Routes>
     </AuthProvider>
   )

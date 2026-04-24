@@ -2,14 +2,19 @@ import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import {
   LayoutDashboard, FolderOpen, Settings, LogOut,
-  Scale, Shield, ChevronDown, Menu, X, UserCircle
+  Scale, Shield, Menu, X, UserCircle, ShieldCheck
 } from 'lucide-react'
 import { useState } from 'react'
 
-const navItems = [
+const staffNavItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/matters',   icon: FolderOpen,      label: 'Matters' },
   { to: '/settings',  icon: Settings,        label: 'Settings' },
+]
+
+const clientNavItems = [
+  { to: '/portal',   icon: ShieldCheck, label: 'My Portal' },
+  { to: '/settings', icon: Settings,    label: 'Settings' },
 ]
 
 export default function Layout() {
@@ -18,6 +23,9 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const handleSignOut = async () => { await signOut(); navigate('/login') }
+
+  const isClient = profile?.role === 'client'
+  const navItems = isClient ? clientNavItems : staffNavItems
 
   const NavItems = () => (
     <>
