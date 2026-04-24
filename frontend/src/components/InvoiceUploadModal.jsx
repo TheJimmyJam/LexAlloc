@@ -3,7 +3,7 @@ import { useDropzone } from 'react-dropzone'
 import { X, Upload, Loader2, CheckCircle, AlertCircle, FileText } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { api } from '../lib/api.js'
-import { useAuth } from '../hooks/useAuth.js'
+import { useAuth } from '../hooks/useAuth.jsx'
 import toast from 'react-hot-toast'
 
 export default function InvoiceUploadModal({ matterId, onClose }) {
@@ -34,11 +34,11 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
       // 1. Upload to Supabase Storage
       const path = `${profile.org_id}/invoices/${Date.now()}-${file.name}`
       const { data: upload, error: uploadErr } = await supabase.storage
-        .from('invoices')
+        .from('la_invoices')
         .upload(path, file, { contentType: file.type })
       if (uploadErr) throw uploadErr
 
-      const { data: { publicUrl } } = supabase.storage.from('invoices').getPublicUrl(path)
+      const { data: { publicUrl } } = supabase.storage.from('la_invoices').getPublicUrl(path)
 
       setStage('parsing')
 
@@ -73,7 +73,7 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
     setStage('saving')
     try {
       // 3. Save invoice + line items to DB
-      const { data: invoice, error: invErr } = await supabase.from('invoices').insert({
+      const { data: invoice, error: invErr } = await supabase.from('la_invoices').insert({
         matter_id:      matterId,
         org_id:         profile.org_id,
         file_url:       parsed._fileUrl,
@@ -100,7 +100,7 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
           amount:           parseFloat(li.amount) || 0,
           category:         li.category || 'fees',
         }))
-        await supabase.from('invoice_line_items').insert(lineItems)
+        await supabase.from('la_invoice_line_items').insert(lineItems)
       }
 
       toast.success('Invoice saved successfully!')
