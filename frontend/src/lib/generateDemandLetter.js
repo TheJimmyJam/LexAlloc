@@ -155,53 +155,60 @@ export async function generateDemandLetterBlob(data) {
     ]
   })
 
-  // Obligation table middle row (TOR only)
-  const torLabel = (ia.insurers && ia.insurers.name ? ia.insurers.name : 'Insurer') +
+  // Obligation table labels
+  var torLabel = (ia.insurers && ia.insurers.name ? ia.insurers.name : 'Insurer') +
     ' time-on-risk (' + (ia.days_on_risk != null ? ia.days_on_risk : '-') +
     ' / ' + (ia.total_days != null ? ia.total_days : '-') + ' days)'
 
-  const obligationMiddleRows = method === 'pro_rata_time_on_risk'
-    ? [new TableRow({ children: [
-        td(torLabel, 5200),
-        tdR(fmtPct(ia.percentage), 2080),
-        tdR('', 2080),
-      ]})]
-    : []
+  var totalDueLabel = 'Total due from ' + ((ia.insurers && ia.insurers.name) ? ia.insurers.name : 'Insurer')
 
-  const totalDueLabel = 'Total due from ' + ((ia.insurers && ia.insurers.name) ? ia.insurers.name : 'Insurer')
+  var obligationRows = []
+  obligationRows.push(new TableRow({ children: [
+    th('Description', 5200),
+    th('Percentage',  2080),
+    th('Amount',      2080),
+  ]}))
+  obligationRows.push(new TableRow({ children: [
+    td(((pa.parties && pa.parties.name) ? pa.parties.name : 'Party') + ' share of invoice', 5200),
+    tdR(fmtPct(pa.percentage), 2080),
+    tdR(fmt(pa.amount),        2080),
+  ]}))
+  if (method === 'pro_rata_time_on_risk') {
+    obligationRows.push(new TableRow({ children: [
+      td(torLabel, 5200),
+      tdR(fmtPct(ia.percentage), 2080),
+      tdR('', 2080),
+    ]}))
+  }
+  obligationRows.push(new TableRow({ children: [
+    new TableCell({
+      borders: BORDERS,
+      width: { size: 5200, type: WidthType.DXA },
+      shading: { fill: 'EDF0F5', type: ShadingType.CLEAR },
+      margins: { top: 80, bottom: 80, left: 120, right: 120 },
+      verticalAlign: VerticalAlign.CENTER,
+      children: [new Paragraph({
+        children: [new TextRun({ text: totalDueLabel, bold: true, font: 'Arial', size: 20 })]
+      })]
+    }),
+    tdR('', 2080, { isHeader: true }),
+    new TableCell({
+      borders: BORDERS,
+      width: { size: 2080, type: WidthType.DXA },
+      shading: { fill: 'EDF0F5', type: ShadingType.CLEAR },
+      margins: { top: 80, bottom: 80, left: 120, right: 120 },
+      verticalAlign: VerticalAlign.CENTER,
+      children: [new Paragraph({
+        alignment: AlignmentType.RIGHT,
+        children: [new TextRun({ text: fmt(ia.amount), bold: true, font: 'Arial', size: 22, color: '1a4480' })]
+      })]
+    }),
+  ]}))
 
-  const obligationTable = new Table({
+  var obligationTable = new Table({
     width: { size: W, type: WidthType.DXA },
     columnWidths: [5200, 2080, 2080],
-    rows: [
-      new TableRow({ children: [
-        th('Description', 5200),
-        th('Percentage',  2080),
-        th('Amount',      2080),
-      ]}),
-      new TableRow({ children: [
-        td(((pa.parties && pa.parties.name) ? pa.parties.name : 'Party') + ' share of invoice', 5200),
-        tdR(fmtPct(pa.percentage), 2080),
-        tdR(fmt(pa.amount),        2080),
-      ]}),
-    ].concat(obligationMiddleRows).concat([
-      new TableRow({ children: [
-        new TableCell({
-          ...cellBase(5200, true),
-          children: [new Paragraph({
-            children: [new TextRun({ text: totalDueLabel, bold: true, font: 'Arial', size: 20 })]
-          })]
-        }),
-        tdR('', 2080, { isHeader: true }),
-        new TableCell({
-          ...cellBase(2080, true),
-          children: [new Paragraph({
-            alignment: AlignmentType.RIGHT,
-            children: [new TextRun({ text: fmt(ia.amount), bold: true, font: 'Arial', size: 22, color: '1a4480' })]
-          })]
-        }),
-      ]),
-    ])
+    rows: obligationRows,
   })
 
   // Service period text
