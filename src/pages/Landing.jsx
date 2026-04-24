@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Scale, FileText, Users, PieChart, Shield, CheckCircle, ArrowRight } from 'lucide-react'
+import { FileText, Users, PieChart, Shield, CheckCircle, ArrowRight, Scale } from 'lucide-react'
 
 const features = [
   { icon: FileText,   title: 'AI Invoice Parsing',       desc: 'Upload PDF invoices and let our AI extract line items, dates, timekeepers, and amounts automatically.' },
@@ -15,12 +15,7 @@ export default function Landing() {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-brand-900 to-slate-900">
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 lg:px-16 py-5">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center">
-            <Scale className="h-4 w-4 text-white" />
-          </div>
-          <span className="text-white font-bold text-xl">LexAlloc</span>
-        </div>
+        <img src="/logo.svg" alt="LexAlloc" className="h-10 w-auto" />
         <div className="flex items-center gap-3">
           <Link to="/login"    className="text-slate-300 hover:text-white text-sm transition-colors">Sign In</Link>
           <Link to="/login" className="px-4 py-2 bg-brand-500 hover:bg-brand-400 text-white text-sm font-medium rounded-lg transition-colors">
@@ -32,7 +27,7 @@ export default function Landing() {
       {/* Hero */}
       <section className="px-6 lg:px-16 py-24 text-center max-w-4xl mx-auto">
         <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-brand-500/20 border border-brand-500/30 rounded-full text-brand-300 text-xs font-medium mb-6">
-          <Scale className="h-3 w-3" /> Legal Invoice Apportionment Platform
+          Legal Invoice Apportionment Platform
         </div>
         <h1 className="text-5xl lg:text-6xl font-extrabold text-white leading-tight mb-6">
           Apportion Legal Fees<br />
