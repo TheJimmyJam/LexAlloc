@@ -1,95 +1,133 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { X, Upload, Loader2, CheckCircle, AlertCircle, FileText } from 'lucide-react'
+import {
+  X, Upload, Loader2, CheckCircle, AlertCircle, FileText,
+  Trash2, ChevronDown, ChevronUp, Save, RefreshCw
+} from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { api } from '../lib/api.js'
 import toast from 'react-hot-toast'
 
+// ── Concurrency-limited parallel processor ────────────────────────────────────
+async function runWithConcurrency(tasks, limit) {
+  const results = []
+  const pool    = []
+  for (const task of tasks) {
+    const p = Promise.resolve().then(task).then(r => { results.push(r); pool.splice(pool.indexOf(p), 1) })
+    pool.push(p)
+    if (pool.length >= limit) await Promise.race(pool)
+  }
+  await Promise.all(pool)
+  return results
+}
+
+// ── Status badge ──────────────────────────────────────────────────────────────
+function StatusBadge({ status }) {
+  const map = {
+    queued:    { label: 'Queued',    cls: 'bg-slate-100 text-slate-500' },
+    uploading: { label: 'Uploading', cls: 'bg-blue-100 text-blue-600',  spin: true },
+    parsing:   { label: 'Parsing',   cls: 'bg-violet-100 text-violet-600', spin: true },
+    ready:     { label: 'Ready',     cls: 'bg-amber-100 text-amber-700' },
+    saving:    { label: 'Saving',    cls: 'bg-blue-100 text-blue-600',  spin: true },
+    saved:     { label: 'Saved ✓',   cls: 'bg-green-100 text-green-700' },
+    error:     { label: 'Error',     cls: 'bg-red-100 text-red-600' },
+  }
+  const { label, cls, spin } = map[status] || map.queued
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>
+      {spin && <Loader2 className="h-3 w-3 animate-spin" />}
+      {label}
+    </span>
+  )
+}
+
+// ── Main modal ────────────────────────────────────────────────────────────────
 export default function InvoiceUploadModal({ matterId, onClose }) {
   const { profile } = useAuth()
-  const [stage, setStage]     = useState('upload')   // upload | uploading | parsing | review | saving
-  const [file, setFile]       = useState(null)
-  const [parsed, setParsed]   = useState(null)
-  const [error, setError]     = useState(null)
+  const [queue, setQueue]         = useState([])   // [{ id, file, status, error, fileUrl, parsed, expanded }]
+  const [processing, setProcessing] = useState(false)
+  const nextId = useRef(0)
 
-  const onDrop = useCallback((acceptedFiles) => {
-    setFile(acceptedFiles[0])
-    setError(null)
-  }, [])
+  const update = (id, patch) =>
+    setQueue(q => q.map(item => item.id === id ? { ...item, ...patch } : item))
+
+  // ── Process a single file: upload → AI parse ──────────────────────────────
+  const processFile = async (item) => {
+    const { id, file } = item
+
+    // 1. Upload
+    update(id, { status: 'uploading' })
+    const path = `${profile.org_id}/invoices/${Date.now()}-${file.name}`
+    const { error: uploadErr } = await supabase.storage
+      .from('la_invoices')
+      .upload(path, file, { contentType: file.type })
+    if (uploadErr) { update(id, { status: 'error', error: uploadErr.message }); return }
+
+    // 2. Get signed URL for edge function
+    const { data: signedData, error: signedErr } = await supabase.storage
+      .from('la_invoices')
+      .createSignedUrl(path, 300)
+    if (signedErr) { update(id, { status: 'error', error: signedErr.message }); return }
+
+    const { data: { publicUrl } } = supabase.storage.from('la_invoices').getPublicUrl(path)
+
+    // 3. AI parse
+    update(id, { status: 'parsing' })
+    let parsed
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke('parse-invoice', {
+        body: { fileUrl: signedData.signedUrl, fileType: file.type },
+      })
+      if (fnErr) throw fnErr
+      if (data?.error) throw new Error(data.error)
+      parsed = data
+    } catch {
+      parsed = {
+        invoice_number: '', invoice_date: new Date().toISOString().split('T')[0],
+        billing_firm: '', total_amount: 0,
+        service_start: new Date().toISOString().split('T')[0],
+        service_end:   new Date().toISOString().split('T')[0],
+        line_items: [], _parseFailed: true,
+      }
+    }
+
+    update(id, { status: 'ready', fileUrl: publicUrl, parsed: { ...parsed, _fileUrl: publicUrl }, expanded: false })
+  }
+
+  // ── Drop handler ──────────────────────────────────────────────────────────
+  const onDrop = useCallback(async (acceptedFiles) => {
+    if (!acceptedFiles.length) return
+    const newItems = acceptedFiles.map(file => ({
+      id:       nextId.current++,
+      file,
+      status:   'queued',
+      error:    null,
+      fileUrl:  null,
+      parsed:   null,
+      expanded: false,
+    }))
+    setQueue(q => [...q, ...newItems])
+    setProcessing(true)
+    await runWithConcurrency(newItems.map(item => () => processFile(item)), 3)
+    setProcessing(false)
+  }, [profile, matterId])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: { 'application/pdf': ['.pdf'], 'image/*': ['.png', '.jpg', '.jpeg'] },
-    maxFiles: 1,
-    maxSize: 20 * 1024 * 1024, // 20MB
+    maxSize: 20 * 1024 * 1024,
   })
 
-  const handleUploadAndParse = async () => {
-    if (!file) return
-    setStage('uploading')
-    setError(null)
-
+  // ── Save a single item ────────────────────────────────────────────────────
+  const saveItem = async (item) => {
+    const { id, parsed, fileUrl } = item
+    update(id, { status: 'saving' })
     try {
-      // 1. Upload to Supabase Storage
-      const path = `${profile.org_id}/invoices/${Date.now()}-${file.name}`
-      const { error: uploadErr } = await supabase.storage
-        .from('la_invoices')
-        .upload(path, file, { contentType: file.type })
-      if (uploadErr) throw uploadErr
-
-      // Create a signed URL valid for 5 minutes for the edge function to fetch
-      const { data: signedData, error: signedErr } = await supabase.storage
-        .from('la_invoices')
-        .createSignedUrl(path, 300)
-      if (signedErr) throw signedErr
-
-      const fileUrl = signedData.signedUrl
-
-      setStage('parsing')
-
-      // 2. Call Supabase Edge Function for AI parsing
-      let parsedData
-      try {
-        const { data, error: fnErr } = await supabase.functions.invoke('parse-invoice', {
-          body: { fileUrl, fileType: file.type },
-        })
-        if (fnErr) throw fnErr
-        if (data.error) throw new Error(data.error)
-        parsedData = data
-      } catch (e) {
-        // Fallback: manual entry mode
-        console.warn('AI parsing failed, falling back to manual entry:', e.message)
-        parsedData = {
-          invoice_number:  '',
-          invoice_date:    new Date().toISOString().split('T')[0],
-          billing_firm:    '',
-          total_amount:    0,
-          service_start:   new Date().toISOString().split('T')[0],
-          service_end:     new Date().toISOString().split('T')[0],
-          line_items:      [],
-          _parseFailed:    true,
-        }
-      }
-
-      // Store permanent public path for the saved invoice record
-      const { data: { publicUrl } } = supabase.storage.from('la_invoices').getPublicUrl(path)
-      setParsed({ ...parsedData, _fileUrl: publicUrl })
-      setStage('review')
-    } catch (err) {
-      setError(err.message || 'Upload failed')
-      setStage('upload')
-    }
-  }
-
-  const handleSave = async () => {
-    setStage('saving')
-    try {
-      // 3. Save invoice + line items to DB
       const { data: invoice, error: invErr } = await supabase.from('la_invoices').insert({
         matter_id:      matterId,
         org_id:         profile.org_id,
-        file_url:       parsed._fileUrl,
+        file_url:       fileUrl,
         invoice_number: parsed.invoice_number,
         invoice_date:   parsed.invoice_date,
         billing_firm:   parsed.billing_firm,
@@ -101,190 +139,234 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
       }).select().single()
       if (invErr) throw invErr
 
-      // 4. Save line items
       if (parsed.line_items?.length > 0) {
         const lineItems = parsed.line_items.map(li => ({
-          invoice_id:       invoice.id,
-          date_of_service:  li.date || li.date_of_service,
-          description:      li.description,
-          timekeeper:       li.timekeeper,
-          hours:            parseFloat(li.hours) || null,
-          rate:             parseFloat(li.rate) || null,
-          amount:           parseFloat(li.amount) || 0,
-          category:         li.category || 'fees',
+          invoice_id:      invoice.id,
+          date_of_service: li.date || li.date_of_service,
+          description:     li.description,
+          timekeeper:      li.timekeeper,
+          hours:           parseFloat(li.hours)  || null,
+          rate:            parseFloat(li.rate)   || null,
+          amount:          parseFloat(li.amount) || 0,
+          category:        li.category || 'fees',
         }))
         await supabase.from('la_invoice_line_items').insert(lineItems)
       }
 
-      toast.success('Invoice saved successfully!')
-
-      // Fire-and-forget notification
+      update(id, { status: 'saved', expanded: false })
       api.sendEvent('invoice_parsed', profile.org_id, matterId, {
         invoice_number: parsed.invoice_number,
         billing_firm:   parsed.billing_firm,
       }).catch(() => {})
-
-      onClose()
     } catch (err) {
-      setError(err.message)
-      setStage('review')
+      update(id, { status: 'error', error: err.message })
     }
   }
 
+  // ── Save all ready items ──────────────────────────────────────────────────
+  const saveAll = async () => {
+    const ready = queue.filter(i => i.status === 'ready')
+    await Promise.all(ready.map(saveItem))
+    const saved = queue.filter(i => i.status === 'saved').length + ready.length
+    toast.success(`${ready.length} invoice${ready.length !== 1 ? 's' : ''} saved!`)
+  }
+
+  const removeItem = (id) => setQueue(q => q.filter(i => i.id !== id))
+  const retryItem  = (item) => { update(item.id, { status: 'queued', error: null }); processFile(item) }
+  const toggleExpand = (id) => update(id, { expanded: !queue.find(i => i.id === id)?.expanded })
+  const editParsed = (id, field, value) =>
+    setQueue(q => q.map(i => i.id === id ? { ...i, parsed: { ...i.parsed, [field]: value } } : i))
+
+  const readyCount  = queue.filter(i => i.status === 'ready').length
+  const savedCount  = queue.filter(i => i.status === 'saved').length
+  const errorCount  = queue.filter(i => i.status === 'error').length
+  const busyCount   = queue.filter(i => ['uploading','parsing','saving'].includes(i.status)).length
+  const allDone     = queue.length > 0 && queue.every(i => ['saved','error'].includes(i.status))
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+
+        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200 flex-shrink-0">
-          <h2 className="font-semibold text-lg text-slate-900">
-            {stage === 'upload'   && 'Upload Invoice'}
-            {stage === 'uploading' && 'Uploading…'}
-            {stage === 'parsing'  && 'Parsing Invoice with AI…'}
-            {stage === 'review'   && 'Review Extracted Data'}
-            {stage === 'saving'   && 'Saving…'}
-          </h2>
+          <div>
+            <h2 className="font-semibold text-lg text-slate-900">Upload Invoices</h2>
+            {queue.length > 0 && (
+              <p className="text-xs text-slate-400 mt-0.5">
+                {queue.length} file{queue.length !== 1 ? 's' : ''}
+                {busyCount  > 0 && ` · ${busyCount} processing`}
+                {readyCount > 0 && ` · ${readyCount} ready to save`}
+                {savedCount > 0 && ` · ${savedCount} saved`}
+                {errorCount > 0 && ` · ${errorCount} failed`}
+              </p>
+            )}
+          </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6">
-          {/* Upload Stage */}
-          {(stage === 'upload') && (
-            <div>
-              <div
-                {...getRootProps()}
-                className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-colors ${
-                  isDragActive ? 'border-brand-500 bg-brand-50' : 'border-slate-200 hover:border-brand-300 hover:bg-slate-50'
-                }`}
-              >
-                <input {...getInputProps()} />
-                <Upload className="h-10 w-10 text-slate-300 mx-auto mb-4" />
-                {file ? (
-                  <div>
-                    <FileText className="h-6 w-6 text-brand-600 mx-auto mb-2" />
-                    <p className="font-medium text-slate-800">{file.name}</p>
-                    <p className="text-sm text-slate-400">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-                  </div>
-                ) : (
-                  <div>
-                    <p className="font-medium text-slate-700">Drop your invoice PDF here</p>
-                    <p className="text-sm text-slate-400 mt-1">or click to browse · PDF, PNG, JPG · max 20MB</p>
-                  </div>
-                )}
-              </div>
-              {error && <p className="text-red-500 text-sm mt-3 flex items-center gap-1"><AlertCircle className="h-4 w-4" />{error}</p>}
-              <div className="flex gap-3 mt-6">
-                <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
-                <button onClick={handleUploadAndParse} className="btn-primary flex-1 justify-center" disabled={!file}>
-                  <Upload className="h-4 w-4" /> Upload & Parse
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Loading Stage */}
-          {(stage === 'uploading' || stage === 'parsing' || stage === 'saving') && (
-            <div className="text-center py-12">
-              <Loader2 className="h-10 w-10 text-brand-600 animate-spin mx-auto mb-4" />
-              <p className="text-slate-600 font-medium">
-                {stage === 'uploading' && 'Uploading invoice to secure storage…'}
-                {stage === 'parsing'   && 'AI is reading your invoice and extracting line items…'}
-                {stage === 'saving'    && 'Saving invoice data…'}
-              </p>
-              <p className="text-slate-400 text-sm mt-1">This may take a moment.</p>
-            </div>
-          )}
-
-          {/* Review Stage */}
-          {stage === 'review' && parsed && (
-            <div className="space-y-5">
-              {parsed._parseFailed ? (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-amber-700 text-sm">
-                  ⚠ AI parsing couldn't read this file — please fill in the details manually below.
-                </div>
+        <div className="flex-1 overflow-y-auto">
+          {/* Drop zone */}
+          <div className="p-6 border-b border-slate-100">
+            <div
+              {...getRootProps()}
+              className={`border-2 border-dashed rounded-xl text-center cursor-pointer transition-colors ${
+                queue.length > 0 ? 'p-4' : 'p-12'
+              } ${isDragActive ? 'border-brand-500 bg-brand-50' : 'border-slate-200 hover:border-brand-300 hover:bg-slate-50'}`}
+            >
+              <input {...getInputProps()} />
+              <Upload className={`text-slate-300 mx-auto mb-2 ${queue.length > 0 ? 'h-6 w-6' : 'h-10 w-10 mb-4'}`} />
+              {queue.length > 0 ? (
+                <p className="text-sm text-slate-500">Drop more files to add them to the queue</p>
               ) : (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-green-700 text-sm">
-                  ✓ AI extracted the invoice data. Review and correct anything below before saving.
-                </div>
+                <>
+                  <p className="font-medium text-slate-700">Drop invoice PDFs here</p>
+                  <p className="text-sm text-slate-400 mt-1">Multiple files supported · PDF, PNG, JPG · max 20MB each</p>
+                </>
               )}
+            </div>
+          </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="form-label">Invoice Number</label>
-                  <input className="form-input" value={parsed.invoice_number || ''}
-                    onChange={e => setParsed(p => ({ ...p, invoice_number: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="form-label">Invoice Date</label>
-                  <input type="date" className="form-input" value={parsed.invoice_date || ''}
-                    onChange={e => setParsed(p => ({ ...p, invoice_date: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="form-label">Billing Firm</label>
-                  <input className="form-input" value={parsed.billing_firm || ''}
-                    onChange={e => setParsed(p => ({ ...p, billing_firm: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="form-label">Total Amount ($)</label>
-                  <input type="number" step="0.01" className="form-input" value={parsed.total_amount || ''}
-                    onChange={e => setParsed(p => ({ ...p, total_amount: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="form-label">Service Period Start</label>
-                  <input type="date" className="form-input" value={parsed.service_start || ''}
-                    onChange={e => setParsed(p => ({ ...p, service_start: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="form-label">Service Period End</label>
-                  <input type="date" className="form-input" value={parsed.service_end || ''}
-                    onChange={e => setParsed(p => ({ ...p, service_end: e.target.value }))} />
-                </div>
-              </div>
+          {/* Queue */}
+          {queue.length > 0 && (
+            <div className="divide-y divide-slate-100">
+              {queue.map(item => (
+                <div key={item.id}>
+                  {/* Row summary */}
+                  <div className="flex items-center gap-3 px-6 py-3 hover:bg-slate-50">
+                    <FileText className="h-4 w-4 text-slate-400 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-800 truncate">{item.file.name}</p>
+                      <p className="text-xs text-slate-400">{(item.file.size / 1024 / 1024).toFixed(1)} MB</p>
+                    </div>
 
-              {/* Line Items Preview */}
-              {parsed.line_items?.length > 0 && (
-                <div>
-                  <h3 className="font-semibold text-slate-900 mb-2">
-                    Extracted Line Items ({parsed.line_items.length})
-                  </h3>
-                  <div className="card overflow-hidden max-h-64 overflow-y-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-slate-50 sticky top-0">
-                        <tr>
-                          <th className="text-left px-4 py-2 text-xs font-medium text-slate-500 uppercase">Date</th>
-                          <th className="text-left px-4 py-2 text-xs font-medium text-slate-500 uppercase">Description</th>
-                          <th className="text-right px-4 py-2 text-xs font-medium text-slate-500 uppercase">Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {parsed.line_items.map((li, i) => (
-                          <tr key={i}>
-                            <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{li.date || li.date_of_service || '—'}</td>
-                            <td className="px-4 py-2 text-slate-700 max-w-xs">
-                              <p className="truncate">{li.description}</p>
-                              {li.timekeeper && <p className="text-xs text-slate-400">{li.timekeeper} {li.hours && `· ${li.hours}h @ $${li.rate}/hr`}</p>}
-                            </td>
-                            <td className="px-4 py-2 text-right font-medium">${parseFloat(li.amount || 0).toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    {/* Parsed summary (when ready/saved) */}
+                    {(item.status === 'ready' || item.status === 'saved') && item.parsed && (
+                      <div className="hidden sm:flex items-center gap-4 text-xs text-slate-500">
+                        {item.parsed.invoice_number && <span className="font-mono">#{item.parsed.invoice_number}</span>}
+                        {item.parsed.total_amount   && <span className="font-semibold text-slate-700">${parseFloat(item.parsed.total_amount).toLocaleString()}</span>}
+                        {item.parsed.line_items?.length > 0 && <span>{item.parsed.line_items.length} lines</span>}
+                        {item.parsed._parseFailed && <span className="text-amber-600">Manual entry needed</span>}
+                      </div>
+                    )}
+
+                    {item.status === 'error' && (
+                      <p className="text-xs text-red-500 max-w-xs truncate">{item.error}</p>
+                    )}
+
+                    <StatusBadge status={item.status} />
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {item.status === 'ready' && (
+                        <>
+                          <button
+                            onClick={() => toggleExpand(item.id)}
+                            className="p-1 text-slate-400 hover:text-slate-600"
+                            title={item.expanded ? 'Collapse' : 'Review / Edit'}
+                          >
+                            {item.expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          </button>
+                          <button
+                            onClick={() => saveItem(item)}
+                            className="flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-800 bg-brand-50 hover:bg-brand-100 px-2 py-1 rounded-lg transition-colors"
+                          >
+                            <Save className="h-3.5 w-3.5" /> Save
+                          </button>
+                        </>
+                      )}
+                      {item.status === 'error' && (
+                        <button onClick={() => retryItem(item)} className="p-1 text-slate-400 hover:text-brand-600" title="Retry">
+                          <RefreshCw className="h-4 w-4" />
+                        </button>
+                      )}
+                      {!['uploading','parsing','saving'].includes(item.status) && (
+                        <button onClick={() => removeItem(item.id)} className="p-1 text-slate-300 hover:text-red-500" title="Remove">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
 
-              {error && <p className="text-red-500 text-sm flex items-center gap-1"><AlertCircle className="h-4 w-4" />{error}</p>}
+                  {/* Expanded edit form */}
+                  {item.expanded && item.status === 'ready' && item.parsed && (
+                    <div className="px-6 pb-5 bg-slate-50 border-t border-slate-100">
+                      {item.parsed._parseFailed && (
+                        <div className="py-3 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 my-3">
+                          ⚠ AI couldn't parse this file automatically — please fill in the fields below.
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-3 pt-3">
+                        {[
+                          { label: 'Invoice Number', field: 'invoice_number', type: 'text' },
+                          { label: 'Invoice Date',   field: 'invoice_date',   type: 'date' },
+                          { label: 'Billing Firm',   field: 'billing_firm',   type: 'text' },
+                          { label: 'Total Amount',   field: 'total_amount',   type: 'number' },
+                          { label: 'Service Start',  field: 'service_start',  type: 'date' },
+                          { label: 'Service End',    field: 'service_end',    type: 'date' },
+                        ].map(({ label, field, type }) => (
+                          <div key={field}>
+                            <label className="form-label text-xs">{label}</label>
+                            <input
+                              type={type}
+                              step={type === 'number' ? '0.01' : undefined}
+                              className="form-input text-sm py-1.5"
+                              value={item.parsed[field] || ''}
+                              onChange={e => editParsed(item.id, field, e.target.value)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      {item.parsed.line_items?.length > 0 && (
+                        <p className="text-xs text-slate-400 mt-3">
+                          {item.parsed.line_items.length} line items extracted — edit them after saving in Invoice Detail.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </div>
 
-        {/* Footer for review stage */}
-        {stage === 'review' && (
-          <div className="flex gap-3 p-6 border-t border-slate-200 flex-shrink-0">
-            <button onClick={() => setStage('upload')} className="btn-secondary flex-1 justify-center">Back</button>
-            <button onClick={handleSave} className="btn-primary flex-1 justify-center">
-              <CheckCircle className="h-4 w-4" /> Save Invoice
-            </button>
-          </div>
-        )}
+        {/* Footer */}
+        <div className="border-t border-slate-200 p-4 flex-shrink-0 flex items-center justify-between gap-3">
+          <button onClick={onClose} className="btn-secondary">
+            {allDone ? 'Done' : 'Cancel'}
+          </button>
+
+          {queue.length > 0 && (
+            <div className="flex items-center gap-3">
+              {readyCount > 1 && (
+                <button
+                  onClick={saveAll}
+                  disabled={processing}
+                  className="btn-primary"
+                >
+                  <Save className="h-4 w-4" />
+                  Save All ({readyCount})
+                </button>
+              )}
+              {readyCount === 1 && (
+                <button
+                  onClick={() => saveItem(queue.find(i => i.status === 'ready'))}
+                  className="btn-primary"
+                >
+                  <Save className="h-4 w-4" /> Save Invoice
+                </button>
+              )}
+              {readyCount === 0 && savedCount > 0 && errorCount === 0 && (
+                <span className="text-sm font-medium text-green-600 flex items-center gap-1.5">
+                  <CheckCircle className="h-4 w-4" /> All invoices saved
+                </span>
+              )}
+            </div>
+          )}
+
+          {queue.length === 0 && (
+            <p className="text-sm text-slate-400">Drop files above to get started</p>
+          )}
+        </div>
       </div>
     </div>
   )
