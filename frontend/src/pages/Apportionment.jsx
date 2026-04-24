@@ -2,7 +2,10 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase.js'
 import { formatCurrency, formatPercent, exhaustionInfo } from '../lib/calculations.js'
-import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { generateDemandLetterBlob, getDemandLetterFilename } from '../lib/generateDemandLetter.js'
+import DemandLetterModal from '../components/DemandLetterModal.jsx'
+import { useAuth } from '../hooks/useAuth.jsx'
+import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2, AlertTriangle, Mail, FileDown } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays } from 'date-fns'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
@@ -149,7 +152,10 @@ function SectionCard({ title, icon: Icon, children, defaultOpen = true }) {
 export default function Apportionment() {
   const { matterId, apportionmentId } = useParams()
   const qc = useQueryClient()
-  const [paymentModal, setPaymentModal] = useState(null) // { ia, partyName }
+  const { profile } = useAuth()
+  const [paymentModal, setPaymentModal] = useState(null)   // { ia, partyName }
+  const [letterModal,  setLetterModal]  = useState(null)   // { apport, invoice, pa, ia, orgName }
+  const [generatingAll, setGeneratingAll] = useState(false)
 
   const { data: apport, isLoading } = useQuery({
     queryKey: ['apportionment', apportionmentId],
@@ -190,6 +196,48 @@ export default function Apportionment() {
     document.title = `LexAlloc Apportionment — ${matter} — ${inv} — ${date}`
     window.print()
     document.title = prev
+  }
+
+  const openLetterModal = (pa, ia) => {
+    setLetterModal({
+      apport,
+      invoice: apport.invoices || {},
+      pa,
+      ia,
+      orgName: profile?.la_organizations?.name || '',
+    })
+  }
+
+  const handleGenerateAll = async () => {
+    const allPairs = (apport.party_apportionments || []).flatMap(pa =>
+      (pa.insurer_apportionments || [])
+        .filter(ia => ia.amount > 0)
+        .map(ia => ({ pa, ia }))
+    )
+    if (allPairs.length === 0) { toast.error('No insurer obligations to generate letters for.'); return }
+    setGeneratingAll(true)
+    try {
+      const inv     = apport.invoices || {}
+      const orgName = profile?.la_organizations?.name || ''
+      for (let i = 0; i < allPairs.length; i++) {
+        const { pa, ia } = allPairs[i]
+        // Stagger downloads so browsers don't block them
+        if (i > 0) await new Promise(r => setTimeout(r, 600))
+        const blob     = await generateDemandLetterBlob({ apport, invoice: inv, pa, ia, orgName })
+        const filename = getDemandLetterFilename({ apport, invoice: inv, ia })
+        const url = URL.createObjectURL(blob)
+        const a   = document.createElement('a')
+        a.href = url; a.download = filename
+        document.body.appendChild(a); a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      }
+      toast.success(`${allPairs.length} demand letter${allPairs.length !== 1 ? 's' : ''} downloaded`)
+    } catch (err) {
+      toast.error('Error generating letters: ' + err.message)
+    } finally {
+      setGeneratingAll(false)
+    }
   }
 
   if (isLoading) return <div className="p-8 text-center text-slate-400">Loading apportionment…</div>
@@ -294,7 +342,16 @@ export default function Apportionment() {
               Calculated {apport.calculated_at ? format(parseISO(apport.calculated_at), 'MMMM d, yyyy h:mm a') : ''}
             </p>
           </div>
-          <div className="flex gap-3 print:hidden">
+          <div className="flex gap-3 print:hidden flex-wrap">
+            <button
+              onClick={handleGenerateAll}
+              disabled={generatingAll}
+              className="btn-secondary"
+            >
+              {generatingAll
+                ? <><span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-brand-600 border-t-transparent rounded-full" /> Generating…</>
+                : <><FileDown className="h-4 w-4" /> Generate All Letters</>}
+            </button>
             <button onClick={handlePrint} className="btn-secondary"><Printer className="h-4 w-4" /> Print</button>
             <button onClick={handleDownloadPDF} className="btn-primary"><Download className="h-4 w-4" /> Download PDF</button>
           </div>
@@ -529,12 +586,21 @@ export default function Apportionment() {
                             )}
                           </td>
                           <td className="py-3 text-center print:hidden">
-                            <button
-                              onClick={() => setPaymentModal({ ia, partyName: pa.parties?.name })}
-                              className={`badge cursor-pointer hover:opacity-80 transition-opacity ${paymentColor(ia.payment_status)}`}
-                            >
-                              {paymentLabel(ia.payment_status)}
-                            </button>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                onClick={() => openLetterModal(pa, ia)}
+                                title="Generate demand letter"
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
+                              >
+                                <Mail className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => setPaymentModal({ ia, partyName: pa.parties?.name })}
+                                className={`badge cursor-pointer hover:opacity-80 transition-opacity ${paymentColor(ia.payment_status)}`}
+                              >
+                                {paymentLabel(ia.payment_status)}
+                              </button>
+                            </div>
                           </td>
                           <td className="py-3 text-center hidden print:table-cell">
                             <span className="text-xs">{paymentLabel(ia.payment_status)}</span>
@@ -676,6 +742,15 @@ export default function Apportionment() {
           partyName={paymentModal.partyName}
           onClose={() => setPaymentModal(null)}
           onSaved={() => qc.invalidateQueries({ queryKey: ['apportionment', apportionmentId] })}
+        />
+      )}
+
+      {/* Demand letter modal */}
+      {letterModal && (
+        <DemandLetterModal
+          data={letterModal}
+          onClose={() => setLetterModal(null)}
+          onDemanded={() => qc.invalidateQueries({ queryKey: ['apportionment', apportionmentId] })}
         />
       )}
     </div>
