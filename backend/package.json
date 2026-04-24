@@ -1,0 +1,22 @@
+{
+  "name": "lexalloc-backend",
+  "version": "1.0.0",
+  "description": "LexAlloc Railway backend — PDF parsing, AI extraction, apportionment engine",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "cors": "^2.8.5",
+    "date-fns": "^3.2.0",
+    "dotenv": "^16.4.1",
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "openai": "^4.26.0",
+    "pdf-parse": "^1.1.1",
+    "resend": "^2.1.0"
+  }
+}
