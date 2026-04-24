@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { useAuth } from '../hooks/useAuth.js'
+import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { FolderOpen, FileText, DollarSign, TrendingUp, Plus, ArrowRight } from 'lucide-react'
 import { formatCurrency } from '../lib/calculations.js'

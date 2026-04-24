@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom'
-import { useAuth } from '../hooks/useAuth.js'
+import { useAuth } from '../hooks/useAuth.jsx'
 import {
   LayoutDashboard, FolderOpen, Settings, LogOut,
   Scale, Shield, ChevronDown, Menu, X, UserCircle

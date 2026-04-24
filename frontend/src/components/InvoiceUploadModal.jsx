@@ -3,7 +3,7 @@ import { useDropzone } from 'react-dropzone'
 import { X, Upload, Loader2, CheckCircle, AlertCircle, FileText } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { api } from '../lib/api.js'
-import { useAuth } from '../hooks/useAuth.js'
+import { useAuth } from '../hooks/useAuth.jsx'
 import toast from 'react-hot-toast'
 
 export default function InvoiceUploadModal({ matterId, onClose }) {
