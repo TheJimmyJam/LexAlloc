@@ -140,6 +140,11 @@ export default function Landing() {
         </div>
 
         <div className="relative max-w-4xl mx-auto">
+          {/* Logo lockup */}
+          <div className="flex justify-center mb-6">
+            <img src="/logo.svg" alt="LexAlloc" className="h-24 lg:h-32 w-auto" />
+          </div>
+
           <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-brand-500/15 border border-brand-500/25 rounded-full text-brand-300 text-xs font-medium mb-6">
             <Star className="h-3 w-3 fill-brand-400 text-brand-400" /> Legal Invoice Apportionment — Rebuilt for the Modern Era
           </div>
