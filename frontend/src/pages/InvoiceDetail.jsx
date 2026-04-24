@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { formatCurrency, apportionInvoice } from '../lib/calculations.js'
-import { ArrowLeft, Calculator, FileText, ExternalLink, Loader2 } from 'lucide-react'
+import { ArrowLeft, Calculator, FileText, ExternalLink, Loader2, GitCompare, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
@@ -32,8 +32,9 @@ export default function InvoiceDetail() {
   const { profile } = useAuth()
   const qc = useQueryClient()
   const navigate = useNavigate()
-  const [calculating, setCalculating] = useState(false)
-  const [calcMethod, setCalcMethod] = useState('pro_rata_time_on_risk')
+  const [calculating, setCalculating]   = useState(false)
+  const [calcMethod, setCalcMethod]     = useState('pro_rata_time_on_risk')
+  const [showComparison, setShowComparison] = useState(false)
 
   const { data: invoice, isLoading } = useQuery({
     queryKey: ['invoice', invoiceId],
@@ -80,19 +81,6 @@ export default function InvoiceDetail() {
 
     setCalculating(true)
     try {
-      const partiesWithPolicies = parties.map(p => ({
-        ...p,
-        policy_periods: insurerPeriods
-          .filter(pp => pp.party_id === p.id)
-          .map(pp => ({
-            insurer_id:   pp.insurer_id,
-            insurer_name: pp.la_insurers?.name,
-            policy_start: pp.policy_start,
-            policy_end:   pp.policy_end,
-            policy_limit: pp.policy_limit,   // needed for limits_proportional
-          }))
-      }))
-
       const result = apportionInvoice(invoice, partiesWithPolicies, calcMethod)
 
       const methodLabel = METHODS.find(m => m.value === calcMethod)?.label || calcMethod
@@ -151,6 +139,30 @@ export default function InvoiceDetail() {
       setCalculating(false)
     }
   }
+
+  // Build parties+policies structure (reused for both run and comparison)
+  const partiesWithPolicies = useMemo(() => parties.map(p => ({
+    ...p,
+    policy_periods: insurerPeriods
+      .filter(pp => pp.party_id === p.id)
+      .map(pp => ({
+        insurer_id:   pp.insurer_id,
+        insurer_name: pp.la_insurers?.name,
+        policy_start: pp.policy_start,
+        policy_end:   pp.policy_end,
+        policy_limit: pp.policy_limit,
+      }))
+  })), [parties, insurerPeriods])
+
+  // Compute all three methods for comparison (only when invoice + parties ready)
+  const comparisonResults = useMemo(() => {
+    if (!invoice?.service_start || partiesWithPolicies.length === 0) return null
+    return {
+      pro_rata_time_on_risk: apportionInvoice(invoice, partiesWithPolicies, 'pro_rata_time_on_risk'),
+      equal_shares:          apportionInvoice(invoice, partiesWithPolicies, 'equal_shares'),
+      limits_proportional:   apportionInvoice(invoice, partiesWithPolicies, 'limits_proportional'),
+    }
+  }, [invoice, partiesWithPolicies])
 
   if (isLoading) return <div className="p-8 text-center text-slate-400">Loading invoice…</div>
   if (!invoice)  return <div className="p-8 text-center text-slate-400">Invoice not found.</div>
@@ -248,6 +260,136 @@ export default function InvoiceDetail() {
           </p>
         )}
       </div>
+
+      {/* Method Comparison */}
+      {comparisonResults && (
+        <div className="card mb-6">
+          <button
+            onClick={() => setShowComparison(v => !v)}
+            className="w-full flex items-center justify-between p-5 text-left hover:bg-slate-50 transition-colors rounded-2xl"
+          >
+            <div className="flex items-center gap-2">
+              <GitCompare className="h-4 w-4 text-violet-600" />
+              <span className="font-semibold text-slate-900">Compare All Methods</span>
+              <span className="text-xs text-slate-400">See how TOR, Equal Shares, and Limits-Proportional differ for this invoice</span>
+            </div>
+            {showComparison
+              ? <ChevronUp className="h-4 w-4 text-slate-400" />
+              : <ChevronDown className="h-4 w-4 text-slate-400" />}
+          </button>
+
+          {showComparison && (
+            <div className="border-t border-slate-100 p-5 space-y-6">
+              {METHODS.map(m => (
+                <div key={m.value} className={`rounded-xl border-2 p-4 ${calcMethod === m.value ? 'border-brand-400 bg-brand-50/50' : 'border-slate-200'}`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      {calcMethod === m.value && <CheckCircle2 className="h-4 w-4 text-brand-600" />}
+                      <span className={`font-semibold text-sm ${calcMethod === m.value ? 'text-brand-700' : 'text-slate-800'}`}>{m.label}</span>
+                      <span className="text-xs text-slate-400">{m.description}</span>
+                    </div>
+                    {calcMethod !== m.value && (
+                      <button
+                        onClick={() => setCalcMethod(m.value)}
+                        className="btn-secondary text-xs py-1 px-3"
+                      >
+                        Use this method
+                      </button>
+                    )}
+                    {calcMethod === m.value && (
+                      <span className="text-xs font-semibold text-brand-600 bg-brand-100 px-2 py-1 rounded-full">Selected</span>
+                    )}
+                  </div>
+
+                  {comparisonResults[m.value].party_breakdown.map(pb => (
+                    <div key={pb.party_id} className="mb-3 last:mb-0">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+                        {pb.party_name} — {pb.share_percentage}% → {formatCurrency(pb.party_amount)}
+                      </p>
+                      {pb.insurers.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic">No insurers assigned</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-slate-200">
+                                <th className="text-left text-xs font-medium text-slate-500 py-1.5 pr-4 w-1/3">Insurer</th>
+                                {m.value === 'pro_rata_time_on_risk' && (
+                                  <th className="text-right text-xs font-medium text-slate-500 py-1.5 pr-4">Days on Risk</th>
+                                )}
+                                {m.value === 'limits_proportional' && (
+                                  <th className="text-right text-xs font-medium text-slate-500 py-1.5 pr-4">Policy Limit</th>
+                                )}
+                                <th className="text-right text-xs font-medium text-slate-500 py-1.5 pr-4">Share %</th>
+                                <th className="text-right text-xs font-medium text-slate-500 py-1.5">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {pb.insurers.map((ins, idx) => {
+                                // Find policy limit for this insurer (for limits_proportional display)
+                                const pp = insurerPeriods.find(p => p.insurer_id === ins.insurer_id && p.party_id === pb.party_id)
+                                return (
+                                  <tr key={idx} className="border-b border-slate-100 last:border-0">
+                                    <td className="py-1.5 pr-4 font-medium text-slate-700">{ins.insurer_name}</td>
+                                    {m.value === 'pro_rata_time_on_risk' && (
+                                      <td className="py-1.5 pr-4 text-right text-slate-500">
+                                        {ins.days_on_risk != null ? `${ins.days_on_risk} / ${ins.total_exposure_days}d` : '—'}
+                                      </td>
+                                    )}
+                                    {m.value === 'limits_proportional' && (
+                                      <td className="py-1.5 pr-4 text-right text-slate-500">
+                                        {pp?.policy_limit ? formatCurrency(pp.policy_limit) : <span className="text-amber-600 text-xs">no limit</span>}
+                                      </td>
+                                    )}
+                                    <td className="py-1.5 pr-4 text-right text-slate-600">
+                                      {(ins.normalized_percentage ?? ins.percentage ?? 0).toFixed(2)}%
+                                    </td>
+                                    <td className="py-1.5 text-right font-semibold text-slate-800">
+                                      {formatCurrency(ins.amount)}
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                            <tfoot>
+                              <tr className="border-t border-slate-200">
+                                <td colSpan={m.value === 'equal_shares' ? 2 : 3} className="py-1.5 pr-4 text-xs font-medium text-slate-500">Subtotal</td>
+                                <td className="py-1.5 text-right font-bold text-slate-700">
+                                  {formatCurrency(pb.insurers.reduce((s, i) => s + i.amount, 0))}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+
+              {/* Grand total comparison row */}
+              <div className="border-t border-slate-200 pt-4">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Invoice Total by Method</p>
+                <div className="grid grid-cols-3 gap-3">
+                  {METHODS.map(m => {
+                    const total = comparisonResults[m.value].party_breakdown.reduce(
+                      (s, pb) => s + pb.insurers.reduce((s2, i) => s2 + i.amount, 0), 0
+                    )
+                    return (
+                      <div key={m.value} className={`rounded-lg p-3 text-center ${calcMethod === m.value ? 'bg-brand-50 border border-brand-200' : 'bg-slate-50 border border-slate-200'}`}>
+                        <p className="text-xs text-slate-500 mb-1">{m.label}</p>
+                        <p className={`font-bold text-sm ${calcMethod === m.value ? 'text-brand-700' : 'text-slate-700'}`}>
+                          {formatCurrency(total)}
+                        </p>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Line Items */}
       <div className="card overflow-hidden">
