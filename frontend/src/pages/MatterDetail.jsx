@@ -1294,7 +1294,7 @@ export default function MatterDetail() {
                       </td>
                       <td className="px-4 py-4 text-sm text-slate-600">{pp.parties?.name}</td>
                       <td className="px-4 py-4 text-sm text-slate-600 whitespace-nowrap">
-                        {format(parseISO(pp.policy_start), 'MM/dd/yyyy')} — {format(parseISO(pp.policy_end), 'MM/dd/yyyy')}
+                        {pp.policy_start ? format(parseISO(pp.policy_start), 'MM/dd/yyyy') : '—'} — {pp.policy_end ? format(parseISO(pp.policy_end), 'MM/dd/yyyy') : '—'}
                       </td>
                       <td className="px-4 py-4 text-right text-sm text-slate-600">
                         {pp.policy_limit ? formatCurrency(pp.policy_limit) : '—'}
