@@ -1,13 +1,131 @@
 import { useParams, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase.js'
 import { formatCurrency, formatPercent } from '../lib/calculations.js'
-import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign } from 'lucide-react'
+import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2 } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays } from 'date-fns'
 import { useState } from 'react'
+import { useForm } from 'react-hook-form'
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
+import toast from 'react-hot-toast'
 
 const COLORS = ['#4f46e5','#0891b2','#059669','#d97706','#dc2626','#7c3aed','#db2777','#0d9488']
+
+// ── Payment helpers ───────────────────────────────────────────────────────────
+const PAYMENT_STATUSES = [
+  { value: 'pending',        label: 'Pending',        color: 'bg-slate-100 text-slate-600' },
+  { value: 'demanded',       label: 'Demanded',       color: 'bg-amber-100 text-amber-700' },
+  { value: 'paid',           label: 'Paid',           color: 'bg-green-100 text-green-700' },
+  { value: 'partially_paid', label: 'Partial',        color: 'bg-blue-100 text-blue-700'   },
+  { value: 'disputed',       label: 'Disputed',       color: 'bg-red-100 text-red-700'     },
+]
+
+function paymentColor(status) {
+  return PAYMENT_STATUSES.find(s => s.value === status)?.color || 'bg-slate-100 text-slate-600'
+}
+function paymentLabel(status) {
+  return PAYMENT_STATUSES.find(s => s.value === status)?.label || status
+}
+
+// ── Record Payment Modal ──────────────────────────────────────────────────────
+function RecordPaymentModal({ ia, partyName, onClose, onSaved }) {
+  const { register, handleSubmit, watch, formState: { isSubmitting } } = useForm({
+    defaultValues: {
+      payment_status: ia.payment_status || 'pending',
+      amount_paid:    ia.amount_paid    || '',
+      payment_date:   ia.payment_date   || '',
+      demanded_at:    ia.demanded_at    ? ia.demanded_at.split('T')[0] : '',
+      payment_notes:  ia.payment_notes  || '',
+    }
+  })
+
+  const status = watch('payment_status')
+  const showPayment  = status === 'paid' || status === 'partially_paid'
+  const showDemanded = status === 'demanded' || status === 'paid' || status === 'partially_paid' || status === 'disputed'
+
+  const onSubmit = async (values) => {
+    const { error } = await supabase
+      .from('insurer_apportionments')
+      .update({
+        payment_status: values.payment_status,
+        amount_paid:    parseFloat(values.amount_paid)  || 0,
+        payment_date:   values.payment_date  || null,
+        demanded_at:    values.demanded_at   ? new Date(values.demanded_at).toISOString() : null,
+        payment_notes:  values.payment_notes || null,
+      })
+      .eq('id', ia.id)
+    if (error) { toast.error(error.message); return }
+    toast.success('Payment status updated')
+    onSaved()
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between p-6 border-b border-slate-200">
+          <div>
+            <h2 className="font-semibold text-lg">Record Payment</h2>
+            <p className="text-sm text-slate-500 mt-0.5">{ia.insurers?.name} · {partyName}</p>
+          </div>
+          <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
+        </div>
+        <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
+          {/* Obligation context */}
+          <div className="bg-slate-50 rounded-lg p-3 flex items-center justify-between text-sm">
+            <span className="text-slate-500">Amount owed</span>
+            <span className="font-bold text-slate-900">{formatCurrency(ia.amount)}</span>
+          </div>
+
+          <div>
+            <label className="form-label">Payment Status</label>
+            <select className="form-input" {...register('payment_status')}>
+              {PAYMENT_STATUSES.map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {showDemanded && (
+            <div>
+              <label className="form-label">Demand Date</label>
+              <input type="date" className="form-input" {...register('demanded_at')} />
+            </div>
+          )}
+
+          {showPayment && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="form-label">Amount Paid ($)</label>
+                <input type="number" step="0.01" className="form-input"
+                  placeholder={formatCurrency(ia.amount).replace('$','')}
+                  {...register('amount_paid')} />
+              </div>
+              <div>
+                <label className="form-label">Payment Date</label>
+                <input type="date" className="form-input" {...register('payment_date')} />
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="form-label">Notes</label>
+            <textarea className="form-input h-20 resize-none"
+              placeholder="Dispute reason, check number, partial payment details…"
+              {...register('payment_notes')} />
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
+            <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
+              <CheckCircle2 className="h-4 w-4" /> {isSubmitting ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
 
 function SectionCard({ title, icon: Icon, children, defaultOpen = true }) {
   const [open, setOpen] = useState(defaultOpen)
@@ -30,6 +148,8 @@ function SectionCard({ title, icon: Icon, children, defaultOpen = true }) {
 
 export default function Apportionment() {
   const { matterId, apportionmentId } = useParams()
+  const qc = useQueryClient()
+  const [paymentModal, setPaymentModal] = useState(null) // { ia, partyName }
 
   const { data: apport, isLoading } = useQuery({
     queryKey: ['apportionment', apportionmentId],
@@ -45,6 +165,7 @@ export default function Apportionment() {
             parties(name, type),
             insurer_apportionments(
               id, days_on_risk, total_days, percentage, amount,
+              payment_status, amount_paid, payment_date, demanded_at, payment_notes,
               insurers(name, policy_number),
               insurer_policy_periods(policy_start, policy_end, policy_limit, deductible)
             )
@@ -318,38 +439,58 @@ export default function Apportionment() {
                       <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Policy #</th>
                       <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Policy Period</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Days on Risk</th>
-                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Total Days</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">TOR %</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Obligation</th>
+                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Paid</th>
+                      <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {pa.insurer_apportionments.map((ia) => {
-                      const pp = ia.insurer_policy_periods
+                      const pp        = ia.insurer_policy_periods
+                      const outstanding = ia.amount - (ia.amount_paid || 0)
                       return (
                         <tr key={ia.id} className="hover:bg-slate-50">
                           <td className="py-3 font-medium text-slate-800">{ia.insurers?.name}</td>
                           <td className="py-3 text-sm font-mono text-slate-500">{ia.insurers?.policy_number || '—'}</td>
                           <td className="py-3 text-sm text-slate-600">
                             {pp ? (
-                              <div>
-                                <span>{format(parseISO(pp.policy_start), 'MM/dd/yyyy')}</span>
-                                <span className="text-slate-400"> – </span>
-                                <span>{format(parseISO(pp.policy_end), 'MM/dd/yyyy')}</span>
-                              </div>
+                              <span>{format(parseISO(pp.policy_start), 'MM/dd/yyyy')} – {format(parseISO(pp.policy_end), 'MM/dd/yyyy')}</span>
                             ) : '—'}
                           </td>
-                          <td className="py-3 text-right font-semibold text-slate-800">{ia.days_on_risk}</td>
-                          <td className="py-3 text-right text-slate-500">{ia.total_days}</td>
+                          <td className="py-3 text-right text-slate-600">{ia.days_on_risk} / {ia.total_days}</td>
                           <td className="py-3 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              <div className="w-16 bg-slate-100 rounded-full h-1.5 print:hidden">
+                              <div className="w-14 bg-slate-100 rounded-full h-1.5 print:hidden">
                                 <div className="bg-brand-600 h-1.5 rounded-full" style={{ width: `${Math.min(ia.percentage, 100)}%` }} />
                               </div>
-                              <span className="font-bold text-brand-700 min-w-14 text-right">{formatPercent(ia.percentage)}</span>
+                              <span className="font-bold text-brand-700">{formatPercent(ia.percentage)}</span>
                             </div>
                           </td>
                           <td className="py-3 text-right font-bold text-slate-900">{formatCurrency(ia.amount)}</td>
+                          <td className="py-3 text-right">
+                            {ia.payment_status === 'paid' ? (
+                              <span className="font-semibold text-green-700">{formatCurrency(ia.amount_paid)}</span>
+                            ) : ia.payment_status === 'partially_paid' ? (
+                              <div className="text-right">
+                                <span className="font-semibold text-blue-700">{formatCurrency(ia.amount_paid)}</span>
+                                <p className="text-xs text-amber-600">{formatCurrency(outstanding)} left</p>
+                              </div>
+                            ) : (
+                              <span className="text-slate-300">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 text-center print:hidden">
+                            <button
+                              onClick={() => setPaymentModal({ ia, partyName: pa.parties?.name })}
+                              className={`badge cursor-pointer hover:opacity-80 transition-opacity ${paymentColor(ia.payment_status)}`}
+                            >
+                              {paymentLabel(ia.payment_status)}
+                            </button>
+                          </td>
+                          <td className="py-3 text-center hidden print:table-cell">
+                            <span className="text-xs">{paymentLabel(ia.payment_status)}</span>
+                          </td>
                         </tr>
                       )
                     })}
@@ -358,18 +499,19 @@ export default function Apportionment() {
                     <tr className="border-t-2 border-slate-200 bg-slate-50">
                       <td colSpan={5} className="pt-3 font-semibold text-slate-700 text-sm">Insured Subtotal</td>
                       <td className="pt-3 text-right font-bold text-brand-700">
-                        {formatPercent(pa.insurer_apportionments.reduce((s, ia) => s + (ia.percentage || 0), 0))}
-                      </td>
-                      <td className="pt-3 text-right font-bold text-brand-700">
                         {formatCurrency(pa.insurer_apportionments.reduce((s, ia) => s + (ia.amount || 0), 0))}
                       </td>
+                      <td className="pt-3 text-right font-bold text-green-700">
+                        {formatCurrency(pa.insurer_apportionments.reduce((s, ia) => s + (ia.amount_paid || 0), 0))}
+                      </td>
+                      <td />
                     </tr>
                     {pa.amount - pa.insurer_apportionments.reduce((s, ia) => s + (ia.amount || 0), 0) > 0.01 && (
                       <tr className="bg-amber-50">
                         <td colSpan={6} className="pt-2 pb-3 text-amber-700 text-sm font-medium">
                           ⚠ Uninsured / Gap (no triggering policy)
                         </td>
-                        <td className="pt-2 pb-3 text-right font-bold text-amber-700">
+                        <td colSpan={2} className="pt-2 pb-3 text-right font-bold text-amber-700">
                           {formatCurrency(pa.amount - pa.insurer_apportionments.reduce((s, ia) => s + (ia.amount || 0), 0))}
                         </td>
                       </tr>
@@ -477,6 +619,16 @@ export default function Apportionment() {
           }
         }
       `}</style>
+
+      {/* Payment modal */}
+      {paymentModal && (
+        <RecordPaymentModal
+          ia={paymentModal.ia}
+          partyName={paymentModal.partyName}
+          onClose={() => setPaymentModal(null)}
+          onSaved={() => qc.invalidateQueries({ queryKey: ['apportionment', apportionmentId] })}
+        />
+      )}
     </div>
   )
 }
