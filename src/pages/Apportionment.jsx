@@ -35,11 +35,40 @@ export default function Apportionment() {
   const invoice  = apport.invoices || {}
   const partyApps = apport.party_apportionments || []
 
-  const pieData = partyApps.map((pa, i) => ({
+  // Party-level pie (for bar chart source)
+  const partyPieData = partyApps.map((pa, i) => ({
     name: pa.parties?.name || 'Unknown',
     value: pa.amount,
     color: COLORS[i % COLORS.length],
   }))
+
+  // Insurer-level pie — each carrier gets its own slice
+  const insurerPieData = partyApps.flatMap((pa, pi) =>
+    (pa.insurer_apportionments || [])
+      .filter(ia => ia.amount > 0)
+      .map((ia, ii) => ({
+        name: ia.insurers?.name || 'Unknown',
+        party: pa.parties?.name,
+        value: ia.amount,
+        pct: invoice.total_amount > 0 ? (ia.amount / invoice.total_amount) * 100 : 0,
+        color: COLORS[(pi * 4 + ii) % COLORS.length],
+      }))
+  )
+
+  // Custom label rendered inside each slice
+  const RADIAN = Math.PI / 180
+  const renderSliceLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+    if (percent < 0.05) return null  // skip tiny slices
+    const radius = innerRadius + (outerRadius - innerRadius) * 0.5
+    const x = cx + radius * Math.cos(-midAngle * RADIAN)
+    const y = cy + radius * Math.sin(-midAngle * RADIAN)
+    return (
+      <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central"
+        style={{ fontSize: 12, fontWeight: '700', pointerEvents: 'none' }}>
+        {`${(percent * 100).toFixed(1)}%`}
+      </text>
+    )
+  }
 
   const allInsurers = partyApps.flatMap(pa =>
     (pa.insurer_apportionments || []).map(ia => ({
@@ -89,30 +118,41 @@ export default function Apportionment() {
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 print:hidden">
         <div className="card p-5">
-          <h3 className="font-semibold text-slate-900 mb-4">Party Apportionment</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <PieChart margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
+          <h3 className="font-semibold text-slate-900 mb-1">Insurer Apportionment</h3>
+          <p className="text-xs text-slate-400 mb-4">Each carrier's share of total invoice</p>
+          <ResponsiveContainer width="100%" height={280}>
+            <PieChart margin={{ top: 12, right: 12, bottom: 12, left: 12 }}>
               <Pie
-                data={pieData}
-                cx="40%"
+                data={insurerPieData}
+                cx="42%"
                 cy="50%"
-                innerRadius={60}
-                outerRadius={95}
+                innerRadius={55}
+                outerRadius={100}
                 dataKey="value"
                 nameKey="name"
                 paddingAngle={2}
+                labelLine={false}
+                label={renderSliceLabel}
               >
-                {pieData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                {insurerPieData.map((d, i) => <Cell key={i} fill={d.color} />)}
               </Pie>
-              <Tooltip formatter={(v) => formatCurrency(v)} />
+              <Tooltip
+                formatter={(v, name, props) => [
+                  `${formatCurrency(v)}  (${props.payload?.pct?.toFixed(1)}%)`,
+                  props.payload?.party ? `${name} — ${props.payload.party}` : name
+                ]}
+              />
               <Legend
                 layout="vertical"
                 verticalAlign="middle"
                 align="right"
                 iconType="circle"
-                iconSize={10}
-                formatter={(value) => (
-                  <span style={{ fontSize: '12px', color: '#475569' }}>{value}</span>
+                iconSize={9}
+                formatter={(value, entry) => (
+                  <span style={{ fontSize: '11px', color: '#475569', lineHeight: '1.6' }}>
+                    {value}<br />
+                    <span style={{ color: '#94a3b8', fontSize: '10px' }}>{entry.payload?.party}</span>
+                  </span>
                 )}
               />
             </PieChart>
