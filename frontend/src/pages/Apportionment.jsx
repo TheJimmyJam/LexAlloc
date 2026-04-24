@@ -58,6 +58,19 @@ export default function Apportionment() {
 
   const handlePrint = () => window.print()
 
+  const handleDownloadPDF = () => {
+    // Set the document title so the browser uses it as the default filename
+    const prev = document.title
+    const matter = apport.matters?.name || 'Matter'
+    const inv    = invoice.invoice_number || 'Invoice'
+    const date   = apport.calculated_at
+      ? format(parseISO(apport.calculated_at), 'yyyy-MM-dd')
+      : format(new Date(), 'yyyy-MM-dd')
+    document.title = `LexAlloc Apportionment — ${matter} — ${inv} — ${date}`
+    window.print()
+    document.title = prev
+  }
+
   if (isLoading) return <div className="p-8 text-center text-slate-400">Loading apportionment…</div>
   if (!apport)   return <div className="p-8 text-center text-slate-400">Apportionment not found.</div>
 
@@ -80,11 +93,61 @@ export default function Apportionment() {
   )
 
   return (
-    <div className="p-6 lg:p-8 max-w-7xl mx-auto print:p-4">
+    <div className="p-6 lg:p-8 max-w-7xl mx-auto print:p-0 print:max-w-none">
+
+      {/* Print-only cover header */}
+      <div className="hidden print:block print-cover mb-8">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', paddingBottom: '16px', borderBottom: '2px solid #4f46e5' }}>
+          <div style={{ width: '32px', height: '32px', background: '#4f46e5', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ color: 'white', fontSize: '14px', fontWeight: 'bold' }}>L</span>
+          </div>
+          <span style={{ fontWeight: 'bold', fontSize: '18px', color: '#1e293b' }}>LexAlloc</span>
+          <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#64748b' }}>
+            CONFIDENTIAL — ATTORNEY WORK PRODUCT
+          </span>
+        </div>
+        <h1 style={{ fontSize: '20px', fontWeight: 'bold', color: '#1e293b', margin: '0 0 4px 0' }}>
+          Apportionment Report
+        </h1>
+        <table style={{ width: '100%', fontSize: '11px', marginTop: '12px', borderCollapse: 'collapse' }}>
+          <tbody>
+            <tr>
+              <td style={{ padding: '3px 0', color: '#64748b', width: '140px' }}>Matter</td>
+              <td style={{ padding: '3px 0', fontWeight: '600', color: '#1e293b' }}>{apport.matters?.name}{apport.matters?.matter_number ? ` (${apport.matters.matter_number})` : ''}</td>
+              <td style={{ padding: '3px 0', color: '#64748b', width: '140px' }}>Invoice #</td>
+              <td style={{ padding: '3px 0', fontWeight: '600', color: '#1e293b' }}>{invoice.invoice_number || '—'}</td>
+            </tr>
+            <tr>
+              <td style={{ padding: '3px 0', color: '#64748b' }}>Billing Firm</td>
+              <td style={{ padding: '3px 0', fontWeight: '600', color: '#1e293b' }}>{invoice.billing_firm || '—'}</td>
+              <td style={{ padding: '3px 0', color: '#64748b' }}>Invoice Total</td>
+              <td style={{ padding: '3px 0', fontWeight: '600', color: '#1e293b' }}>{formatCurrency(invoice.total_amount)}</td>
+            </tr>
+            <tr>
+              <td style={{ padding: '3px 0', color: '#64748b' }}>Service Period</td>
+              <td style={{ padding: '3px 0', fontWeight: '600', color: '#1e293b' }}>
+                {invoice.service_start ? format(parseISO(invoice.service_start), 'MM/dd/yyyy') : '—'}
+                {invoice.service_end && invoice.service_end !== invoice.service_start ? ` – ${format(parseISO(invoice.service_end), 'MM/dd/yyyy')}` : ''}
+              </td>
+              <td style={{ padding: '3px 0', color: '#64748b' }}>Calculation Method</td>
+              <td style={{ padding: '3px 0', fontWeight: '600', color: '#1e293b', textTransform: 'capitalize' }}>
+                {apport.calculation_method?.replace(/_/g, ' ')}
+              </td>
+            </tr>
+            <tr>
+              <td style={{ padding: '3px 0', color: '#64748b' }}>Calculated</td>
+              <td colSpan={3} style={{ padding: '3px 0', fontWeight: '600', color: '#1e293b' }}>
+                {apport.calculated_at ? format(parseISO(apport.calculated_at), 'MMMM d, yyyy h:mm a') : '—'}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       {/* Header */}
-      <div className="mb-6 print:mb-4">
+      <div className="mb-6 print:hidden">
         <Link to={`/matters/${matterId}`}
-          className="flex items-center gap-1 text-slate-500 hover:text-brand-600 text-sm mb-3 print:hidden">
+          className="flex items-center gap-1 text-slate-500 hover:text-brand-600 text-sm mb-3">
           <ArrowLeft className="h-3 w-3" /> {apport.matters?.name}
         </Link>
         <div className="flex items-start justify-between flex-wrap gap-4">
@@ -103,7 +166,8 @@ export default function Apportionment() {
             </p>
           </div>
           <div className="flex gap-3 print:hidden">
-            <button onClick={handlePrint} className="btn-secondary"><Printer className="h-4 w-4" /> Print / PDF</button>
+            <button onClick={handlePrint} className="btn-secondary"><Printer className="h-4 w-4" /> Print</button>
+            <button onClick={handleDownloadPDF} className="btn-primary"><Download className="h-4 w-4" /> Download PDF</button>
           </div>
         </div>
       </div>
@@ -279,7 +343,7 @@ export default function Apportionment() {
                           <td className="py-3 text-right text-slate-500">{ia.total_days}</td>
                           <td className="py-3 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              <div className="w-16 bg-slate-100 rounded-full h-1.5">
+                              <div className="w-16 bg-slate-100 rounded-full h-1.5 print:hidden">
                                 <div className="bg-brand-600 h-1.5 rounded-full" style={{ width: `${Math.min(ia.percentage, 100)}%` }} />
                               </div>
                               <span className="font-bold text-brand-700 min-w-14 text-right">{formatPercent(ia.percentage)}</span>
@@ -359,9 +423,58 @@ export default function Apportionment() {
       {/* Print styles */}
       <style>{`
         @media print {
+          /* Typography */
+          body { font-size: 10.5px !important; color: #1e293b !important; }
+
+          /* Hide screen-only elements */
           .print\\:hidden { display: none !important; }
-          .card { box-shadow: none; border: 1px solid #e2e8f0; }
-          body { font-size: 11px; }
+
+          /* Cards — flat borders, no shadow */
+          .card {
+            box-shadow: none !important;
+            border: 1px solid #cbd5e1 !important;
+            border-radius: 6px !important;
+            break-inside: avoid;
+          }
+
+          /* Gradient banner — replace with flat */
+          .bg-gradient-to-r {
+            background: #4f46e5 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          /* Progress bars */
+          .bg-brand-600 { background-color: #4f46e5 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .bg-slate-100 { background-color: #f1f5f9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .bg-slate-50  { background-color: #f8fafc !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .bg-amber-50  { background-color: #fffbeb !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+          /* Section headings — avoid breaking after */
+          .card > button { page-break-after: avoid; }
+
+          /* Tables — keep headers with rows */
+          thead { display: table-header-group; }
+          tr    { page-break-inside: avoid; }
+
+          /* Section cards — try not to split across pages */
+          .space-y-6 > div { break-inside: avoid; }
+
+          /* Spacing */
+          .p-6, .lg\\:p-8 { padding: 0 !important; }
+          .mb-6 { margin-bottom: 16px !important; }
+          .space-y-6 > * + * { margin-top: 16px !important; }
+        }
+
+        /* Print footer via counter */
+        @media print {
+          @page {
+            @bottom-center {
+              content: "LexAlloc Apportionment Report  •  Page " counter(page) " of " counter(pages);
+              font-size: 9px;
+              color: #94a3b8;
+            }
+          }
         }
       `}</style>
     </div>
