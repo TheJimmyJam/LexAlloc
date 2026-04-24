@@ -167,7 +167,7 @@ export default function Apportionment() {
               id, days_on_risk, total_days, percentage, amount,
               payment_status, amount_paid, payment_date, demanded_at, payment_notes,
               insurers(name, policy_number),
-              insurer_policy_periods(policy_start, policy_end, policy_limit, deductible)
+              insurer_policy_periods(policy_start, policy_end, policy_limit, deductible, claim_number, claims_rep_name, claims_rep_email, billing_address)
             )
           )
         `)
@@ -437,6 +437,8 @@ export default function Apportionment() {
                     <tr className="border-b border-slate-100">
                       <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Insurer</th>
                       <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Policy #</th>
+                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Claim #</th>
+                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Claims Rep</th>
                       <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Policy Period</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Days on Risk</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">TOR %</th>
@@ -454,6 +456,20 @@ export default function Apportionment() {
                         <tr key={ia.id} className="hover:bg-slate-50">
                           <td className="py-3 font-medium text-slate-800">{ia.insurers?.name}</td>
                           <td className="py-3 text-sm font-mono text-slate-500">{ia.insurers?.policy_number || '—'}</td>
+                          <td className="py-3 text-sm font-mono text-slate-600">{pp?.claim_number || '—'}</td>
+                          <td className="py-3 text-sm">
+                            {pp?.claims_rep_name ? (
+                              <div>
+                                <p className="text-slate-700 font-medium">{pp.claims_rep_name}</p>
+                                {pp.claims_rep_email && (
+                                  <a href={`mailto:${pp.claims_rep_email}`}
+                                    className="text-xs text-brand-600 hover:underline print:text-slate-500">
+                                    {pp.claims_rep_email}
+                                  </a>
+                                )}
+                              </div>
+                            ) : <span className="text-slate-300">—</span>}
+                          </td>
                           <td className="py-3 text-sm text-slate-600">
                             {pp ? (
                               <span>{format(parseISO(pp.policy_start), 'MM/dd/yyyy')} – {format(parseISO(pp.policy_end), 'MM/dd/yyyy')}</span>

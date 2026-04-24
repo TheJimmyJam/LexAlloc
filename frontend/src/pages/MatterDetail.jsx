@@ -265,6 +265,119 @@ function AddPartyModal({ matterId, onClose }) {
   )
 }
 
+// ── Shared insurer policy period fields (used by Add and Edit modals) ────────
+function InsurerPolicyFields({ register }) {
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="form-label">Policy Start *</label>
+          <input type="date" className="form-input" {...register('policy_start', { required: 'Required' })} />
+        </div>
+        <div>
+          <label className="form-label">Policy End *</label>
+          <input type="date" className="form-input" {...register('policy_end', { required: 'Required' })} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="form-label">Policy Limit ($)</label>
+          <input type="number" step="0.01" className="form-input" placeholder="1,000,000"
+            {...register('policy_limit')} />
+        </div>
+        <div>
+          <label className="form-label">Deductible ($)</label>
+          <input type="number" step="0.01" className="form-input" placeholder="10,000"
+            {...register('deductible')} />
+        </div>
+      </div>
+      <div className="border-t border-slate-100 pt-4">
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Contact Info</p>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="form-label">Claim Number</label>
+            <input className="form-input" placeholder="CLM-2024-001234"
+              {...register('claim_number')} />
+          </div>
+          <div>
+            <label className="form-label">Claims Rep Name</label>
+            <input className="form-input" placeholder="Jane Smith"
+              {...register('claims_rep_name')} />
+          </div>
+        </div>
+        <div className="mt-4">
+          <label className="form-label">Claims Rep Email</label>
+          <input type="email" className="form-input" placeholder="jsmith@travelers.com"
+            {...register('claims_rep_email')} />
+        </div>
+        <div className="mt-4">
+          <label className="form-label">Billing Address</label>
+          <textarea className="form-input h-16 resize-none"
+            placeholder="P.O. Box 1234, Hartford, CT 06101"
+            {...register('billing_address')} />
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ── Edit Insurer Modal ────────────────────────────────────────────────────────
+function EditInsurerModal({ pp, matterId, onClose }) {
+  const qc = useQueryClient()
+  const { register, handleSubmit, formState: { isSubmitting } } = useForm({
+    defaultValues: {
+      policy_start:      pp.policy_start,
+      policy_end:        pp.policy_end,
+      policy_limit:      pp.policy_limit      || '',
+      deductible:        pp.deductible        || '',
+      claim_number:      pp.claim_number      || '',
+      claims_rep_name:   pp.claims_rep_name   || '',
+      claims_rep_email:  pp.claims_rep_email  || '',
+      billing_address:   pp.billing_address   || '',
+    }
+  })
+
+  const onSubmit = async (values) => {
+    const { error } = await supabase.from('la_insurer_policy_periods').update({
+      policy_start:     values.policy_start,
+      policy_end:       values.policy_end,
+      policy_limit:     values.policy_limit     ? parseFloat(values.policy_limit)     : null,
+      deductible:       values.deductible       ? parseFloat(values.deductible)       : null,
+      claim_number:     values.claim_number     || null,
+      claims_rep_name:  values.claims_rep_name  || null,
+      claims_rep_email: values.claims_rep_email || null,
+      billing_address:  values.billing_address  || null,
+    }).eq('id', pp.id)
+    if (error) { toast.error(error.message); return }
+    toast.success('Policy period updated!')
+    qc.invalidateQueries({ queryKey: ['matter-insurers', matterId] })
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-6 border-b border-slate-200">
+          <div>
+            <h2 className="font-semibold text-lg">Edit Policy Period</h2>
+            <p className="text-sm text-slate-500 mt-0.5">{pp.insurers?.name} · {pp.parties?.name}</p>
+          </div>
+          <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
+        </div>
+        <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
+          <InsurerPolicyFields register={register} />
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
+            <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
+              {isSubmitting ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // ── Add Insurer Modal ─────────────────────────────────────────────────────────
 function AddInsurerModal({ matterId, parties, onClose }) {
   const { profile } = useAuth()
@@ -285,24 +398,28 @@ function AddInsurerModal({ matterId, parties, onClose }) {
       insurerId = existing.id
     } else {
       const { data: newIns, error } = await supabase.from('la_insurers').insert({
-        org_id: profile.org_id,
-        name:   values.insurer_name,
+        org_id:        profile.org_id,
+        name:          values.insurer_name,
         policy_number: values.policy_number,
       }).select().single()
       if (error) { toast.error(error.message); return }
       insurerId = newIns.id
     }
 
-    // Create policy period
+    // Create policy period with contact info
     const { error: ppErr } = await supabase.from('la_insurer_policy_periods').insert({
-      insurer_id:   insurerId,
-      party_id:     values.party_id,
-      matter_id:    matterId,
-      org_id:       profile.org_id,
-      policy_start: values.policy_start,
-      policy_end:   values.policy_end,
-      policy_limit: values.policy_limit ? parseFloat(values.policy_limit) : null,
-      deductible:   values.deductible   ? parseFloat(values.deductible)   : null,
+      insurer_id:       insurerId,
+      party_id:         values.party_id,
+      matter_id:        matterId,
+      org_id:           profile.org_id,
+      policy_start:     values.policy_start,
+      policy_end:       values.policy_end,
+      policy_limit:     values.policy_limit     ? parseFloat(values.policy_limit)     : null,
+      deductible:       values.deductible       ? parseFloat(values.deductible)       : null,
+      claim_number:     values.claim_number     || null,
+      claims_rep_name:  values.claims_rep_name  || null,
+      claims_rep_email: values.claims_rep_email || null,
+      billing_address:  values.billing_address  || null,
     })
     if (ppErr) { toast.error(ppErr.message); return }
     toast.success('Insurer & policy period added!')
@@ -312,7 +429,7 @@ function AddInsurerModal({ matterId, parties, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b border-slate-200">
           <h2 className="font-semibold text-lg">Add Insurer & Policy Period</h2>
           <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
@@ -322,6 +439,7 @@ function AddInsurerModal({ matterId, parties, onClose }) {
             <label className="form-label">Insurer Name *</label>
             <input className="form-input" placeholder="Travelers Indemnity Company"
               {...register('insurer_name', { required: 'Required' })} />
+            {errors.insurer_name && <p className="text-red-500 text-xs mt-1">{errors.insurer_name.message}</p>}
           </div>
           <div>
             <label className="form-label">Policy Number</label>
@@ -334,29 +452,9 @@ function AddInsurerModal({ matterId, parties, onClose }) {
               <option value="">Select party…</option>
               {parties?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
+            {errors.party_id && <p className="text-red-500 text-xs mt-1">{errors.party_id.message}</p>}
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="form-label">Policy Start *</label>
-              <input type="date" className="form-input" {...register('policy_start', { required: 'Required' })} />
-            </div>
-            <div>
-              <label className="form-label">Policy End *</label>
-              <input type="date" className="form-input" {...register('policy_end', { required: 'Required' })} />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="form-label">Policy Limit ($)</label>
-              <input type="number" step="0.01" className="form-input" placeholder="1,000,000"
-                {...register('policy_limit')} />
-            </div>
-            <div>
-              <label className="form-label">Deductible ($)</label>
-              <input type="number" step="0.01" className="form-input" placeholder="10,000"
-                {...register('deductible')} />
-            </div>
-          </div>
+          <InsurerPolicyFields register={register} />
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
             <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
@@ -380,6 +478,7 @@ export default function MatterDetail() {
   const [showAddParty, setShowAddParty] = useState(false)
   const [editingParty, setEditingParty] = useState(null)
   const [showAddInsurer, setShowAddInsurer] = useState(false)
+  const [editingInsurer, setEditingInsurer] = useState(null)
   const [showUploadInvoice, setShowUploadInvoice] = useState(false)
 
   const { data: matter, isLoading } = useQuery({
@@ -963,6 +1062,8 @@ export default function MatterDetail() {
                   <tr className="border-b border-slate-100 bg-slate-50">
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Insurer</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Policy #</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Claim #</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Claims Rep</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Party</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Policy Period</th>
                     <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Limit</th>
@@ -978,9 +1079,23 @@ export default function MatterDetail() {
                     return (
                     <tr key={pp.id} className="hover:bg-slate-50">
                       <td className="px-5 py-4 font-medium text-slate-800">{pp.insurers?.name}</td>
-                      <td className="px-4 py-4 text-sm text-slate-500 font-mono">{pp.insurers?.policy_number || '—'}</td>
+                      <td className="px-4 py-4 text-sm font-mono text-slate-500">{pp.insurers?.policy_number || '—'}</td>
+                      <td className="px-4 py-4 text-sm font-mono text-slate-600">{pp.claim_number || '—'}</td>
+                      <td className="px-4 py-4">
+                        {pp.claims_rep_name ? (
+                          <div>
+                            <p className="text-sm font-medium text-slate-700">{pp.claims_rep_name}</p>
+                            {pp.claims_rep_email && (
+                              <a href={`mailto:${pp.claims_rep_email}`}
+                                className="text-xs text-brand-600 hover:underline">
+                                {pp.claims_rep_email}
+                              </a>
+                            )}
+                          </div>
+                        ) : <span className="text-slate-300 text-sm">—</span>}
+                      </td>
                       <td className="px-4 py-4 text-sm text-slate-600">{pp.parties?.name}</td>
-                      <td className="px-4 py-4 text-sm text-slate-600">
+                      <td className="px-4 py-4 text-sm text-slate-600 whitespace-nowrap">
                         {format(parseISO(pp.policy_start), 'MM/dd/yyyy')} — {format(parseISO(pp.policy_end), 'MM/dd/yyyy')}
                       </td>
                       <td className="px-4 py-4 text-right text-sm text-slate-600">
@@ -998,9 +1113,16 @@ export default function MatterDetail() {
                         ) : <span className="text-xs text-slate-300">—</span>}
                       </td>
                       <td className="px-4 py-4">
-                        <button onClick={() => deleteInsurer(pp.id)} className="text-slate-300 hover:text-red-500 transition-colors">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => setEditingInsurer(pp)}
+                            className="text-slate-300 hover:text-brand-600 transition-colors" title="Edit">
+                            <Edit2 className="h-4 w-4" />
+                          </button>
+                          <button onClick={() => deleteInsurer(pp.id)}
+                            className="text-slate-300 hover:text-red-500 transition-colors" title="Delete">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )})}
@@ -1119,6 +1241,7 @@ export default function MatterDetail() {
       {showAddParty    && <AddPartyModal   matterId={matterId} onClose={() => setShowAddParty(false)} />}
       {editingParty    && <EditPartyModal  party={editingParty} matterId={matterId} onClose={() => setEditingParty(null)} />}
       {showAddInsurer  && <AddInsurerModal matterId={matterId} parties={parties} onClose={() => setShowAddInsurer(false)} />}
+      {editingInsurer  && <EditInsurerModal pp={editingInsurer} matterId={matterId} onClose={() => setEditingInsurer(null)} />}
       {showUploadInvoice && (
         <InvoiceUploadModal
           matterId={matterId}
