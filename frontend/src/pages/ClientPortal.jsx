@@ -1,8 +1,9 @@
+import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { formatCurrency } from '../lib/calculations.js'
-import { DollarSign, FileText, TrendingUp, AlertCircle, CheckCircle, Clock, Shield } from 'lucide-react'
+import { DollarSign, FileText, TrendingUp, AlertCircle, CheckCircle, Clock, Shield, CreditCard, X } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
@@ -38,6 +39,18 @@ function StatCard({ icon: Icon, label, value, color }) {
 export default function ClientPortal() {
   const { profile } = useAuth()
   const qc = useQueryClient()
+  const [payingId, setPayingId] = useState(null)       // obligation ID currently redirecting to Stripe
+  const [paymentBanner, setPaymentBanner] = useState(null) // 'success' | 'cancelled' | null
+
+  // Read Stripe redirect result from URL params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const result = params.get('payment')
+    if (result === 'success')   { setPaymentBanner('success');   qc.invalidateQueries({ queryKey: ['client-obligations'] }) }
+    if (result === 'cancelled') { setPaymentBanner('cancelled') }
+    // Clean the URL
+    if (result) window.history.replaceState({}, '', window.location.pathname)
+  }, [])
 
   // Step 1: get all insurer apportionments for this insurer
   const { data: obligations = [], isLoading } = useQuery({
@@ -48,6 +61,7 @@ export default function ClientPortal() {
         .from('la_insurer_apportionments')
         .select(`
           id, amount, amount_paid, payment_status, payment_date, demanded_at, payment_notes,
+          stripe_session_id, stripe_payment_intent_id,
           apportionment_id,
           policy_period:la_insurer_policy_periods(claim_number, policy_start, policy_end, policy_limit)
         `)
@@ -101,7 +115,6 @@ export default function ClientPortal() {
     toast.success('Status updated')
     qc.invalidateQueries({ queryKey: ['client-obligations', profile?.insurer_id] })
 
-    // Fire-and-forget — notify the org's attorneys that the insurer updated their status
     if (obligation?.matter?.id) {
       api.sendEvent('payment_status_updated', profile.org_id, obligation.matter.id, {
         insurer_name: insurer?.name,
@@ -113,6 +126,25 @@ export default function ClientPortal() {
       }).catch(() => {})
     }
   }
+
+  const handlePayOnline = async (obligation) => {
+    setPayingId(obligation.id)
+    try {
+      const { data, error } = await supabase.functions.invoke('create-checkout-session', {
+        body: { obligation_id: obligation.id },
+      })
+      if (error) throw error
+      if (data?.error) throw new Error(data.error)
+      if (data?.url) window.location.href = data.url
+    } catch (err) {
+      toast.error(err.message || 'Failed to start payment')
+      setPayingId(null)
+    }
+  }
+
+  const isPayable = (row) =>
+    row.payment_status !== 'paid' &&
+    (row.amount || 0) > (row.amount_paid || 0)
 
   if (!profile?.insurer_id) {
     return (
@@ -126,10 +158,10 @@ export default function ClientPortal() {
     )
   }
 
-  const totalOwed      = obligations.reduce((s, o) => s + (o.amount || 0), 0)
-  const totalPaid      = obligations.reduce((s, o) => s + (o.amount_paid || 0), 0)
+  const totalOwed        = obligations.reduce((s, o) => s + (o.amount || 0), 0)
+  const totalPaid        = obligations.reduce((s, o) => s + (o.amount_paid || 0), 0)
   const totalOutstanding = totalOwed - totalPaid
-  const matters        = new Set(obligations.map(o => o.matter?.id).filter(Boolean))
+  const matters          = new Set(obligations.map(o => o.matter?.id).filter(Boolean))
 
   // Group by matter for display
   const byMatter = {}
@@ -141,6 +173,34 @@ export default function ClientPortal() {
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+
+      {/* Payment result banners */}
+      {paymentBanner === 'success' && (
+        <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3 mb-6">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
+            <div>
+              <p className="font-semibold text-green-800 text-sm">Payment received</p>
+              <p className="text-green-700 text-xs mt-0.5">Your payment was processed successfully. The obligation will be marked paid shortly.</p>
+            </div>
+          </div>
+          <button onClick={() => setPaymentBanner(null)} className="text-green-400 hover:text-green-600">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+      {paymentBanner === 'cancelled' && (
+        <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6">
+          <div className="flex items-center gap-3">
+            <Clock className="h-5 w-5 text-amber-600 flex-shrink-0" />
+            <p className="text-amber-800 text-sm">Payment was cancelled. Your obligation status has not changed.</p>
+          </div>
+          <button onClick={() => setPaymentBanner(null)} className="text-amber-400 hover:text-amber-600">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-1">
@@ -152,10 +212,10 @@ export default function ClientPortal() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard icon={DollarSign}  label="Total Owed"      value={formatCurrency(totalOwed)}        color="bg-brand-600" />
-        <StatCard icon={CheckCircle} label="Total Paid"      value={formatCurrency(totalPaid)}        color="bg-green-500" />
-        <StatCard icon={TrendingUp}  label="Outstanding"     value={formatCurrency(totalOutstanding)} color={totalOutstanding > 0 ? 'bg-amber-500' : 'bg-green-500'} />
-        <StatCard icon={FileText}    label="Matters Involved" value={matters.size}                    color="bg-purple-500" />
+        <StatCard icon={DollarSign}  label="Total Owed"       value={formatCurrency(totalOwed)}        color="bg-brand-600" />
+        <StatCard icon={CheckCircle} label="Total Paid"       value={formatCurrency(totalPaid)}        color="bg-green-500" />
+        <StatCard icon={TrendingUp}  label="Outstanding"      value={formatCurrency(totalOutstanding)} color={totalOutstanding > 0 ? 'bg-amber-500' : 'bg-green-500'} />
+        <StatCard icon={FileText}    label="Matters Involved" value={matters.size}                     color="bg-purple-500" />
       </div>
 
       {isLoading ? (
@@ -183,7 +243,7 @@ export default function ClientPortal() {
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-semibold text-slate-800">{formatCurrency(mOwed)} owed</p>
-                    <p className="text-xs text-slate-400">{formatCurrency(mPaid)} paid</p>
+                    <p className="text-xs text-slate-400">{formatCurrency(mPaid)} paid · <span className={mOwed - mPaid > 0 ? 'text-amber-600 font-medium' : 'text-green-600 font-medium'}>{formatCurrency(mOwed - mPaid)} outstanding</span></p>
                   </div>
                 </div>
 
@@ -198,6 +258,7 @@ export default function ClientPortal() {
                         <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Paid</th>
                         <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Status</th>
                         <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Payment Date</th>
+                        <th />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -235,6 +296,23 @@ export default function ClientPortal() {
                           <td className="px-4 py-3 text-sm text-slate-500">
                             {row.payment_date ? format(parseISO(row.payment_date), 'MM/dd/yyyy') : '—'}
                           </td>
+                          <td className="px-4 py-3">
+                            {isPayable(row) && (
+                              <button
+                                onClick={() => handlePayOnline(row)}
+                                disabled={payingId === row.id}
+                                className="flex items-center gap-1.5 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-60 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+                              >
+                                <CreditCard className="h-3.5 w-3.5" />
+                                {payingId === row.id ? 'Redirecting…' : 'Pay Online'}
+                              </button>
+                            )}
+                            {row.payment_status === 'paid' && (
+                              <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
+                                <CheckCircle className="h-3.5 w-3.5" /> Paid
+                              </span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -243,7 +321,7 @@ export default function ClientPortal() {
                         <td colSpan={3} className="px-5 py-3 text-sm font-semibold text-slate-700">Matter Total</td>
                         <td className="px-4 py-3 text-right font-bold text-slate-900">{formatCurrency(mOwed)}</td>
                         <td className="px-4 py-3 text-right font-bold text-green-700">{formatCurrency(mPaid)}</td>
-                        <td colSpan={2} className="px-4 py-3 text-sm text-slate-500">
+                        <td colSpan={3} className="px-4 py-3 text-sm text-slate-500">
                           Outstanding: <span className={`font-semibold ${mOwed - mPaid > 0 ? 'text-amber-600' : 'text-green-600'}`}>{formatCurrency(mOwed - mPaid)}</span>
                         </td>
                       </tr>
