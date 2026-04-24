@@ -205,22 +205,43 @@ function EditPartyModal({ party, matterId, onClose }) {
 }
 
 // ── Add Party Modal ───────────────────────────────────────────────────────────
-function AddPartyModal({ matterId, onClose }) {
+function AddPartyModal({ matterId, existingParties = [], onClose }) {
   const { profile } = useAuth()
   const qc = useQueryClient()
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm()
+  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm({
+    defaultValues: { share_percentage: '', equalize: existingParties.length > 0 },
+  })
+  const currentTotal = existingParties.reduce((s, p) => s + (p.share_percentage || 0), 0)
+  const watchedPct   = parseFloat(watch('share_percentage')) || 0
+  const previewTotal = parseFloat((currentTotal + watchedPct).toFixed(4))
+  const equalize     = watch('equalize')
 
   const onSubmit = async (values) => {
-    const { error } = await supabase.from('la_parties').insert({
+    const { data: inserted, error } = await supabase.from('la_parties').insert({
       matter_id:        matterId,
       org_id:           profile.org_id,
       name:             values.name,
       type:             values.type,
-      share_percentage: parseFloat(values.share_percentage),
+      share_percentage: parseFloat(values.share_percentage) || 0,
       notes:            values.notes,
-    })
+    }).select().single()
     if (error) { toast.error(error.message); return }
-    toast.success('Party added!')
+
+    // If equalize is checked, redistribute evenly across all parties (including new one)
+    if (values.equalize && inserted) {
+      const allParties = [...existingParties, inserted]
+      const equal     = parseFloat((100 / allParties.length).toFixed(4))
+      const remainder = parseFloat((100 - equal * (allParties.length - 1)).toFixed(4))
+      await Promise.all(allParties.map((p, i) =>
+        supabase.from('la_parties').update({
+          share_percentage: i === allParties.length - 1 ? remainder : equal,
+        }).eq('id', p.id)
+      ))
+      toast.success('Party added and shares equalized!')
+    } else {
+      toast.success('Party added!')
+    }
+
     qc.invalidateQueries({ queryKey: ['matter-parties', matterId] })
     onClose()
   }
@@ -248,13 +269,37 @@ function AddPartyModal({ matterId, onClose }) {
               <option value="cross_defendant">Cross-Defendant</option>
             </select>
           </div>
-          <div>
-            <label className="form-label">Share Percentage (%)</label>
-            <input type="number" step="0.01" min="0" max="100" className="form-input"
-              placeholder="50.00"
-              {...register('share_percentage', { required: 'Required', min: 0, max: 100 })} />
-            {errors.share_percentage && <p className="text-red-500 text-xs mt-1">{errors.share_percentage.message}</p>}
-          </div>
+
+          {/* Only show % field if equalize is off */}
+          {!equalize && (
+            <div>
+              <label className="form-label">Share Percentage (%)</label>
+              <input type="number" step="0.01" min="0" max="100" className="form-input"
+                placeholder="0.00"
+                {...register('share_percentage', { min: 0, max: 100 })} />
+              {watchedPct > 0 && (
+                <p className={`text-xs mt-1 ${previewTotal > 100 ? 'text-red-600' : 'text-slate-400'}`}>
+                  Total after adding: {previewTotal}%{previewTotal > 100 ? ' — exceeds 100%' : ''}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Equalize toggle */}
+          {existingParties.length > 0 && (
+            <label className="flex items-start gap-3 cursor-pointer group">
+              <input type="checkbox" className="mt-0.5 accent-violet-600" {...register('equalize')} />
+              <div>
+                <p className="text-sm font-medium text-slate-700 group-hover:text-slate-900">
+                  Equalize all parties after adding
+                </p>
+                <p className="text-xs text-slate-400">
+                  Splits 100% evenly across all {existingParties.length + 1} parties ({parseFloat((100 / (existingParties.length + 1)).toFixed(2))}% each)
+                </p>
+              </div>
+            </label>
+          )}
+
           <div>
             <label className="form-label">Notes</label>
             <textarea className="form-input h-20 resize-none" {...register('notes')} />
@@ -579,10 +624,32 @@ export default function MatterDetail() {
   })
 
   const deleteParty = async (id) => {
-    if (!confirm('Remove this party?')) return
+    const target      = parties.find(p => p.id === id)
+    const remaining   = parties.filter(p => p.id !== id)
+    const freedPct    = target?.share_percentage || 0
+    const msg         = freedPct > 0 && remaining.length > 0
+      ? `Remove ${target?.name}? Their ${freedPct}% share will be freed.\n\nClick OK to redistribute it evenly, or Cancel to just remove.`
+      : `Remove ${target?.name || 'this party'}?`
+    const confirmed = confirm(msg)
+    if (!confirmed) return
+
     await supabase.from('la_parties').delete().eq('id', id)
+
+    // Redistribute freed % evenly among remaining parties
+    if (freedPct > 0 && remaining.length > 0) {
+      const share      = parseFloat((freedPct / remaining.length).toFixed(4))
+      const adjustment = parseFloat((freedPct - share * (remaining.length - 1)).toFixed(4))
+      await Promise.all(remaining.map((p, i) =>
+        supabase.from('la_parties').update({
+          share_percentage: parseFloat((p.share_percentage + (i === remaining.length - 1 ? adjustment : share)).toFixed(4)),
+        }).eq('id', p.id)
+      ))
+      toast.success(`Party removed — ${freedPct}% redistributed`)
+    } else {
+      toast.success('Party removed')
+    }
+
     qc.invalidateQueries({ queryKey: ['matter-parties', matterId] })
-    toast.success('Party removed')
   }
 
   const deleteInsurer = async (id) => {
@@ -1057,6 +1124,7 @@ export default function MatterDetail() {
               <button onClick={() => setShowAddParty(true)} className="btn-primary">
                 <Plus className="h-4 w-4" /> Add Party
               </button>
+
             </div>
           </div>
 
@@ -1089,7 +1157,6 @@ export default function MatterDetail() {
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Type</th>
                     <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">
                       Share %
-                      <span className="text-slate-300 font-normal ml-1 normal-case">(click to edit)</span>
                     </th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Notes</th>
                     <th />
@@ -1104,27 +1171,32 @@ export default function MatterDetail() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         {editingPct[p.id] !== undefined ? (
-                          <input
-                            type="number" step="0.01" min="0" max="100"
-                            value={editingPct[p.id]}
-                            onChange={e => setEditingPct(prev => ({ ...prev, [p.id]: e.target.value }))}
-                            onBlur={() => savePct(p.id, editingPct[p.id])}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') { e.target.blur() }
-                              if (e.key === 'Escape') { setEditingPct(prev => { const n={...prev}; delete n[p.id]; return n }) }
-                            }}
-                            className="w-24 text-right form-input py-1 px-2 text-sm font-semibold"
-                            autoFocus
-                          />
+                          <div className="flex items-center justify-end gap-1">
+                            <input
+                              type="number" step="0.01" min="0" max="100"
+                              value={editingPct[p.id]}
+                              onChange={e => setEditingPct(prev => ({ ...prev, [p.id]: e.target.value }))}
+                              onBlur={() => savePct(p.id, editingPct[p.id])}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') { e.target.blur() }
+                                if (e.key === 'Escape') { setEditingPct(prev => { const n={...prev}; delete n[p.id]; return n }) }
+                              }}
+                              className="w-24 text-right form-input py-1 px-2 text-sm font-semibold"
+                              autoFocus
+                            />
+                            <span className="text-xs text-slate-400">%</span>
+                          </div>
                         ) : (
-                          <button
-                            onClick={() => setEditingPct(prev => ({ ...prev, [p.id]: String(p.share_percentage) }))}
-                            className="font-semibold text-slate-800 hover:text-brand-600 hover:bg-brand-50 rounded px-2 py-1 transition-colors group"
-                            title="Click to edit"
-                          >
-                            {p.share_percentage}%
-                            <Edit2 className="h-3 w-3 inline ml-1 text-slate-300 group-hover:text-brand-400" />
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <span className="font-semibold text-slate-800">{p.share_percentage}%</span>
+                            <button
+                              onClick={() => setEditingPct(prev => ({ ...prev, [p.id]: String(p.share_percentage) }))}
+                              className="text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded p-1 transition-colors"
+                              title="Edit percentage"
+                            >
+                              <Edit2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         )}
                       </td>
                       <td className="px-4 py-4 text-sm text-slate-400 max-w-xs truncate">{p.notes || '—'}</td>
@@ -1482,7 +1554,7 @@ export default function MatterDetail() {
 
       {/* Modals */}
       {showEditMatter  && <EditMatterModal matter={matter} onClose={() => setShowEditMatter(false)} />}
-      {showAddParty    && <AddPartyModal   matterId={matterId} onClose={() => setShowAddParty(false)} />}
+      {showAddParty    && <AddPartyModal   matterId={matterId} existingParties={parties} onClose={() => setShowAddParty(false)} />}
       {editingParty    && <EditPartyModal  party={editingParty} matterId={matterId} onClose={() => setEditingParty(null)} />}
       {showAddInsurer  && <AddInsurerModal matterId={matterId} parties={parties} onClose={() => setShowAddInsurer(false)} />}
       {editingInsurer  && <EditInsurerModal pp={editingInsurer} matterId={matterId} onClose={() => setEditingInsurer(null)} />}
