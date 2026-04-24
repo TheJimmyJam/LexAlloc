@@ -68,6 +68,9 @@ export default function Login() {
             <Link to="/register" className="text-brand-600 hover:text-brand-700 font-medium">Create one</Link>
           </p>
         </form>
+        <p className="text-center mt-4">
+          <Link to="/" className="text-slate-400 hover:text-white text-sm transition-colors">← Back to home</Link>
+        </p>
       </div>
     </div>
   )
