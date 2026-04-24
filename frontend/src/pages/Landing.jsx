@@ -120,7 +120,7 @@ export default function Landing() {
       {/* ── Nav ─────────────────────────────────────────────────────────────── */}
       <nav className="sticky top-0 z-50 flex items-center justify-between px-6 lg:px-16 py-4 bg-slate-950/90 backdrop-blur border-b border-white/5">
         <div className="flex items-center">
-          <img src="/logo.svg" alt="LexAlloc" className="h-10 w-auto" />
+          <img src="/logo.svg" alt="LexAlloc" className="h-14 w-auto" />
         </div>
         <div className="flex items-center gap-3">
           <Link to="/login" className="text-slate-300 hover:text-white text-sm font-medium transition-colors px-3 py-1.5">
@@ -316,7 +316,7 @@ export default function Landing() {
       <footer className="border-t border-white/5 px-6 lg:px-16 py-8">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center">
-            <img src="/logo.svg" alt="LexAlloc" className="h-8 w-auto" />
+            <img src="/logo.svg" alt="LexAlloc" className="h-12 w-auto" />
           </div>
           <p className="text-slate-500 text-sm">© {new Date().getFullYear()} LexAlloc. Built for legal professionals.</p>
           <div className="flex items-center gap-4 text-sm">

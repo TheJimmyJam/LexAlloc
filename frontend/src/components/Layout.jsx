@@ -70,8 +70,8 @@ export default function Layout() {
       {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-30 w-60 bg-white border-r border-slate-200 flex flex-col transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:flex ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         {/* Logo */}
-        <div className="flex items-center px-4 h-16 border-b border-slate-800 flex-shrink-0 bg-slate-900">
-          <img src="/logo.svg" alt="LexAlloc" className="h-9 w-auto" />
+        <div className="flex items-center px-4 h-20 border-b border-slate-800 flex-shrink-0 bg-slate-900">
+          <img src="/logo.svg" alt="LexAlloc" className="h-14 w-auto" />
         </div>
 
         {/* Org badge */}
@@ -109,11 +109,11 @@ export default function Layout() {
       {/* Main */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top bar (mobile) */}
-        <header className="lg:hidden flex items-center gap-3 px-4 h-14 bg-slate-900 border-b border-slate-800 flex-shrink-0">
+        <header className="lg:hidden flex items-center gap-3 px-4 h-16 bg-slate-900 border-b border-slate-800 flex-shrink-0">
           <button onClick={() => setSidebarOpen(true)} className="p-1">
             <Menu className="h-5 w-5 text-slate-300" />
           </button>
-          <img src="/logo.svg" alt="LexAlloc" className="h-8 w-auto" />
+          <img src="/logo.svg" alt="LexAlloc" className="h-12 w-auto" />
         </header>
 
         {isProfileIncomplete && (
