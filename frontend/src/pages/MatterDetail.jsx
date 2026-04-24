@@ -8,23 +8,26 @@ import { formatCurrency, exhaustionInfo } from '../lib/calculations.js'
 import {
   ArrowLeft, Plus, Trash2, X, Upload, FileText,
   Users, Shield, Calculator, ChevronRight, Edit2, Check, TrendingUp, AlertTriangle,
-  Paperclip, Download, ExternalLink
+  Paperclip, Download, ExternalLink, LayoutTemplate, Copy
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
 import DocumentUploadModal, { DOC_TYPES } from '../components/DocumentUploadModal.jsx'
+import { UseTemplateModal } from './Matters.jsx'
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
-const TABS = [
-  { key: 'overview',      label: 'Overview',      icon: FileText   },
-  { key: 'financials',    label: 'Financials',     icon: TrendingUp },
-  { key: 'parties',       label: 'Parties',        icon: Users      },
-  { key: 'insurers',      label: 'Insurers',       icon: Shield     },
-  { key: 'invoices',      label: 'Invoices',       icon: Upload     },
-  { key: 'apportionments',label: 'Apportionments', icon: Calculator },
-  { key: 'documents',     label: 'Documents',      icon: Paperclip  },
+const ALL_TABS = [
+  { key: 'overview',      label: 'Overview',      icon: FileText,   templateOnly: false },
+  { key: 'financials',    label: 'Financials',     icon: TrendingUp, templateOnly: false },
+  { key: 'parties',       label: 'Parties',        icon: Users,      templateOnly: false },
+  { key: 'insurers',      label: 'Insurers',       icon: Shield,     templateOnly: false },
+  { key: 'invoices',      label: 'Invoices',       icon: Upload,     templateOnly: false },
+  { key: 'apportionments',label: 'Apportionments', icon: Calculator, templateOnly: false },
+  { key: 'documents',     label: 'Documents',      icon: Paperclip,  templateOnly: false },
 ]
+// Tabs hidden when viewing a template (template has no invoices, apportionments, or financial data)
+const TEMPLATE_HIDDEN_TABS = new Set(['financials', 'invoices', 'apportionments'])
 
 const PAYMENT_STATUS_COLORS = {
   pending:       'bg-slate-100 text-slate-600',
@@ -485,6 +488,7 @@ export default function MatterDetail() {
   const [showUploadDoc, setShowUploadDoc] = useState(false)
   const [editingInsurer, setEditingInsurer] = useState(null)
   const [showUploadInvoice, setShowUploadInvoice] = useState(false)
+  const [showUseTemplate, setShowUseTemplate] = useState(false)
 
   const { data: matter, isLoading } = useQuery({
     queryKey: ['matter', matterId],
@@ -650,6 +654,9 @@ export default function MatterDetail() {
   if (isLoading) return <div className="p-8 text-center text-slate-400">Loading matter…</div>
   if (!matter)   return <div className="p-8 text-center text-slate-400">Matter not found.</div>
 
+  const isTemplate = !!matter.is_template
+  const TABS = ALL_TABS.filter(t => !isTemplate || !TEMPLATE_HIDDEN_TABS.has(t.key))
+
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
       {/* Header */}
@@ -657,6 +664,27 @@ export default function MatterDetail() {
         <Link to="/matters" className="flex items-center gap-1 text-slate-500 hover:text-brand-600 text-sm mb-3 transition-colors">
           <ArrowLeft className="h-3 w-3" /> All Matters
         </Link>
+
+        {/* Template banner */}
+        {isTemplate && (
+          <div className="flex items-center gap-3 bg-violet-50 border border-violet-200 rounded-xl px-4 py-3 mb-4">
+            <LayoutTemplate className="h-5 w-5 text-violet-500 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-violet-800">This is a template</p>
+              <p className="text-xs text-violet-600 mt-0.5">
+                Configure parties and insurer assignments here, then use "Create Matter from Template" to spin up new matters instantly.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowUseTemplate(true)}
+              className="flex items-center gap-1.5 text-sm font-medium text-white bg-violet-600 hover:bg-violet-700 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
+            >
+              <Copy className="h-4 w-4" />
+              Create Matter from Template
+            </button>
+          </div>
+        )}
+
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">{matter.name}</h1>
@@ -666,9 +694,10 @@ export default function MatterDetail() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`badge ${statusColors[matter.status] || 'bg-slate-100 text-slate-500'} text-sm px-3 py-1`}>
-              {matter.status}
-            </span>
+            {isTemplate
+              ? <span className="badge bg-violet-100 text-violet-700 text-sm px-3 py-1">Template</span>
+              : <span className={`badge ${statusColors[matter.status] || 'bg-slate-100 text-slate-500'} text-sm px-3 py-1`}>{matter.status}</span>
+            }
             <button
               onClick={() => setShowEditMatter(true)}
               className="btn-secondary text-sm"
@@ -1468,6 +1497,12 @@ export default function MatterDetail() {
           matterId={matterId}
           onClose={() => setShowUploadDoc(false)}
           onUploaded={() => { refetchDocs(); setShowUploadDoc(false) }}
+        />
+      )}
+      {showUseTemplate && matter && (
+        <UseTemplateModal
+          template={{ ...matter, la_parties: [{ count: parties.length }] }}
+          onClose={() => setShowUseTemplate(false)}
         />
       )}
     </div>
