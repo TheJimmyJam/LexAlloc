@@ -2,8 +2,9 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import {
   LayoutDashboard, FolderOpen, Settings, LogOut,
-  Scale, Shield, ChevronDown, Menu, X
+  Shield, Menu, X
 } from 'lucide-react'
+
 import { useState } from 'react'
 
 const navItems = [
@@ -62,11 +63,8 @@ export default function Layout() {
       {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-30 w-60 bg-white border-r border-slate-200 flex flex-col transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:flex ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         {/* Logo */}
-        <div className="flex items-center gap-2 px-4 h-16 border-b border-slate-200 flex-shrink-0">
-          <div className="flex items-center justify-center w-8 h-8 bg-brand-600 rounded-lg">
-            <Scale className="h-4 w-4 text-white" />
-          </div>
-          <span className="font-bold text-slate-900 text-lg">LexAlloc</span>
+        <div className="flex items-center px-4 h-16 border-b border-slate-200 flex-shrink-0">
+          <img src="/logo.svg" alt="LexAlloc" className="h-9 w-auto" />
         </div>
 
         {/* Org badge */}
@@ -108,10 +106,7 @@ export default function Layout() {
           <button onClick={() => setSidebarOpen(true)} className="p-1">
             <Menu className="h-5 w-5 text-slate-600" />
           </button>
-          <div className="flex items-center gap-2">
-            <Scale className="h-4 w-4 text-brand-600" />
-            <span className="font-bold text-slate-900">LexAlloc</span>
-          </div>
+          <img src="/logo.svg" alt="LexAlloc" className="h-7 w-auto" />
         </header>
 
         <main className="flex-1 overflow-y-auto">
