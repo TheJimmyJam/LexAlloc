@@ -3,6 +3,7 @@ import { useDropzone } from 'react-dropzone'
 import { X, Upload, Loader2, CheckCircle, AlertCircle, FileText } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
+import { api } from '../lib/api.js'
 import toast from 'react-hot-toast'
 
 export default function InvoiceUploadModal({ matterId, onClose }) {
@@ -116,6 +117,13 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
       }
 
       toast.success('Invoice saved successfully!')
+
+      // Fire-and-forget notification
+      api.sendEvent('invoice_parsed', profile.org_id, matterId, {
+        invoice_number: parsed.invoice_number,
+        billing_firm:   parsed.billing_firm,
+      }).catch(() => {})
+
       onClose()
     } catch (err) {
       setError(err.message)

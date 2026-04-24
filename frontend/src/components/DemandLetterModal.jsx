@@ -4,6 +4,8 @@ import { format, parseISO } from 'date-fns'
 import { generateDemandLetterBlob, getDemandLetterFilename } from '../lib/generateDemandLetter.js'
 import { formatCurrency, formatPercent } from '../lib/calculations.js'
 import { supabase } from '../lib/supabase.js'
+import { useAuth } from '../hooks/useAuth.jsx'
+import { api } from '../lib/api.js'
 import toast from 'react-hot-toast'
 
 // ─── HTML preview (mirrors letter layout without generating docx) ─────────────
@@ -180,6 +182,7 @@ function LetterPreview({ data }) {
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
 export default function DemandLetterModal({ data, onClose, onDemanded }) {
+  const { profile } = useAuth()
   const [downloading, setDownloading] = useState(false)
   const [markDemanded, setMarkDemanded] = useState(true)
 
@@ -219,6 +222,14 @@ export default function DemandLetterModal({ data, onClose, onDemanded }) {
       } else {
         toast.success(`${filename} downloaded`)
       }
+
+      // Fire-and-forget notification
+      api.sendEvent('demand_letter_generated', profile.org_id, data.apport?.matter_id, {
+        invoice_number:   data.invoice?.invoice_number,
+        insurer_name:     data.ia?.insurers?.name,
+        amount:           data.ia?.amount ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(data.ia.amount) : null,
+        apportionment_id: data.apport?.id,
+      }).catch(() => {})
 
       onClose()
     } catch (err) {

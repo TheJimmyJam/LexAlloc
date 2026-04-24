@@ -11,6 +11,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 import toast from 'react-hot-toast'
+import { api } from '../lib/api.js'
 
 const COLORS = ['#4f46e5','#0891b2','#059669','#d97706','#dc2626','#7c3aed','#db2777','#0d9488']
 
@@ -59,7 +60,7 @@ function RecordPaymentModal({ ia, partyName, onClose, onSaved }) {
       .eq('id', ia.id)
     if (error) { toast.error(error.message); return }
     toast.success('Payment status updated')
-    onSaved()
+    onSaved(values.payment_status)
     onClose()
   }
 
@@ -741,7 +742,20 @@ export default function Apportionment() {
           ia={paymentModal.ia}
           partyName={paymentModal.partyName}
           onClose={() => setPaymentModal(null)}
-          onSaved={() => qc.invalidateQueries({ queryKey: ['apportionment', apportionmentId] })}
+          onSaved={(newStatus) => {
+            qc.invalidateQueries({ queryKey: ['apportionment', apportionmentId] })
+            // Fire-and-forget notification (newStatus passed back from modal)
+            if (newStatus) {
+              api.sendEvent('payment_status_updated', profile.org_id, matterId, {
+                insurer_name:     paymentModal.ia.insurers?.name,
+                new_status:       newStatus,
+                amount:           paymentModal.ia.amount
+                  ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(paymentModal.ia.amount)
+                  : null,
+                apportionment_id: apportionmentId,
+              }).catch(() => {})
+            }
+          }}
         />
       )}
 

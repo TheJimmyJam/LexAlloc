@@ -7,6 +7,7 @@ import { formatCurrency, apportionInvoice } from '../lib/calculations.js'
 import { ArrowLeft, Calculator, FileText, ExternalLink, Loader2 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
+import { api } from '../lib/api.js'
 
 const METHODS = [
   {
@@ -134,6 +135,14 @@ export default function InvoiceDetail() {
       await supabase.from('la_invoices').update({ status: 'apportioned' }).eq('id', invoiceId)
 
       toast.success('Apportionment calculated!')
+
+      // Fire-and-forget notification
+      api.sendEvent('apportionment_run', profile.org_id, matterId, {
+        invoice_number:   invoice?.invoice_number,
+        method:           calcMethod,
+        apportionment_id: apport.id,
+      }).catch(() => {})
+
       qc.invalidateQueries({ queryKey: ['matter-apportionments', matterId] })
       navigate(`/matters/${matterId}/apportionments/${apport.id}`)
     } catch (err) {

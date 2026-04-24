@@ -35,11 +35,19 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  // Send email notification
+  // Send email notification (generic)
   sendNotification: (payload) =>
     request('/api/notifications/send', {
       method: 'POST',
       body: JSON.stringify(payload),
+    }),
+
+  // Fire a typed app event — resolves recipients + matter name on the backend
+  // type: 'invoice_parsed' | 'apportionment_run' | 'demand_letter_generated' | 'payment_status_updated'
+  sendEvent: (type, orgId, matterId, details = {}) =>
+    request('/api/notifications/event', {
+      method: 'POST',
+      body: JSON.stringify({ type, org_id: orgId, matter_id: matterId, details }),
     }),
 
   // Invite a user to the organization

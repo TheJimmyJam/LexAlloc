@@ -5,6 +5,7 @@ import { formatCurrency } from '../lib/calculations.js'
 import { DollarSign, FileText, TrendingUp, AlertCircle, CheckCircle, Clock, Shield } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
+import { api } from '../lib/api.js'
 
 const STATUS_COLORS = {
   pending:        'bg-slate-100 text-slate-600',
@@ -91,13 +92,26 @@ export default function ClientPortal() {
   })
 
   const updatePaymentStatus = async (iaId, payment_status) => {
+    const obligation = obligations.find(o => o.id === iaId)
     const { error } = await supabase
       .from('la_insurer_apportionments')
-      .update({ payment_status, ...(payment_status === 'paid' ? { amount_paid: obligations.find(o => o.id === iaId)?.amount, payment_date: new Date().toISOString().split('T')[0] } : {}) })
+      .update({ payment_status, ...(payment_status === 'paid' ? { amount_paid: obligation?.amount, payment_date: new Date().toISOString().split('T')[0] } : {}) })
       .eq('id', iaId)
     if (error) { toast.error(error.message); return }
     toast.success('Status updated')
     qc.invalidateQueries({ queryKey: ['client-obligations', profile?.insurer_id] })
+
+    // Fire-and-forget — notify the org's attorneys that the insurer updated their status
+    if (obligation?.matter?.id) {
+      api.sendEvent('payment_status_updated', profile.org_id, obligation.matter.id, {
+        insurer_name: insurer?.name,
+        new_status:   payment_status,
+        amount:       obligation.amount
+          ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(obligation.amount)
+          : null,
+        apportionment_id: obligation.apportionment_id,
+      }).catch(() => {})
+    }
   }
 
   if (!profile?.insurer_id) {
