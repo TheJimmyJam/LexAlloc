@@ -30,9 +30,9 @@ export default function Dashboard() {
     enabled: !!profile?.org_id,
     queryFn: async () => {
       const [mattersRes, invoicesRes, apportRes] = await Promise.all([
-        supabase.from('matters').select('id', { count: 'exact' }).eq('org_id', profile.org_id),
-        supabase.from('invoices').select('id, total_amount', { count: 'exact' }).eq('org_id', profile.org_id),
-        supabase.from('apportionments').select('id', { count: 'exact' }).eq('org_id', profile.org_id),
+        supabase.from('la_matters').select('id', { count: 'exact' }).eq('org_id', profile.org_id),
+        supabase.from('la_invoices').select('id, total_amount', { count: 'exact' }).eq('org_id', profile.org_id),
+        supabase.from('la_apportionments').select('id', { count: 'exact' }).eq('org_id', profile.org_id),
       ])
       const totalInvoiced = invoicesRes.data?.reduce((s, i) => s + (i.total_amount || 0), 0) || 0
       return {
@@ -49,7 +49,7 @@ export default function Dashboard() {
     enabled: !!profile?.org_id,
     queryFn: async () => {
       const { data } = await supabase
-        .from('matters')
+        .from('la_matters')
         .select('id, name, matter_number, status, created_at')
         .eq('org_id', profile.org_id)
         .order('created_at', { ascending: false })
@@ -63,7 +63,7 @@ export default function Dashboard() {
     enabled: !!profile?.org_id,
     queryFn: async () => {
       const { data } = await supabase
-        .from('invoices')
+        .from('la_invoices')
         .select('id, invoice_number, invoice_date, total_amount, status, matter_id, matters(name)')
         .eq('org_id', profile.org_id)
         .order('created_at', { ascending: false })

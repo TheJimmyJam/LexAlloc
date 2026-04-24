@@ -15,7 +15,7 @@ export default function Settings() {
   }, [profile])
 
   const onSaveProfile = async (values) => {
-    const { error } = await supabase.from('profiles').update({
+    const { error } = await supabase.from('la_profiles').update({
       first_name: values.first_name,
       last_name:  values.last_name,
     }).eq('id', profile.id)

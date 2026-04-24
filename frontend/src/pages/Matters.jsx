@@ -14,7 +14,7 @@ function CreateMatterModal({ onClose }) {
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm()
 
   const onSubmit = async (values) => {
-    const { error } = await supabase.from('matters').insert({
+    const { error } = await supabase.from('la_matters').insert({
       org_id:        profile.org_id,
       name:          values.name,
       matter_number: values.matter_number,
@@ -77,7 +77,7 @@ export default function Matters() {
     enabled: !!profile?.org_id,
     queryFn: async () => {
       const { data } = await supabase
-        .from('matters')
+        .from('la_matters')
         .select(`
           id, name, matter_number, status, created_at, description,
           invoices(count), parties(count)
@@ -102,7 +102,7 @@ export default function Matters() {
   }
 
   const quickUpdateStatus = async (matterId, status) => {
-    const { error } = await supabase.from('matters').update({ status, updated_at: new Date().toISOString() }).eq('id', matterId)
+    const { error } = await supabase.from('la_matters').update({ status, updated_at: new Date().toISOString() }).eq('id', matterId)
     if (error) { toast.error(error.message); return }
     qc.invalidateQueries({ queryKey: ['matters', profile?.org_id] })
     qc.invalidateQueries({ queryKey: ['recent-matters'] })

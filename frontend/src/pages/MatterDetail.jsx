@@ -49,7 +49,7 @@ function EditMatterModal({ matter, onClose }) {
   })
 
   const onSubmit = async (values) => {
-    const { error } = await supabase.from('matters').update({
+    const { error } = await supabase.from('la_matters').update({
       name:          values.name,
       matter_number: values.matter_number || null,
       description:   values.description  || null,
@@ -66,7 +66,7 @@ function EditMatterModal({ matter, onClose }) {
 
   const handleDelete = async () => {
     if (!confirm(`Permanently delete "${matter.name}"? This cannot be undone.`)) return
-    const { error } = await supabase.from('matters').delete().eq('id', matter.id)
+    const { error } = await supabase.from('la_matters').delete().eq('id', matter.id)
     if (error) { toast.error(error.message); return }
     toast.success('Matter deleted')
     qc.invalidateQueries({ queryKey: ['matters'] })
@@ -140,7 +140,7 @@ function EditPartyModal({ party, matterId, onClose }) {
   })
 
   const onSubmit = async (values) => {
-    const { error } = await supabase.from('parties').update({
+    const { error } = await supabase.from('la_parties').update({
       name:             values.name,
       type:             values.type,
       share_percentage: parseFloat(values.share_percentage),
@@ -205,7 +205,7 @@ function AddPartyModal({ matterId, onClose }) {
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm()
 
   const onSubmit = async (values) => {
-    const { error } = await supabase.from('parties').insert({
+    const { error } = await supabase.from('la_parties').insert({
       matter_id:        matterId,
       org_id:           profile.org_id,
       name:             values.name,
@@ -275,7 +275,7 @@ function AddInsurerModal({ matterId, parties, onClose }) {
     // Create or find insurer
     let insurerId
     const { data: existing } = await supabase
-      .from('insurers')
+      .from('la_insurers')
       .select('id')
       .eq('org_id', profile.org_id)
       .eq('name', values.insurer_name)
@@ -284,7 +284,7 @@ function AddInsurerModal({ matterId, parties, onClose }) {
     if (existing) {
       insurerId = existing.id
     } else {
-      const { data: newIns, error } = await supabase.from('insurers').insert({
+      const { data: newIns, error } = await supabase.from('la_insurers').insert({
         org_id: profile.org_id,
         name:   values.insurer_name,
         policy_number: values.policy_number,
@@ -294,7 +294,7 @@ function AddInsurerModal({ matterId, parties, onClose }) {
     }
 
     // Create policy period
-    const { error: ppErr } = await supabase.from('insurer_policy_periods').insert({
+    const { error: ppErr } = await supabase.from('la_insurer_policy_periods').insert({
       insurer_id:   insurerId,
       party_id:     values.party_id,
       matter_id:    matterId,
@@ -385,7 +385,7 @@ export default function MatterDetail() {
   const { data: matter, isLoading } = useQuery({
     queryKey: ['matter', matterId],
     queryFn: async () => {
-      const { data } = await supabase.from('matters').select('*').eq('id', matterId).single()
+      const { data } = await supabase.from('la_matters').select('*').eq('id', matterId).single()
       return data
     }
   })
@@ -393,7 +393,7 @@ export default function MatterDetail() {
   const { data: parties = [] } = useQuery({
     queryKey: ['matter-parties', matterId],
     queryFn: async () => {
-      const { data } = await supabase.from('parties').select('*').eq('matter_id', matterId).order('created_at')
+      const { data } = await supabase.from('la_parties').select('*').eq('matter_id', matterId).order('created_at')
       return data || []
     }
   })
@@ -402,7 +402,7 @@ export default function MatterDetail() {
     queryKey: ['matter-insurers', matterId],
     queryFn: async () => {
       const { data } = await supabase
-        .from('insurer_policy_periods')
+        .from('la_insurer_policy_periods')
         .select('*, insurers(name, policy_number), parties(name)')
         .eq('matter_id', matterId)
         .order('policy_start')
@@ -414,7 +414,7 @@ export default function MatterDetail() {
     queryKey: ['matter-invoices', matterId],
     queryFn: async () => {
       const { data } = await supabase
-        .from('invoices')
+        .from('la_invoices')
         .select('*')
         .eq('matter_id', matterId)
         .order('invoice_date', { ascending: false })
@@ -426,7 +426,7 @@ export default function MatterDetail() {
     queryKey: ['matter-apportionments', matterId],
     queryFn: async () => {
       const { data } = await supabase
-        .from('apportionments')
+        .from('la_apportionments')
         .select('*, invoices(invoice_number, total_amount)')
         .eq('matter_id', matterId)
         .order('calculated_at', { ascending: false })
@@ -439,7 +439,7 @@ export default function MatterDetail() {
     queryKey: ['matter-financials', matterId],
     queryFn: async () => {
       const { data } = await supabase
-        .from('apportionments')
+        .from('la_apportionments')
         .select(`
           id, calculated_at,
           invoices(id, invoice_number, invoice_date, total_amount),
@@ -460,14 +460,14 @@ export default function MatterDetail() {
 
   const deleteParty = async (id) => {
     if (!confirm('Remove this party?')) return
-    await supabase.from('parties').delete().eq('id', id)
+    await supabase.from('la_parties').delete().eq('id', id)
     qc.invalidateQueries({ queryKey: ['matter-parties', matterId] })
     toast.success('Party removed')
   }
 
   const deleteInsurer = async (id) => {
     if (!confirm('Remove this policy period?')) return
-    await supabase.from('insurer_policy_periods').delete().eq('id', id)
+    await supabase.from('la_insurer_policy_periods').delete().eq('id', id)
     qc.invalidateQueries({ queryKey: ['matter-insurers', matterId] })
     toast.success('Policy period removed')
   }
@@ -478,7 +478,7 @@ export default function MatterDetail() {
     // Give the last party the remainder to ensure exact 100%
     const remainder = parseFloat((100 - equal * (parties.length - 1)).toFixed(4))
     const updates = parties.map((p, i) =>
-      supabase.from('parties').update({ share_percentage: i === parties.length - 1 ? remainder : equal }).eq('id', p.id)
+      supabase.from('la_parties').update({ share_percentage: i === parties.length - 1 ? remainder : equal }).eq('id', p.id)
     )
     await Promise.all(updates)
     qc.invalidateQueries({ queryKey: ['matter-parties', matterId] })

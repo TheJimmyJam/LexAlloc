@@ -18,7 +18,7 @@ export default function InvoiceDetail() {
   const { data: invoice, isLoading } = useQuery({
     queryKey: ['invoice', invoiceId],
     queryFn: async () => {
-      const { data } = await supabase.from('invoices').select('*, matters(name)').eq('id', invoiceId).single()
+      const { data } = await supabase.from('la_invoices').select('*, matters(name)').eq('id', invoiceId).single()
       return data
     }
   })
@@ -27,7 +27,7 @@ export default function InvoiceDetail() {
     queryKey: ['invoice-lines', invoiceId],
     queryFn: async () => {
       const { data } = await supabase
-        .from('invoice_line_items')
+        .from('la_invoice_line_items')
         .select('*')
         .eq('invoice_id', invoiceId)
         .order('date_of_service')
@@ -38,7 +38,7 @@ export default function InvoiceDetail() {
   const { data: parties = [] } = useQuery({
     queryKey: ['matter-parties', matterId],
     queryFn: async () => {
-      const { data } = await supabase.from('parties').select('*').eq('matter_id', matterId)
+      const { data } = await supabase.from('la_parties').select('*').eq('matter_id', matterId)
       return data || []
     }
   })
@@ -47,7 +47,7 @@ export default function InvoiceDetail() {
     queryKey: ['matter-insurers', matterId],
     queryFn: async () => {
       const { data } = await supabase
-        .from('insurer_policy_periods')
+        .from('la_insurer_policy_periods')
         .select('*, insurers(name)')
         .eq('matter_id', matterId)
       return data || []
@@ -76,7 +76,7 @@ export default function InvoiceDetail() {
       const result = apportionInvoice(invoice, partiesWithPolicies)
 
       // Save apportionment to DB
-      const { data: apport, error: aErr } = await supabase.from('apportionments').insert({
+      const { data: apport, error: aErr } = await supabase.from('la_apportionments').insert({
         invoice_id:         invoiceId,
         matter_id:          matterId,
         org_id:             profile.org_id,
@@ -89,7 +89,7 @@ export default function InvoiceDetail() {
 
       // Save party + insurer breakdowns
       for (const pb of result.party_breakdown) {
-        const { data: pa } = await supabase.from('party_apportionments').insert({
+        const { data: pa } = await supabase.from('la_party_apportionments').insert({
           apportionment_id: apport.id,
           party_id:         pb.party_id,
           percentage:       pb.share_percentage,
@@ -97,7 +97,7 @@ export default function InvoiceDetail() {
         }).select().single()
 
         for (const ins of pb.insurers) {
-          await supabase.from('insurer_apportionments').insert({
+          await supabase.from('la_insurer_apportionments').insert({
             apportionment_id:      apport.id,
             party_apportionment_id: pa.id,
             insurer_id:            ins.insurer_id,
@@ -110,7 +110,7 @@ export default function InvoiceDetail() {
       }
 
       // Update invoice status
-      await supabase.from('invoices').update({ status: 'apportioned' }).eq('id', invoiceId)
+      await supabase.from('la_invoices').update({ status: 'apportioned' }).eq('id', invoiceId)
 
       toast.success('Apportionment calculated!')
       qc.invalidateQueries({ queryKey: ['matter-apportionments', matterId] })

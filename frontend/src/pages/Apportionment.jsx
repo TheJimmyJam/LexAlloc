@@ -45,7 +45,7 @@ function RecordPaymentModal({ ia, partyName, onClose, onSaved }) {
 
   const onSubmit = async (values) => {
     const { error } = await supabase
-      .from('insurer_apportionments')
+      .from('la_insurer_apportionments')
       .update({
         payment_status: values.payment_status,
         amount_paid:    parseFloat(values.amount_paid)  || 0,
@@ -155,7 +155,7 @@ export default function Apportionment() {
     queryKey: ['apportionment', apportionmentId],
     queryFn: async () => {
       const { data } = await supabase
-        .from('apportionments')
+        .from('la_apportionments')
         .select(`
           *,
           invoices(invoice_number, total_amount, invoice_date, billing_firm, service_start, service_end),

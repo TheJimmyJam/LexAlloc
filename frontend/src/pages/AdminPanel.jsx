@@ -99,7 +99,7 @@ export default function AdminPanel() {
     enabled: !!profile?.org_id,
     queryFn: async () => {
       const { data } = await supabase
-        .from('profiles')
+        .from('la_profiles')
         .select('*, organizations(name)')
         .eq('org_id', profile.org_id)
         .order('created_at', { ascending: false })
@@ -111,7 +111,7 @@ export default function AdminPanel() {
     queryKey: ['admin-orgs'],
     queryFn: async () => {
       const { data } = await supabase
-        .from('organizations')
+        .from('la_organizations')
         .select('*, profiles(count)')
         .order('created_at', { ascending: false })
       return data || []
@@ -125,7 +125,7 @@ export default function AdminPanel() {
   }
 
   const changeRole = async (userId, role) => {
-    const { error } = await supabase.from('profiles').update({ role }).eq('id', userId)
+    const { error } = await supabase.from('la_profiles').update({ role }).eq('id', userId)
     if (error) { toast.error(error.message); return }
     toast.success('Role updated')
   }
