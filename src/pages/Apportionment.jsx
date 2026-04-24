@@ -90,25 +90,46 @@ export default function Apportionment() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 print:hidden">
         <div className="card p-5">
           <h3 className="font-semibold text-slate-900 mb-4">Party Apportionment</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={90} dataKey="value" nameKey="name" paddingAngle={2}>
-                {pieData.map((d,i) => <Cell key={i} fill={d.color}/>)}
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
+              <Pie
+                data={pieData}
+                cx="40%"
+                cy="50%"
+                innerRadius={60}
+                outerRadius={95}
+                dataKey="value"
+                nameKey="name"
+                paddingAngle={2}
+              >
+                {pieData.map((d, i) => <Cell key={i} fill={d.color} />)}
               </Pie>
-              <Tooltip formatter={(v) => formatCurrency(v)}/>
-              <Legend/>
+              <Tooltip formatter={(v) => formatCurrency(v)} />
+              <Legend
+                layout="vertical"
+                verticalAlign="middle"
+                align="right"
+                iconType="circle"
+                iconSize={10}
+                formatter={(value) => (
+                  <span style={{ fontSize: '12px', color: '#475569' }}>{value}</span>
+                )}
+              />
             </PieChart>
           </ResponsiveContainer>
         </div>
         <div className="card p-5">
           <h3 className="font-semibold text-slate-900 mb-4">Insurer Obligations</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={allInsurers} margin={{ left:10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9"/>
-              <XAxis dataKey="name" tick={{ fontSize:10 }}/>
-              <YAxis tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={{ fontSize:10 }}/>
-              <Tooltip formatter={v=>formatCurrency(v)} labelFormatter={(l,p)=>p[0]?.payload ? `${p[0].payload.party} / ${l}` : l}/>
-              <Bar dataKey="amount" fill="#4f46e5" radius={[4,4,0,0]}/>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={allInsurers} margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} width={48} />
+              <Tooltip
+                formatter={v => formatCurrency(v)}
+                labelFormatter={(l, p) => p[0]?.payload ? `${p[0].payload.party} / ${l}` : l}
+              />
+              <Bar dataKey="amount" fill="#4f46e5" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
