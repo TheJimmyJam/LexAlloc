@@ -4,10 +4,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.js'
 import { supabase } from '../lib/supabase.js'
 import { useForm } from 'react-hook-form'
-import { formatCurrency } from '../lib/calculations.js'
+import { formatCurrency, exhaustionInfo } from '../lib/calculations.js'
 import {
   ArrowLeft, Plus, Trash2, X, Upload, FileText,
-  Users, Shield, Calculator, ChevronRight, Edit2, Check, TrendingUp
+  Users, Shield, Calculator, ChevronRight, Edit2, Check, TrendingUp, AlertTriangle
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -485,6 +485,17 @@ export default function MatterDetail() {
     toast.success('Shares equalized!')
   }
 
+  // Cumulative amount owed per insurer across all apportionments (for exhaustion tracking)
+  const owedByInsurerId = {}
+  ;(financialRows || []).forEach(appt => {
+    ;(appt.party_apportionments || []).forEach(pa => {
+      ;(pa.insurer_apportionments || []).forEach(ia => {
+        const key = ia.insurers?.id
+        if (key) owedByInsurerId[key] = (owedByInsurerId[key] || 0) + (ia.amount || 0)
+      })
+    })
+  })
+
   const totalPartyPct = parties.reduce((s, p) => s + (p.share_percentage || 0), 0)
   const statusColors = {
     active: 'bg-green-100 text-green-700', closed: 'bg-slate-100 text-slate-600',
@@ -612,8 +623,52 @@ export default function MatterDetail() {
           })
         )
 
+        // Augment byInsurer with policy limits (sum across all their policy periods for this matter)
+        insurerPeriods.forEach(pp => {
+          const key = pp.insurer_id
+          if (!byInsurer[key] || !pp.policy_limit) return
+          byInsurer[key].policy_limit = (byInsurer[key].policy_limit || 0) + Number(pp.policy_limit)
+        })
+
+        // Insurers at or above 70% exhaustion, sorted by worst first
+        const exhaustionWarnings = Object.values(byInsurer)
+          .filter(ins => ins.policy_limit && (ins.owed / ins.policy_limit) >= 0.7)
+          .map(ins => ({ ...ins, pct: (ins.owed / ins.policy_limit) * 100 }))
+          .sort((a, b) => b.pct - a.pct)
+
         return (
           <div className="space-y-6">
+            {/* Policy limit exhaustion warnings */}
+            {exhaustionWarnings.length > 0 && (
+              <div className="space-y-2">
+                {exhaustionWarnings.map((ins, i) => {
+                  const info = exhaustionInfo(ins.pct)
+                  const overLimit = ins.owed > ins.policy_limit
+                  return (
+                    <div key={i} className={`flex items-center justify-between rounded-lg border px-4 py-3 ${
+                      ins.pct >= 100 ? 'bg-red-50 border-red-200' :
+                      ins.pct >= 90  ? 'bg-orange-50 border-orange-200' :
+                                       'bg-amber-50 border-amber-200'
+                    }`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <AlertTriangle className={`h-4 w-4 flex-shrink-0 ${info.color}`} />
+                        <span className={`text-sm font-semibold ${info.color}`}>{ins.name}</span>
+                        <span className="text-sm text-slate-600 truncate">
+                          {formatCurrency(ins.owed)} of {formatCurrency(ins.policy_limit)} limit used
+                          {overLimit
+                            ? ` — over by ${formatCurrency(ins.owed - ins.policy_limit)}`
+                            : ` — ${formatCurrency(ins.policy_limit - ins.owed)} remaining`}
+                        </span>
+                      </div>
+                      <span className={`badge ${info.badge} text-xs whitespace-nowrap ml-3`}>
+                        {ins.pct.toFixed(0)}% — {info.label}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
             {/* Summary cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="card p-5">
@@ -661,7 +716,8 @@ export default function MatterDetail() {
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Total Owed</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Paid</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Outstanding</th>
-                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Coverage</th>
+                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Policy Limit</th>
+                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Exhaustion</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -679,13 +735,23 @@ export default function MatterDetail() {
                               {formatCurrency(outstanding)}
                             </span>
                           </td>
+                          <td className="px-4 py-4 text-right text-sm text-slate-600">
+                            {ins.policy_limit ? formatCurrency(ins.policy_limit) : <span className="text-slate-300">—</span>}
+                          </td>
                           <td className="px-4 py-4">
-                            <div className="flex items-center gap-2">
-                              <div className="w-20 bg-slate-100 rounded-full h-1.5">
-                                <div className="bg-green-500 h-1.5 rounded-full" style={{ width: `${Math.min(pct, 100)}%` }} />
-                              </div>
-                              <span className="text-xs text-slate-500">{pct.toFixed(0)}%</span>
-                            </div>
+                            {ins.policy_limit ? (() => {
+                              const xPct = (ins.owed / ins.policy_limit) * 100
+                              const info = exhaustionInfo(xPct)
+                              return (
+                                <div className="flex items-center gap-2">
+                                  <div className="w-20 bg-slate-100 rounded-full h-1.5">
+                                    <div className={`${info.barColor} h-1.5 rounded-full`} style={{ width: `${Math.min(xPct, 100)}%` }} />
+                                  </div>
+                                  <span className={`text-xs font-medium ${info.color}`}>{xPct.toFixed(0)}%</span>
+                                  {xPct >= 70 && <span className={`badge ${info.badge} text-xs`}>{info.label}</span>}
+                                </div>
+                              )
+                            })() : <span className="text-xs text-slate-300">No limit set</span>}
                           </td>
                         </tr>
                       )
@@ -697,7 +763,7 @@ export default function MatterDetail() {
                       <td className="px-4 py-3 text-right font-bold text-slate-900">{formatCurrency(totalApportioned)}</td>
                       <td className="px-4 py-3 text-right font-bold text-green-700">{formatCurrency(totalPaid)}</td>
                       <td className="px-4 py-3 text-right font-bold text-amber-600">{formatCurrency(totalOutstanding)}</td>
-                      <td />
+                      <td /><td />
                     </tr>
                   </tfoot>
                 </table>
@@ -900,11 +966,16 @@ export default function MatterDetail() {
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Party</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Policy Period</th>
                     <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Limit</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Exhaustion</th>
                     <th />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {insurerPeriods.map(pp => (
+                  {insurerPeriods.map(pp => {
+                    const owed = owedByInsurerId[pp.insurer_id] || 0
+                    const xPct = pp.policy_limit && owed > 0 ? (owed / Number(pp.policy_limit)) * 100 : null
+                    const info = xPct !== null ? exhaustionInfo(xPct) : null
+                    return (
                     <tr key={pp.id} className="hover:bg-slate-50">
                       <td className="px-5 py-4 font-medium text-slate-800">{pp.insurers?.name}</td>
                       <td className="px-4 py-4 text-sm text-slate-500 font-mono">{pp.insurers?.policy_number || '—'}</td>
@@ -916,12 +987,23 @@ export default function MatterDetail() {
                         {pp.policy_limit ? formatCurrency(pp.policy_limit) : '—'}
                       </td>
                       <td className="px-4 py-4">
+                        {xPct !== null ? (
+                          <div className="flex items-center gap-2">
+                            <div className="w-16 bg-slate-100 rounded-full h-1.5">
+                              <div className={`${info.barColor} h-1.5 rounded-full`} style={{ width: `${Math.min(xPct, 100)}%` }} />
+                            </div>
+                            <span className={`text-xs font-medium ${info.color}`}>{xPct.toFixed(0)}%</span>
+                            {xPct >= 70 && <span className={`badge ${info.badge} text-xs`}>{info.label}</span>}
+                          </div>
+                        ) : <span className="text-xs text-slate-300">—</span>}
+                      </td>
+                      <td className="px-4 py-4">
                         <button onClick={() => deleteInsurer(pp.id)} className="text-slate-300 hover:text-red-500 transition-colors">
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </td>
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             )}

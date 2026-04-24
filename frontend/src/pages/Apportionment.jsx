@@ -1,8 +1,8 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase.js'
-import { formatCurrency, formatPercent } from '../lib/calculations.js'
-import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2 } from 'lucide-react'
+import { formatCurrency, formatPercent, exhaustionInfo } from '../lib/calculations.js'
+import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays } from 'date-fns'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
@@ -441,6 +441,7 @@ export default function Apportionment() {
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Days on Risk</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">TOR %</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Obligation</th>
+                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Policy Limit</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Paid</th>
                       <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Status</th>
                     </tr>
@@ -468,6 +469,25 @@ export default function Apportionment() {
                             </div>
                           </td>
                           <td className="py-3 text-right font-bold text-slate-900">{formatCurrency(ia.amount)}</td>
+                          <td className="py-3 text-right">
+                            {pp?.policy_limit ? (() => {
+                              const xPct = (ia.amount / Number(pp.policy_limit)) * 100
+                              const info = exhaustionInfo(xPct)
+                              return (
+                                <div className="flex flex-col items-end gap-0.5">
+                                  <span className="text-sm text-slate-700">{formatCurrency(pp.policy_limit)}</span>
+                                  {xPct >= 70 ? (
+                                    <span className={`badge ${info.badge} text-xs`}>
+                                      <AlertTriangle className="h-3 w-3 inline mr-0.5" />
+                                      {xPct.toFixed(0)}% this inv
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-slate-400">{xPct.toFixed(0)}% of limit</span>
+                                  )}
+                                </div>
+                              )
+                            })() : <span className="text-slate-300 text-sm">—</span>}
+                          </td>
                           <td className="py-3 text-right">
                             {ia.payment_status === 'paid' ? (
                               <span className="font-semibold text-green-700">{formatCurrency(ia.amount_paid)}</span>
@@ -501,6 +521,7 @@ export default function Apportionment() {
                       <td className="pt-3 text-right font-bold text-brand-700">
                         {formatCurrency(pa.insurer_apportionments.reduce((s, ia) => s + (ia.amount || 0), 0))}
                       </td>
+                      <td />
                       <td className="pt-3 text-right font-bold text-green-700">
                         {formatCurrency(pa.insurer_apportionments.reduce((s, ia) => s + (ia.amount_paid || 0), 0))}
                       </td>
