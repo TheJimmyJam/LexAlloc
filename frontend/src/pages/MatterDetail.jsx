@@ -477,6 +477,7 @@ export default function MatterDetail() {
   const [showEditMatter, setShowEditMatter] = useState(false)
   const [showAddParty, setShowAddParty] = useState(false)
   const [editingParty, setEditingParty] = useState(null)
+  const [editingPct, setEditingPct] = useState({})   // { [partyId]: stringValue }
   const [showAddInsurer, setShowAddInsurer] = useState(false)
   const [editingInsurer, setEditingInsurer] = useState(null)
   const [showUploadInvoice, setShowUploadInvoice] = useState(false)
@@ -574,7 +575,6 @@ export default function MatterDetail() {
   const equalizeShares = async () => {
     if (parties.length === 0) return
     const equal = parseFloat((100 / parties.length).toFixed(4))
-    // Give the last party the remainder to ensure exact 100%
     const remainder = parseFloat((100 - equal * (parties.length - 1)).toFixed(4))
     const updates = parties.map((p, i) =>
       supabase.from('la_parties').update({ share_percentage: i === parties.length - 1 ? remainder : equal }).eq('id', p.id)
@@ -582,6 +582,35 @@ export default function MatterDetail() {
     await Promise.all(updates)
     qc.invalidateQueries({ queryKey: ['matter-parties', matterId] })
     toast.success('Shares equalized!')
+  }
+
+  const savePct = async (partyId, rawValue) => {
+    const val = parseFloat(rawValue)
+    if (isNaN(val) || val < 0 || val > 100) {
+      setEditingPct(prev => { const n = {...prev}; delete n[partyId]; return n })
+      toast.error('Percentage must be between 0 and 100')
+      return
+    }
+    const rounded = parseFloat(val.toFixed(4))
+    const { error } = await supabase.from('la_parties').update({ share_percentage: rounded }).eq('id', partyId)
+    setEditingPct(prev => { const n = {...prev}; delete n[partyId]; return n })
+    if (error) { toast.error(error.message); return }
+    qc.invalidateQueries({ queryKey: ['matter-parties', matterId] })
+  }
+
+  const splitRemaining = async () => {
+    const remaining = parseFloat((100 - totalPartyPct).toFixed(4))
+    if (remaining <= 0 || parties.length === 0) return
+    const share = parseFloat((remaining / parties.length).toFixed(4))
+    const updates = parties.map((p, i) => {
+      const newPct = parseFloat((p.share_percentage + (i === parties.length - 1
+        ? parseFloat((remaining - share * (parties.length - 1)).toFixed(4))
+        : share)).toFixed(4))
+      return supabase.from('la_parties').update({ share_percentage: newPct }).eq('id', p.id)
+    })
+    await Promise.all(updates)
+    qc.invalidateQueries({ queryKey: ['matter-parties', matterId] })
+    toast.success('Remaining % split evenly!')
   }
 
   // Cumulative amount owed per insurer across all apportionments (for exhaustion tracking)
@@ -957,21 +986,27 @@ export default function MatterDetail() {
       })()}
 
       {/* ── Parties Tab ── */}
-      {tab === 'parties' && (
+      {tab === 'parties' && (() => {
+        const remaining = parseFloat((100 - totalPartyPct).toFixed(4))
+        const isOver    = totalPartyPct > 100
+        const isUnder   = totalPartyPct < 100
+        const isExact   = totalPartyPct === 100
+        return (
         <div>
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="font-semibold text-slate-900">Parties</h2>
-              {totalPartyPct !== 100 && parties.length > 0 && (
-                <p className="text-xs text-amber-600 mt-0.5">
-                  ⚠ Shares total {totalPartyPct}% — must equal 100% for accurate apportionment.
-                </p>
-              )}
+              <p className="text-xs text-slate-400 mt-0.5">Click any percentage to edit it inline.</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {isUnder && parties.length > 0 && (
+                <button onClick={splitRemaining} className="btn-secondary text-sm text-amber-700 border-amber-300 hover:bg-amber-50">
+                  <Plus className="h-4 w-4" /> Split {remaining}% remaining
+                </button>
+              )}
               {parties.length > 1 && (
                 <button onClick={equalizeShares} className="btn-secondary text-sm">
-                  <Check className="h-4 w-4" /> Equalize Shares
+                  <Check className="h-4 w-4" /> Equalize
                 </button>
               )}
               <button onClick={() => setShowAddParty(true)} className="btn-primary">
@@ -979,6 +1014,19 @@ export default function MatterDetail() {
               </button>
             </div>
           </div>
+
+          {/* Total alert */}
+          {parties.length > 0 && !isExact && (
+            <div className={`mb-4 flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm ${
+              isOver ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-700'
+            }`}>
+              <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+              {isOver
+                ? `Shares total ${totalPartyPct}% — over 100% by ${Math.abs(remaining)}%. Reduce one or more parties.`
+                : `Shares total ${totalPartyPct}% — ${remaining}% unassigned. Apportionment won't reach 100% until this is resolved.`}
+            </div>
+          )}
+
           <div className="card overflow-hidden">
             {parties.length === 0 ? (
               <div className="p-10 text-center text-slate-400">
@@ -994,7 +1042,10 @@ export default function MatterDetail() {
                   <tr className="border-b border-slate-100 bg-slate-50">
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Name</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Type</th>
-                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Share %</th>
+                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">
+                      Share %
+                      <span className="text-slate-300 font-normal ml-1 normal-case">(click to edit)</span>
+                    </th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Notes</th>
                     <th />
                   </tr>
@@ -1006,11 +1057,35 @@ export default function MatterDetail() {
                       <td className="px-4 py-4">
                         <span className="badge bg-slate-100 text-slate-600 capitalize">{p.type?.replace('_', ' ')}</span>
                       </td>
-                      <td className="px-4 py-4 text-right font-semibold text-slate-800">{p.share_percentage}%</td>
+                      <td className="px-4 py-3 text-right">
+                        {editingPct[p.id] !== undefined ? (
+                          <input
+                            type="number" step="0.01" min="0" max="100"
+                            value={editingPct[p.id]}
+                            onChange={e => setEditingPct(prev => ({ ...prev, [p.id]: e.target.value }))}
+                            onBlur={() => savePct(p.id, editingPct[p.id])}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') { e.target.blur() }
+                              if (e.key === 'Escape') { setEditingPct(prev => { const n={...prev}; delete n[p.id]; return n }) }
+                            }}
+                            className="w-24 text-right form-input py-1 px-2 text-sm font-semibold"
+                            autoFocus
+                          />
+                        ) : (
+                          <button
+                            onClick={() => setEditingPct(prev => ({ ...prev, [p.id]: String(p.share_percentage) }))}
+                            className="font-semibold text-slate-800 hover:text-brand-600 hover:bg-brand-50 rounded px-2 py-1 transition-colors group"
+                            title="Click to edit"
+                          >
+                            {p.share_percentage}%
+                            <Edit2 className="h-3 w-3 inline ml-1 text-slate-300 group-hover:text-brand-400" />
+                          </button>
+                        )}
+                      </td>
                       <td className="px-4 py-4 text-sm text-slate-400 max-w-xs truncate">{p.notes || '—'}</td>
                       <td className="px-4 py-4">
                         <div className="flex items-center gap-2">
-                          <button onClick={() => setEditingParty(p)} className="text-slate-300 hover:text-brand-600 transition-colors" title="Edit party">
+                          <button onClick={() => setEditingParty(p)} className="text-slate-300 hover:text-brand-600 transition-colors" title="Edit name / type / notes">
                             <Edit2 className="h-4 w-4" />
                           </button>
                           <button onClick={() => deleteParty(p.id)} className="text-slate-300 hover:text-red-500 transition-colors" title="Remove party">
@@ -1024,8 +1099,13 @@ export default function MatterDetail() {
                 <tfoot>
                   <tr className="border-t-2 border-slate-200 bg-slate-50">
                     <td colSpan={2} className="px-5 py-3 text-sm font-semibold text-slate-700">Total</td>
-                    <td className={`px-4 py-3 text-right font-bold text-sm ${totalPartyPct === 100 ? 'text-green-600' : 'text-amber-600'}`}>
+                    <td className={`px-4 py-3 text-right font-bold text-sm ${
+                      isExact ? 'text-green-600' : isOver ? 'text-red-600' : 'text-amber-600'
+                    }`}>
                       {totalPartyPct}%
+                      {isExact && <span className="ml-1.5 text-xs font-normal text-green-500">✓</span>}
+                      {isUnder && <span className="ml-1.5 text-xs font-normal text-amber-500">({remaining}% remaining)</span>}
+                      {isOver  && <span className="ml-1.5 text-xs font-normal text-red-500">(over by {Math.abs(remaining)}%)</span>}
                     </td>
                     <td colSpan={2} />
                   </tr>
@@ -1034,7 +1114,8 @@ export default function MatterDetail() {
             )}
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* ── Insurers Tab ── */}
       {tab === 'insurers' && (
