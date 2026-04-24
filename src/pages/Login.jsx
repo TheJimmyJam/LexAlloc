@@ -37,7 +37,7 @@ export default function Login() {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-brand-900 to-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <img src="/logo.svg" alt="LexAlloc" className="w-72 mx-auto" />
+          <img src="/logo.svg" alt="LexAlloc" className="w-full mx-auto" />
         </div>
 
         {/* Demo notice */}
