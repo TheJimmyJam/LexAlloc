@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useAuth } from '../hooks/useAuth.jsx'
+import { useAuth } from '../hooks/useAuth.js'
 import { supabase } from '../lib/supabase.js'
 import { useForm } from 'react-hook-form'
-import { formatCurrency, exhaustionInfo } from '../lib/calculations.js'
+import { formatCurrency } from '../lib/calculations.js'
 import {
   ArrowLeft, Plus, Trash2, X, Upload, FileText,
-  Users, Shield, Calculator, ChevronRight, Edit2, Check, TrendingUp, AlertTriangle
+  Users, Shield, Calculator, ChevronRight, Edit2, Check
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -15,25 +15,12 @@ import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 const TABS = [
-  { key: 'overview',      label: 'Overview',      icon: FileText   },
-  { key: 'financials',    label: 'Financials',     icon: TrendingUp },
-  { key: 'parties',       label: 'Parties',        icon: Users      },
-  { key: 'insurers',      label: 'Insurers',       icon: Shield     },
-  { key: 'invoices',      label: 'Invoices',       icon: Upload     },
+  { key: 'overview',      label: 'Overview',      icon: FileText },
+  { key: 'parties',       label: 'Parties',        icon: Users },
+  { key: 'insurers',      label: 'Insurers',       icon: Shield },
+  { key: 'invoices',      label: 'Invoices',       icon: Upload },
   { key: 'apportionments',label: 'Apportionments', icon: Calculator },
 ]
-
-const PAYMENT_STATUS_COLORS = {
-  pending:       'bg-slate-100 text-slate-600',
-  demanded:      'bg-amber-100 text-amber-700',
-  paid:          'bg-green-100 text-green-700',
-  partially_paid:'bg-blue-100 text-blue-700',
-  disputed:      'bg-red-100 text-red-700',
-}
-const PAYMENT_STATUS_LABELS = {
-  pending: 'Pending', demanded: 'Demanded', paid: 'Paid',
-  partially_paid: 'Partial', disputed: 'Disputed',
-}
 
 // ── Edit Matter Modal ─────────────────────────────────────────────────────────
 function EditMatterModal({ matter, onClose }) {
@@ -49,7 +36,7 @@ function EditMatterModal({ matter, onClose }) {
   })
 
   const onSubmit = async (values) => {
-    const { error } = await supabase.from('la_matters').update({
+    const { error } = await supabase.from('matters').update({
       name:          values.name,
       matter_number: values.matter_number || null,
       description:   values.description  || null,
@@ -66,7 +53,7 @@ function EditMatterModal({ matter, onClose }) {
 
   const handleDelete = async () => {
     if (!confirm(`Permanently delete "${matter.name}"? This cannot be undone.`)) return
-    const { error } = await supabase.from('la_matters').delete().eq('id', matter.id)
+    const { error } = await supabase.from('matters').delete().eq('id', matter.id)
     if (error) { toast.error(error.message); return }
     toast.success('Matter deleted')
     qc.invalidateQueries({ queryKey: ['matters'] })
@@ -140,7 +127,7 @@ function EditPartyModal({ party, matterId, onClose }) {
   })
 
   const onSubmit = async (values) => {
-    const { error } = await supabase.from('la_parties').update({
+    const { error } = await supabase.from('parties').update({
       name:             values.name,
       type:             values.type,
       share_percentage: parseFloat(values.share_percentage),
@@ -205,7 +192,7 @@ function AddPartyModal({ matterId, onClose }) {
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm()
 
   const onSubmit = async (values) => {
-    const { error } = await supabase.from('la_parties').insert({
+    const { error } = await supabase.from('parties').insert({
       matter_id:        matterId,
       org_id:           profile.org_id,
       name:             values.name,
@@ -265,119 +252,6 @@ function AddPartyModal({ matterId, onClose }) {
   )
 }
 
-// ── Shared insurer policy period fields (used by Add and Edit modals) ────────
-function InsurerPolicyFields({ register }) {
-  return (
-    <>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="form-label">Policy Start *</label>
-          <input type="date" className="form-input" {...register('policy_start', { required: 'Required' })} />
-        </div>
-        <div>
-          <label className="form-label">Policy End *</label>
-          <input type="date" className="form-input" {...register('policy_end', { required: 'Required' })} />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="form-label">Policy Limit ($)</label>
-          <input type="number" step="0.01" className="form-input" placeholder="1,000,000"
-            {...register('policy_limit')} />
-        </div>
-        <div>
-          <label className="form-label">Deductible ($)</label>
-          <input type="number" step="0.01" className="form-input" placeholder="10,000"
-            {...register('deductible')} />
-        </div>
-      </div>
-      <div className="border-t border-slate-100 pt-4">
-        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Contact Info</p>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="form-label">Claim Number</label>
-            <input className="form-input" placeholder="CLM-2024-001234"
-              {...register('claim_number')} />
-          </div>
-          <div>
-            <label className="form-label">Claims Rep Name</label>
-            <input className="form-input" placeholder="Jane Smith"
-              {...register('claims_rep_name')} />
-          </div>
-        </div>
-        <div className="mt-4">
-          <label className="form-label">Claims Rep Email</label>
-          <input type="email" className="form-input" placeholder="jsmith@travelers.com"
-            {...register('claims_rep_email')} />
-        </div>
-        <div className="mt-4">
-          <label className="form-label">Billing Address</label>
-          <textarea className="form-input h-16 resize-none"
-            placeholder="P.O. Box 1234, Hartford, CT 06101"
-            {...register('billing_address')} />
-        </div>
-      </div>
-    </>
-  )
-}
-
-// ── Edit Insurer Modal ────────────────────────────────────────────────────────
-function EditInsurerModal({ pp, matterId, onClose }) {
-  const qc = useQueryClient()
-  const { register, handleSubmit, formState: { isSubmitting } } = useForm({
-    defaultValues: {
-      policy_start:      pp.policy_start,
-      policy_end:        pp.policy_end,
-      policy_limit:      pp.policy_limit      || '',
-      deductible:        pp.deductible        || '',
-      claim_number:      pp.claim_number      || '',
-      claims_rep_name:   pp.claims_rep_name   || '',
-      claims_rep_email:  pp.claims_rep_email  || '',
-      billing_address:   pp.billing_address   || '',
-    }
-  })
-
-  const onSubmit = async (values) => {
-    const { error } = await supabase.from('la_insurer_policy_periods').update({
-      policy_start:     values.policy_start,
-      policy_end:       values.policy_end,
-      policy_limit:     values.policy_limit     ? parseFloat(values.policy_limit)     : null,
-      deductible:       values.deductible       ? parseFloat(values.deductible)       : null,
-      claim_number:     values.claim_number     || null,
-      claims_rep_name:  values.claims_rep_name  || null,
-      claims_rep_email: values.claims_rep_email || null,
-      billing_address:  values.billing_address  || null,
-    }).eq('id', pp.id)
-    if (error) { toast.error(error.message); return }
-    toast.success('Policy period updated!')
-    qc.invalidateQueries({ queryKey: ['matter-insurers', matterId] })
-    onClose()
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-6 border-b border-slate-200">
-          <div>
-            <h2 className="font-semibold text-lg">Edit Policy Period</h2>
-            <p className="text-sm text-slate-500 mt-0.5">{pp.insurers?.name} · {pp.parties?.name}</p>
-          </div>
-          <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
-        </div>
-        <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
-          <InsurerPolicyFields register={register} />
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
-            <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
-              {isSubmitting ? 'Saving…' : 'Save Changes'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
 // ── Add Insurer Modal ─────────────────────────────────────────────────────────
 function AddInsurerModal({ matterId, parties, onClose }) {
   const { profile } = useAuth()
@@ -388,7 +262,7 @@ function AddInsurerModal({ matterId, parties, onClose }) {
     // Create or find insurer
     let insurerId
     const { data: existing } = await supabase
-      .from('la_insurers')
+      .from('insurers')
       .select('id')
       .eq('org_id', profile.org_id)
       .eq('name', values.insurer_name)
@@ -397,29 +271,25 @@ function AddInsurerModal({ matterId, parties, onClose }) {
     if (existing) {
       insurerId = existing.id
     } else {
-      const { data: newIns, error } = await supabase.from('la_insurers').insert({
-        org_id:        profile.org_id,
-        name:          values.insurer_name,
+      const { data: newIns, error } = await supabase.from('insurers').insert({
+        org_id: profile.org_id,
+        name:   values.insurer_name,
         policy_number: values.policy_number,
       }).select().single()
       if (error) { toast.error(error.message); return }
       insurerId = newIns.id
     }
 
-    // Create policy period with contact info
-    const { error: ppErr } = await supabase.from('la_insurer_policy_periods').insert({
-      insurer_id:       insurerId,
-      party_id:         values.party_id,
-      matter_id:        matterId,
-      org_id:           profile.org_id,
-      policy_start:     values.policy_start,
-      policy_end:       values.policy_end,
-      policy_limit:     values.policy_limit     ? parseFloat(values.policy_limit)     : null,
-      deductible:       values.deductible       ? parseFloat(values.deductible)       : null,
-      claim_number:     values.claim_number     || null,
-      claims_rep_name:  values.claims_rep_name  || null,
-      claims_rep_email: values.claims_rep_email || null,
-      billing_address:  values.billing_address  || null,
+    // Create policy period
+    const { error: ppErr } = await supabase.from('insurer_policy_periods').insert({
+      insurer_id:   insurerId,
+      party_id:     values.party_id,
+      matter_id:    matterId,
+      org_id:       profile.org_id,
+      policy_start: values.policy_start,
+      policy_end:   values.policy_end,
+      policy_limit: values.policy_limit ? parseFloat(values.policy_limit) : null,
+      deductible:   values.deductible   ? parseFloat(values.deductible)   : null,
     })
     if (ppErr) { toast.error(ppErr.message); return }
     toast.success('Insurer & policy period added!')
@@ -429,7 +299,7 @@ function AddInsurerModal({ matterId, parties, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
         <div className="flex items-center justify-between p-6 border-b border-slate-200">
           <h2 className="font-semibold text-lg">Add Insurer & Policy Period</h2>
           <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
@@ -439,7 +309,6 @@ function AddInsurerModal({ matterId, parties, onClose }) {
             <label className="form-label">Insurer Name *</label>
             <input className="form-input" placeholder="Travelers Indemnity Company"
               {...register('insurer_name', { required: 'Required' })} />
-            {errors.insurer_name && <p className="text-red-500 text-xs mt-1">{errors.insurer_name.message}</p>}
           </div>
           <div>
             <label className="form-label">Policy Number</label>
@@ -452,9 +321,29 @@ function AddInsurerModal({ matterId, parties, onClose }) {
               <option value="">Select party…</option>
               {parties?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
-            {errors.party_id && <p className="text-red-500 text-xs mt-1">{errors.party_id.message}</p>}
           </div>
-          <InsurerPolicyFields register={register} />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">Policy Start *</label>
+              <input type="date" className="form-input" {...register('policy_start', { required: 'Required' })} />
+            </div>
+            <div>
+              <label className="form-label">Policy End *</label>
+              <input type="date" className="form-input" {...register('policy_end', { required: 'Required' })} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">Policy Limit ($)</label>
+              <input type="number" step="0.01" className="form-input" placeholder="1,000,000"
+                {...register('policy_limit')} />
+            </div>
+            <div>
+              <label className="form-label">Deductible ($)</label>
+              <input type="number" step="0.01" className="form-input" placeholder="10,000"
+                {...register('deductible')} />
+            </div>
+          </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
             <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
@@ -478,13 +367,12 @@ export default function MatterDetail() {
   const [showAddParty, setShowAddParty] = useState(false)
   const [editingParty, setEditingParty] = useState(null)
   const [showAddInsurer, setShowAddInsurer] = useState(false)
-  const [editingInsurer, setEditingInsurer] = useState(null)
   const [showUploadInvoice, setShowUploadInvoice] = useState(false)
 
   const { data: matter, isLoading } = useQuery({
     queryKey: ['matter', matterId],
     queryFn: async () => {
-      const { data } = await supabase.from('la_matters').select('*').eq('id', matterId).single()
+      const { data } = await supabase.from('matters').select('*').eq('id', matterId).single()
       return data
     }
   })
@@ -492,7 +380,7 @@ export default function MatterDetail() {
   const { data: parties = [] } = useQuery({
     queryKey: ['matter-parties', matterId],
     queryFn: async () => {
-      const { data } = await supabase.from('la_parties').select('*').eq('matter_id', matterId).order('created_at')
+      const { data } = await supabase.from('parties').select('*').eq('matter_id', matterId).order('created_at')
       return data || []
     }
   })
@@ -501,8 +389,8 @@ export default function MatterDetail() {
     queryKey: ['matter-insurers', matterId],
     queryFn: async () => {
       const { data } = await supabase
-        .from('la_insurer_policy_periods')
-        .select('*, insurers:la_insurers(name, policy_number), parties:la_parties(name)')
+        .from('insurer_policy_periods')
+        .select('*, insurers(name, policy_number), parties(name)')
         .eq('matter_id', matterId)
         .order('policy_start')
       return data || []
@@ -513,7 +401,7 @@ export default function MatterDetail() {
     queryKey: ['matter-invoices', matterId],
     queryFn: async () => {
       const { data } = await supabase
-        .from('la_invoices')
+        .from('invoices')
         .select('*')
         .eq('matter_id', matterId)
         .order('invoice_date', { ascending: false })
@@ -525,32 +413,8 @@ export default function MatterDetail() {
     queryKey: ['matter-apportionments', matterId],
     queryFn: async () => {
       const { data } = await supabase
-        .from('la_apportionments')
-        .select('*, invoices:la_invoices(invoice_number, total_amount)')
-        .eq('matter_id', matterId)
-        .order('calculated_at', { ascending: false })
-      return data || []
-    }
-  })
-
-  // Financials — full payment breakdown across all apportionments
-  const { data: financialRows = [] } = useQuery({
-    queryKey: ['matter-financials', matterId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('la_apportionments')
-        .select(`
-          id, calculated_at,
-          invoices:la_invoices(id, invoice_number, invoice_date, total_amount),
-          party_apportionments:la_party_apportionments(
-            id, amount,
-            parties:la_parties(name),
-            insurer_apportionments:la_insurer_apportionments(
-              id, amount, amount_paid, payment_status, demanded_at, payment_date,
-              insurers:la_insurers(id, name, policy_number)
-            )
-          )
-        `)
+        .from('apportionments')
+        .select('*, invoices(invoice_number, total_amount)')
         .eq('matter_id', matterId)
         .order('calculated_at', { ascending: false })
       return data || []
@@ -559,14 +423,14 @@ export default function MatterDetail() {
 
   const deleteParty = async (id) => {
     if (!confirm('Remove this party?')) return
-    await supabase.from('la_parties').delete().eq('id', id)
+    await supabase.from('parties').delete().eq('id', id)
     qc.invalidateQueries({ queryKey: ['matter-parties', matterId] })
     toast.success('Party removed')
   }
 
   const deleteInsurer = async (id) => {
     if (!confirm('Remove this policy period?')) return
-    await supabase.from('la_insurer_policy_periods').delete().eq('id', id)
+    await supabase.from('insurer_policy_periods').delete().eq('id', id)
     qc.invalidateQueries({ queryKey: ['matter-insurers', matterId] })
     toast.success('Policy period removed')
   }
@@ -577,23 +441,12 @@ export default function MatterDetail() {
     // Give the last party the remainder to ensure exact 100%
     const remainder = parseFloat((100 - equal * (parties.length - 1)).toFixed(4))
     const updates = parties.map((p, i) =>
-      supabase.from('la_parties').update({ share_percentage: i === parties.length - 1 ? remainder : equal }).eq('id', p.id)
+      supabase.from('parties').update({ share_percentage: i === parties.length - 1 ? remainder : equal }).eq('id', p.id)
     )
     await Promise.all(updates)
     qc.invalidateQueries({ queryKey: ['matter-parties', matterId] })
     toast.success('Shares equalized!')
   }
-
-  // Cumulative amount owed per insurer across all apportionments (for exhaustion tracking)
-  const owedByInsurerId = {}
-  ;(financialRows || []).forEach(appt => {
-    ;(appt.party_apportionments || []).forEach(pa => {
-      ;(pa.insurer_apportionments || []).forEach(ia => {
-        const key = ia.insurers?.id
-        if (key) owedByInsurerId[key] = (owedByInsurerId[key] || 0) + (ia.amount || 0)
-      })
-    })
-  })
 
   const totalPartyPct = parties.reduce((s, p) => s + (p.share_percentage || 0), 0)
   const statusColors = {
@@ -672,289 +525,6 @@ export default function MatterDetail() {
           </div>
         </div>
       )}
-
-      {/* ── Financials Tab ── */}
-      {tab === 'financials' && (() => {
-        // Aggregate all insurer rows across all apportionments
-        const allIA = financialRows.flatMap(appt =>
-          appt.party_apportionments.flatMap(pa =>
-            (pa.insurer_apportionments || []).map(ia => ({
-              ...ia,
-              party_name:     pa.parties?.name,
-              invoice_number: appt.invoices?.invoice_number,
-              invoice_date:   appt.invoices?.invoice_date,
-              apportionment_id: appt.id,
-            }))
-          )
-        )
-
-        // Totals
-        const totalInvoiced    = invoices.reduce((s, i) => s + (i.total_amount || 0), 0)
-        const totalApportioned = allIA.reduce((s, ia) => s + (ia.amount || 0), 0)
-        const totalPaid        = allIA.reduce((s, ia) => s + (ia.amount_paid || 0), 0)
-        const totalDemanded    = allIA.filter(ia => ['demanded','paid','partially_paid','disputed'].includes(ia.payment_status))
-                                      .reduce((s, ia) => s + (ia.amount || 0), 0)
-        const totalOutstanding = totalApportioned - totalPaid
-
-        // By insurer
-        const byInsurer = {}
-        allIA.forEach(ia => {
-          const key = ia.insurers?.id
-          if (!key) return
-          if (!byInsurer[key]) byInsurer[key] = {
-            name: ia.insurers?.name, policy_number: ia.insurers?.policy_number,
-            owed: 0, paid: 0, invoices: new Set()
-          }
-          byInsurer[key].owed    += ia.amount || 0
-          byInsurer[key].paid    += ia.amount_paid || 0
-          byInsurer[key].invoices.add(ia.invoice_number)
-        })
-
-        // By party
-        const byParty = {}
-        financialRows.forEach(appt =>
-          appt.party_apportionments.forEach(pa => {
-            const key = pa.parties?.name
-            if (!key) return
-            if (!byParty[key]) byParty[key] = { owed: 0, paid: 0 }
-            byParty[key].owed += pa.amount || 0
-            byParty[key].paid += (pa.insurer_apportionments || []).reduce((s, ia) => s + (ia.amount_paid || 0), 0)
-          })
-        )
-
-        // Augment byInsurer with policy limits (sum across all their policy periods for this matter)
-        insurerPeriods.forEach(pp => {
-          const key = pp.insurer_id
-          if (!byInsurer[key] || !pp.policy_limit) return
-          byInsurer[key].policy_limit = (byInsurer[key].policy_limit || 0) + Number(pp.policy_limit)
-        })
-
-        // Insurers at or above 70% exhaustion, sorted by worst first
-        const exhaustionWarnings = Object.values(byInsurer)
-          .filter(ins => ins.policy_limit && (ins.owed / ins.policy_limit) >= 0.7)
-          .map(ins => ({ ...ins, pct: (ins.owed / ins.policy_limit) * 100 }))
-          .sort((a, b) => b.pct - a.pct)
-
-        return (
-          <div className="space-y-6">
-            {/* Policy limit exhaustion warnings */}
-            {exhaustionWarnings.length > 0 && (
-              <div className="space-y-2">
-                {exhaustionWarnings.map((ins, i) => {
-                  const info = exhaustionInfo(ins.pct)
-                  const overLimit = ins.owed > ins.policy_limit
-                  return (
-                    <div key={i} className={`flex items-center justify-between rounded-lg border px-4 py-3 ${
-                      ins.pct >= 100 ? 'bg-red-50 border-red-200' :
-                      ins.pct >= 90  ? 'bg-orange-50 border-orange-200' :
-                                       'bg-amber-50 border-amber-200'
-                    }`}>
-                      <div className="flex items-center gap-2 min-w-0">
-                        <AlertTriangle className={`h-4 w-4 flex-shrink-0 ${info.color}`} />
-                        <span className={`text-sm font-semibold ${info.color}`}>{ins.name}</span>
-                        <span className="text-sm text-slate-600 truncate">
-                          {formatCurrency(ins.owed)} of {formatCurrency(ins.policy_limit)} limit used
-                          {overLimit
-                            ? ` — over by ${formatCurrency(ins.owed - ins.policy_limit)}`
-                            : ` — ${formatCurrency(ins.policy_limit - ins.owed)} remaining`}
-                        </span>
-                      </div>
-                      <span className={`badge ${info.badge} text-xs whitespace-nowrap ml-3`}>
-                        {ins.pct.toFixed(0)}% — {info.label}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* Summary cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="card p-5">
-                <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Total Invoiced</p>
-                <p className="text-2xl font-bold text-slate-900 mt-1">{formatCurrency(totalInvoiced)}</p>
-                <p className="text-xs text-slate-400 mt-1">{invoices.length} invoice{invoices.length !== 1 ? 's' : ''}</p>
-              </div>
-              <div className="card p-5">
-                <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Total Apportioned</p>
-                <p className="text-2xl font-bold text-brand-700 mt-1">{formatCurrency(totalApportioned)}</p>
-                <p className="text-xs text-slate-400 mt-1">{apportionments.length} apportionment{apportionments.length !== 1 ? 's' : ''}</p>
-              </div>
-              <div className="card p-5">
-                <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Total Paid</p>
-                <p className="text-2xl font-bold text-green-700 mt-1">{formatCurrency(totalPaid)}</p>
-                {totalApportioned > 0 && (
-                  <p className="text-xs text-slate-400 mt-1">{((totalPaid / totalApportioned) * 100).toFixed(0)}% collected</p>
-                )}
-              </div>
-              <div className="card p-5">
-                <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Outstanding</p>
-                <p className={`text-2xl font-bold mt-1 ${totalOutstanding > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                  {formatCurrency(totalOutstanding)}
-                </p>
-                {totalOutstanding > 0 && totalApportioned > 0 && (
-                  <p className="text-xs text-slate-400 mt-1">{((totalOutstanding / totalApportioned) * 100).toFixed(0)}% remaining</p>
-                )}
-              </div>
-            </div>
-
-            {/* By insurer */}
-            <div className="card overflow-hidden">
-              <div className="p-5 border-b border-slate-100">
-                <h2 className="font-semibold text-slate-900">By Insurer</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Cumulative across all apportionments</p>
-              </div>
-              {Object.keys(byInsurer).length === 0 ? (
-                <div className="p-8 text-center text-slate-400 text-sm">No apportionments run yet.</div>
-              ) : (
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50">
-                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Insurer</th>
-                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Policy #</th>
-                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Total Owed</th>
-                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Paid</th>
-                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Outstanding</th>
-                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Policy Limit</th>
-                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Exhaustion</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {Object.values(byInsurer).sort((a,b) => b.owed - a.owed).map((ins, i) => {
-                      const outstanding = ins.owed - ins.paid
-                      const pct = ins.owed > 0 ? (ins.paid / ins.owed) * 100 : 0
-                      return (
-                        <tr key={i} className="hover:bg-slate-50">
-                          <td className="px-5 py-4 font-medium text-slate-800">{ins.name}</td>
-                          <td className="px-4 py-4 text-sm font-mono text-slate-500">{ins.policy_number || '—'}</td>
-                          <td className="px-4 py-4 text-right font-semibold text-slate-800">{formatCurrency(ins.owed)}</td>
-                          <td className="px-4 py-4 text-right font-semibold text-green-700">{formatCurrency(ins.paid)}</td>
-                          <td className="px-4 py-4 text-right">
-                            <span className={`font-semibold ${outstanding > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                              {formatCurrency(outstanding)}
-                            </span>
-                          </td>
-                          <td className="px-4 py-4 text-right text-sm text-slate-600">
-                            {ins.policy_limit ? formatCurrency(ins.policy_limit) : <span className="text-slate-300">—</span>}
-                          </td>
-                          <td className="px-4 py-4">
-                            {ins.policy_limit ? (() => {
-                              const xPct = (ins.owed / ins.policy_limit) * 100
-                              const info = exhaustionInfo(xPct)
-                              return (
-                                <div className="flex items-center gap-2">
-                                  <div className="w-20 bg-slate-100 rounded-full h-1.5">
-                                    <div className={`${info.barColor} h-1.5 rounded-full`} style={{ width: `${Math.min(xPct, 100)}%` }} />
-                                  </div>
-                                  <span className={`text-xs font-medium ${info.color}`}>{xPct.toFixed(0)}%</span>
-                                  {xPct >= 70 && <span className={`badge ${info.badge} text-xs`}>{info.label}</span>}
-                                </div>
-                              )
-                            })() : <span className="text-xs text-slate-300">No limit set</span>}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-slate-200 bg-slate-50">
-                      <td colSpan={2} className="px-5 py-3 font-bold text-slate-900">Total</td>
-                      <td className="px-4 py-3 text-right font-bold text-slate-900">{formatCurrency(totalApportioned)}</td>
-                      <td className="px-4 py-3 text-right font-bold text-green-700">{formatCurrency(totalPaid)}</td>
-                      <td className="px-4 py-3 text-right font-bold text-amber-600">{formatCurrency(totalOutstanding)}</td>
-                      <td /><td />
-                    </tr>
-                  </tfoot>
-                </table>
-              )}
-            </div>
-
-            {/* By party */}
-            {Object.keys(byParty).length > 0 && (
-              <div className="card overflow-hidden">
-                <div className="p-5 border-b border-slate-100">
-                  <h2 className="font-semibold text-slate-900">By Party</h2>
-                </div>
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50">
-                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Party</th>
-                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Total Owed</th>
-                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Insurer Paid</th>
-                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Outstanding</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {Object.entries(byParty).sort((a,b) => b[1].owed - a[1].owed).map(([name, p]) => (
-                      <tr key={name} className="hover:bg-slate-50">
-                        <td className="px-5 py-4 font-medium text-slate-800">{name}</td>
-                        <td className="px-4 py-4 text-right font-semibold text-slate-800">{formatCurrency(p.owed)}</td>
-                        <td className="px-4 py-4 text-right font-semibold text-green-700">{formatCurrency(p.paid)}</td>
-                        <td className="px-4 py-4 text-right">
-                          <span className={`font-semibold ${p.owed - p.paid > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                            {formatCurrency(p.owed - p.paid)}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {/* Invoice-level detail */}
-            {financialRows.length > 0 && (
-              <div className="card overflow-hidden">
-                <div className="p-5 border-b border-slate-100">
-                  <h2 className="font-semibold text-slate-900">Invoice Detail</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">Payment status per insurer per invoice</p>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50">
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Invoice</th>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Party</th>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Insurer</th>
-                        <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Owed</th>
-                        <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Paid</th>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Status</th>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Payment Date</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {allIA.map((ia, i) => (
-                        <tr key={i} className="hover:bg-slate-50">
-                          <td className="px-5 py-3 text-sm font-medium text-slate-800">
-                            <Link to={`/matters/${matterId}/apportionments/${ia.apportionment_id}`}
-                              className="hover:text-brand-600 transition-colors">
-                              {ia.invoice_number || 'Invoice'}
-                            </Link>
-                          </td>
-                          <td className="px-4 py-3 text-sm text-slate-600">{ia.party_name}</td>
-                          <td className="px-4 py-3 text-sm font-medium text-slate-800">{ia.insurers?.name}</td>
-                          <td className="px-4 py-3 text-right font-semibold text-slate-800">{formatCurrency(ia.amount)}</td>
-                          <td className="px-4 py-3 text-right text-green-700 font-semibold">
-                            {ia.amount_paid > 0 ? formatCurrency(ia.amount_paid) : '—'}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={`badge ${PAYMENT_STATUS_COLORS[ia.payment_status] || 'bg-slate-100 text-slate-600'}`}>
-                              {PAYMENT_STATUS_LABELS[ia.payment_status] || ia.payment_status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-sm text-slate-500">
-                            {ia.payment_date ? format(parseISO(ia.payment_date), 'MM/dd/yyyy') : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-        )
-      })()}
 
       {/* ── Parties Tab ── */}
       {tab === 'parties' && (
@@ -1062,70 +632,31 @@ export default function MatterDetail() {
                   <tr className="border-b border-slate-100 bg-slate-50">
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Insurer</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Policy #</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Claim #</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Claims Rep</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Party</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Policy Period</th>
                     <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Limit</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Exhaustion</th>
                     <th />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {insurerPeriods.map(pp => {
-                    const owed = owedByInsurerId[pp.insurer_id] || 0
-                    const xPct = pp.policy_limit && owed > 0 ? (owed / Number(pp.policy_limit)) * 100 : null
-                    const info = xPct !== null ? exhaustionInfo(xPct) : null
-                    return (
+                  {insurerPeriods.map(pp => (
                     <tr key={pp.id} className="hover:bg-slate-50">
                       <td className="px-5 py-4 font-medium text-slate-800">{pp.insurers?.name}</td>
-                      <td className="px-4 py-4 text-sm font-mono text-slate-500">{pp.insurers?.policy_number || '—'}</td>
-                      <td className="px-4 py-4 text-sm font-mono text-slate-600">{pp.claim_number || '—'}</td>
-                      <td className="px-4 py-4">
-                        {pp.claims_rep_name ? (
-                          <div>
-                            <p className="text-sm font-medium text-slate-700">{pp.claims_rep_name}</p>
-                            {pp.claims_rep_email && (
-                              <a href={`mailto:${pp.claims_rep_email}`}
-                                className="text-xs text-brand-600 hover:underline">
-                                {pp.claims_rep_email}
-                              </a>
-                            )}
-                          </div>
-                        ) : <span className="text-slate-300 text-sm">—</span>}
-                      </td>
+                      <td className="px-4 py-4 text-sm text-slate-500 font-mono">{pp.insurers?.policy_number || '—'}</td>
                       <td className="px-4 py-4 text-sm text-slate-600">{pp.parties?.name}</td>
-                      <td className="px-4 py-4 text-sm text-slate-600 whitespace-nowrap">
+                      <td className="px-4 py-4 text-sm text-slate-600">
                         {format(parseISO(pp.policy_start), 'MM/dd/yyyy')} — {format(parseISO(pp.policy_end), 'MM/dd/yyyy')}
                       </td>
                       <td className="px-4 py-4 text-right text-sm text-slate-600">
                         {pp.policy_limit ? formatCurrency(pp.policy_limit) : '—'}
                       </td>
                       <td className="px-4 py-4">
-                        {xPct !== null ? (
-                          <div className="flex items-center gap-2">
-                            <div className="w-16 bg-slate-100 rounded-full h-1.5">
-                              <div className={`${info.barColor} h-1.5 rounded-full`} style={{ width: `${Math.min(xPct, 100)}%` }} />
-                            </div>
-                            <span className={`text-xs font-medium ${info.color}`}>{xPct.toFixed(0)}%</span>
-                            {xPct >= 70 && <span className={`badge ${info.badge} text-xs`}>{info.label}</span>}
-                          </div>
-                        ) : <span className="text-xs text-slate-300">—</span>}
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => setEditingInsurer(pp)}
-                            className="text-slate-300 hover:text-brand-600 transition-colors" title="Edit">
-                            <Edit2 className="h-4 w-4" />
-                          </button>
-                          <button onClick={() => deleteInsurer(pp.id)}
-                            className="text-slate-300 hover:text-red-500 transition-colors" title="Delete">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
+                        <button onClick={() => deleteInsurer(pp.id)} className="text-slate-300 hover:text-red-500 transition-colors">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </td>
                     </tr>
-                  )})}
+                  ))}
                 </tbody>
               </table>
             )}
@@ -1241,7 +772,6 @@ export default function MatterDetail() {
       {showAddParty    && <AddPartyModal   matterId={matterId} onClose={() => setShowAddParty(false)} />}
       {editingParty    && <EditPartyModal  party={editingParty} matterId={matterId} onClose={() => setEditingParty(null)} />}
       {showAddInsurer  && <AddInsurerModal matterId={matterId} parties={parties} onClose={() => setShowAddInsurer(false)} />}
-      {editingInsurer  && <EditInsurerModal pp={editingInsurer} matterId={matterId} onClose={() => setEditingInsurer(null)} />}
       {showUploadInvoice && (
         <InvoiceUploadModal
           matterId={matterId}

@@ -2,35 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Global print styles ──────────────────────────────────────────────────── */
-@media print {
-  /* Hide all layout chrome */
-  aside,
-  header,
-  nav,
-  [data-print="hide"] {
-    display: none !important;
-  }
-
-  /* Let the main content fill the page */
-  body, html {
-    background: white !important;
-  }
-
-  .flex.h-screen {
-    display: block !important;
-  }
-
-  main {
-    overflow: visible !important;
-  }
-
-  @page {
-    size: letter portrait;
-    margin: 0.75in 0.75in 0.9in 0.75in;
-  }
-}
-
 @layer base {
   html { @apply antialiased; }
   body { @apply bg-slate-50 text-slate-900; }

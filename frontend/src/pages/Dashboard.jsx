@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { useAuth } from '../hooks/useAuth.jsx'
+import { useAuth } from '../hooks/useAuth.js'
 import { supabase } from '../lib/supabase.js'
 import { FolderOpen, FileText, DollarSign, TrendingUp, Plus, ArrowRight } from 'lucide-react'
 import { formatCurrency } from '../lib/calculations.js'
@@ -30,9 +30,9 @@ export default function Dashboard() {
     enabled: !!profile?.org_id,
     queryFn: async () => {
       const [mattersRes, invoicesRes, apportRes] = await Promise.all([
-        supabase.from('la_matters').select('id', { count: 'exact' }).eq('org_id', profile.org_id),
-        supabase.from('la_invoices').select('id, total_amount', { count: 'exact' }).eq('org_id', profile.org_id),
-        supabase.from('la_apportionments').select('id', { count: 'exact' }).eq('org_id', profile.org_id),
+        supabase.from('matters').select('id', { count: 'exact' }).eq('org_id', profile.org_id),
+        supabase.from('invoices').select('id, total_amount', { count: 'exact' }).eq('org_id', profile.org_id),
+        supabase.from('apportionments').select('id', { count: 'exact' }).eq('org_id', profile.org_id),
       ])
       const totalInvoiced = invoicesRes.data?.reduce((s, i) => s + (i.total_amount || 0), 0) || 0
       return {
@@ -49,7 +49,7 @@ export default function Dashboard() {
     enabled: !!profile?.org_id,
     queryFn: async () => {
       const { data } = await supabase
-        .from('la_matters')
+        .from('matters')
         .select('id, name, matter_number, status, created_at')
         .eq('org_id', profile.org_id)
         .order('created_at', { ascending: false })
@@ -63,8 +63,8 @@ export default function Dashboard() {
     enabled: !!profile?.org_id,
     queryFn: async () => {
       const { data } = await supabase
-        .from('la_invoices')
-        .select('id, invoice_number, invoice_date, total_amount, status, matter_id, la_matters(name)')
+        .from('invoices')
+        .select('id, invoice_number, invoice_date, total_amount, status, matter_id, matters(name)')
         .eq('org_id', profile.org_id)
         .order('created_at', { ascending: false })
         .limit(5)
@@ -142,7 +142,7 @@ export default function Dashboard() {
                 className="flex items-center justify-between p-4 hover:bg-slate-50 transition-colors">
                 <div>
                   <p className="text-sm font-medium text-slate-800">
-                    {inv.invoice_number || 'Invoice'} — {inv.la_matters?.name}
+                    {inv.invoice_number || 'Invoice'} — {inv.matters?.name}
                   </p>
                   <p className="text-xs text-slate-400">
                     {inv.invoice_date ? format(parseISO(inv.invoice_date), 'MMM d, yyyy') : ''}

@@ -1,7 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { AuthProvider, useAuth } from './hooks/useAuth.jsx'
+import { AuthProvider, useAuth } from './hooks/useAuth.js'
 import Layout from './components/Layout.jsx'
-import { supabaseMisconfigured } from './lib/supabase.js'
 
 // Pages
 import Landing        from './pages/Landing.jsx'
@@ -34,23 +33,6 @@ function PublicRoute({ children }) {
 }
 
 export default function App() {
-  if (supabaseMisconfigured) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-slate-50">
-        <div className="bg-white border border-red-200 rounded-2xl p-8 max-w-md text-center shadow-lg">
-          <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-red-600 text-xl font-bold">!</span>
-          </div>
-          <h1 className="text-lg font-bold text-slate-900 mb-2">Configuration Required</h1>
-          <p className="text-sm text-slate-600 mb-4">
-            Supabase environment variables are not set. Add <code className="bg-slate-100 px-1 rounded">VITE_SUPABASE_URL</code> and <code className="bg-slate-100 px-1 rounded">VITE_SUPABASE_ANON_KEY</code> to your Netlify environment variables, then redeploy.
-          </p>
-          <p className="text-xs text-slate-400">Site configuration → Environment variables</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <AuthProvider>
       <Routes>

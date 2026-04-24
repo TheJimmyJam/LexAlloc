@@ -20,14 +20,14 @@ export default function Register() {
 
     // 2. Create organization
     const { data: org, error: orgErr } = await supabase
-      .from('la_organizations')
+      .from('organizations')
       .insert({ name: orgName })
       .select()
       .single()
     if (orgErr) { toast.error(orgErr.message); return }
 
     // 3. Create profile (admin role for org creator)
-    const { error: profileErr } = await supabase.from('la_profiles').insert({
+    const { error: profileErr } = await supabase.from('profiles').insert({
       id: userId,
       org_id: org.id,
       role: 'admin',

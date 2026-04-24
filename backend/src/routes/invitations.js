@@ -24,7 +24,7 @@ router.post('/invite', async (req, res, next) => {
 
     // Verify requesting user is an admin of the same org
     const { data: inviterProfile, error: profileErr } = await supabaseAdmin
-      .from('la_profiles')
+      .from('profiles')
       .select('role, org_id')
       .eq('id', req.user.id)
       .single()
@@ -62,7 +62,7 @@ router.post('/invite', async (req, res, next) => {
 
     // Pre-create profile so org_id + role are ready on first login
     const { error: upsertErr } = await supabaseAdmin
-      .from('la_profiles')
+      .from('profiles')
       .upsert(
         { id: data.user.id, org_id, role, email },
         { onConflict: 'id' }

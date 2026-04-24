@@ -1,12 +1,10 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl     = import.meta.env.VITE_SUPABASE_URL     || 'https://placeholder.supabase.co'
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-anon-key'
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-const isMissingEnv = !import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY
-if (isMissingEnv) {
-  console.error('[LexAlloc] Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY — set these in Netlify environment variables.')
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('Missing Supabase environment variables. Copy .env.example to .env and fill in values.')
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
-export const supabaseMisconfigured = isMissingEnv
+export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '')

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { supabase } from '../lib/supabase.js'
-import { useAuth } from '../hooks/useAuth.jsx'
+import { useAuth } from '../hooks/useAuth.js'
 import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -61,7 +61,7 @@ function InviteUserModal({ onClose }) {
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
           <p className="text-sm text-slate-500">
-            They'll receive an email with a link to set their password and join <strong>{profile?.la_organizations?.name}</strong>.
+            They'll receive an email with a link to set their password and join <strong>{profile?.organizations?.name}</strong>.
           </p>
           <div>
             <label className="form-label">Email Address *</label>
@@ -99,8 +99,8 @@ export default function AdminPanel() {
     enabled: !!profile?.org_id,
     queryFn: async () => {
       const { data } = await supabase
-        .from('la_profiles')
-        .select('*, la_organizations(name)')
+        .from('profiles')
+        .select('*, organizations(name)')
         .eq('org_id', profile.org_id)
         .order('created_at', { ascending: false })
       return data || []
@@ -111,8 +111,8 @@ export default function AdminPanel() {
     queryKey: ['admin-orgs'],
     queryFn: async () => {
       const { data } = await supabase
-        .from('la_organizations')
-        .select('*, la_profiles(count)')
+        .from('organizations')
+        .select('*, profiles(count)')
         .order('created_at', { ascending: false })
       return data || []
     }
@@ -125,7 +125,7 @@ export default function AdminPanel() {
   }
 
   const changeRole = async (userId, role) => {
-    const { error } = await supabase.from('la_profiles').update({ role }).eq('id', userId)
+    const { error } = await supabase.from('profiles').update({ role }).eq('id', userId)
     if (error) { toast.error(error.message); return }
     toast.success('Role updated')
   }
@@ -231,7 +231,7 @@ export default function AdminPanel() {
                       {org.id === profile?.org_id && <span className="ml-2 text-xs text-brand-600 font-semibold">(your org)</span>}
                     </td>
                     <td className="px-4 py-4 text-right text-sm text-slate-600">
-                      {org.la_profiles?.[0]?.count ?? 0}
+                      {org.profiles?.[0]?.count ?? 0}
                     </td>
                     <td className="px-4 py-4 text-sm text-slate-400">
                       {org.created_at ? format(parseISO(org.created_at), 'MM/dd/yyyy') : '—'}

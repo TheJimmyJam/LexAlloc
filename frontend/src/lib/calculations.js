@@ -86,14 +86,3 @@ export function formatCurrency(amount) {
 export function formatPercent(pct) {
   return `${(pct || 0).toFixed(2)}%`
 }
-
-/**
- * Returns color/label metadata for a policy limit exhaustion percentage.
- * Thresholds: 70% = Warning, 90% = Near Limit, 100%+ = Exhausted
- */
-export function exhaustionInfo(pct) {
-  if (pct >= 100) return { color: 'text-red-700',    barColor: 'bg-red-500',    badge: 'bg-red-100 text-red-700',       label: 'Exhausted'  }
-  if (pct >= 90)  return { color: 'text-orange-700', barColor: 'bg-orange-500', badge: 'bg-orange-100 text-orange-700', label: 'Near Limit' }
-  if (pct >= 70)  return { color: 'text-amber-700',  barColor: 'bg-amber-500',  badge: 'bg-amber-100 text-amber-700',  label: 'Warning'    }
-  return               { color: 'text-green-700',  barColor: 'bg-green-500',  badge: 'bg-green-100 text-green-700',  label: 'OK'         }
-}
