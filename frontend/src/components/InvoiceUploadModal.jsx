@@ -2,7 +2,6 @@ import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { X, Upload, Loader2, CheckCircle, AlertCircle, FileText } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
-import { api } from '../lib/api.js'
 import { useAuth } from '../hooks/useAuth.jsx'
 import toast from 'react-hot-toast'
 
@@ -33,21 +32,33 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
     try {
       // 1. Upload to Supabase Storage
       const path = `${profile.org_id}/invoices/${Date.now()}-${file.name}`
-      const { data: upload, error: uploadErr } = await supabase.storage
+      const { error: uploadErr } = await supabase.storage
         .from('la_invoices')
         .upload(path, file, { contentType: file.type })
       if (uploadErr) throw uploadErr
 
-      const { data: { publicUrl } } = supabase.storage.from('la_invoices').getPublicUrl(path)
+      // Create a signed URL valid for 5 minutes for the edge function to fetch
+      const { data: signedData, error: signedErr } = await supabase.storage
+        .from('la_invoices')
+        .createSignedUrl(path, 300)
+      if (signedErr) throw signedErr
+
+      const fileUrl = signedData.signedUrl
 
       setStage('parsing')
 
-      // 2. Send to Railway backend for AI parsing
+      // 2. Call Supabase Edge Function for AI parsing
       let parsedData
       try {
-        parsedData = await api.parseInvoice(publicUrl, file.type)
+        const { data, error: fnErr } = await supabase.functions.invoke('parse-invoice', {
+          body: { fileUrl, fileType: file.type },
+        })
+        if (fnErr) throw fnErr
+        if (data.error) throw new Error(data.error)
+        parsedData = data
       } catch (e) {
         // Fallback: manual entry mode
+        console.warn('AI parsing failed, falling back to manual entry:', e.message)
         parsedData = {
           invoice_number:  '',
           invoice_date:    new Date().toISOString().split('T')[0],
@@ -56,11 +67,12 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
           service_start:   new Date().toISOString().split('T')[0],
           service_end:     new Date().toISOString().split('T')[0],
           line_items:      [],
-          _fileUrl:        publicUrl,
           _parseFailed:    true,
         }
       }
 
+      // Store permanent public path for the saved invoice record
+      const { data: { publicUrl } } = supabase.storage.from('la_invoices').getPublicUrl(path)
       setParsed({ ...parsedData, _fileUrl: publicUrl })
       setStage('review')
     } catch (err) {
@@ -176,9 +188,13 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
           {/* Review Stage */}
           {stage === 'review' && parsed && (
             <div className="space-y-5">
-              {parsed._parseFailed && (
+              {parsed._parseFailed ? (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-amber-700 text-sm">
-                  ⚠ AI parsing is not configured — please fill in the details manually below.
+                  ⚠ AI parsing couldn't read this file — please fill in the details manually below.
+                </div>
+              ) : (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-green-700 text-sm">
+                  ✓ AI extracted the invoice data. Review and correct anything below before saving.
                 </div>
               )}
 
