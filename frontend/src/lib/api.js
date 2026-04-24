@@ -1,4 +1,4 @@
-// Railway backend API client
+// Railway backend API client (used for invoice parsing + invitations)
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 
 async function request(path, options = {}) {
@@ -21,7 +21,7 @@ async function request(path, options = {}) {
 }
 
 export const api = {
-  // Invoice parsing
+  // Invoice parsing (Supabase Edge Function)
   parseInvoice: (fileUrl, mimeType) =>
     request('/api/invoices/parse', {
       method: 'POST',
@@ -35,25 +35,20 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  // Send email notification (generic)
-  sendNotification: (payload) =>
-    request('/api/notifications/send', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-
-  // Fire a typed app event — resolves recipients + matter name on the backend
-  // type: 'invoice_parsed' | 'apportionment_run' | 'demand_letter_generated' | 'payment_status_updated'
-  sendEvent: (type, orgId, matterId, details = {}) =>
-    request('/api/notifications/event', {
-      method: 'POST',
-      body: JSON.stringify({ type, org_id: orgId, matter_id: matterId, details }),
-    }),
-
   // Invite a user to the organization
   inviteUser: (email, role, orgId) =>
     request('/api/invitations/invite', {
       method: 'POST',
       body: JSON.stringify({ email, role, org_id: orgId }),
     }),
+
+  // Fire a typed notification event via Supabase Edge Function.
+  // type: 'invoice_parsed' | 'apportionment_run' | 'demand_letter_generated' | 'payment_status_updated'
+  sendEvent: async (type, orgId, matterId, details = {}) => {
+    const { supabase } = await import('./supabase.js')
+    const { error } = await supabase.functions.invoke('send-notification', {
+      body: { type, org_id: orgId, matter_id: matterId, details },
+    })
+    if (error) throw error
+  },
 }
