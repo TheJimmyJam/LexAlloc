@@ -75,7 +75,7 @@ export default function Settings() {
         <div className="p-5">
           <div>
             <label className="form-label">Organization Name</label>
-            <input className="form-input" value={profile?.organizations?.name || ''} disabled />
+            <input className="form-input" value={profile?.la_organizations?.name || ''} disabled />
           </div>
         </div>
       </div>

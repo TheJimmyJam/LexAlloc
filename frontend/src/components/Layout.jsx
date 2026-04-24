@@ -73,7 +73,7 @@ export default function Layout() {
         <div className="px-4 py-3 border-b border-slate-100">
           <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Organization</p>
           <p className="text-sm font-semibold text-slate-800 truncate mt-0.5">
-            {profile?.organizations?.name || 'Loading…'}
+            {profile?.la_organizations?.name || 'Loading…'}
           </p>
         </div>
 

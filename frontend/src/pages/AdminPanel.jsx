@@ -61,7 +61,7 @@ function InviteUserModal({ onClose }) {
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
           <p className="text-sm text-slate-500">
-            They'll receive an email with a link to set their password and join <strong>{profile?.organizations?.name}</strong>.
+            They'll receive an email with a link to set their password and join <strong>{profile?.la_organizations?.name}</strong>.
           </p>
           <div>
             <label className="form-label">Email Address *</label>
