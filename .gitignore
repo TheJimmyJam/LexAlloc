@@ -1,4 +1,28 @@
+# Dependencies
 node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
 dist/
+build/
+
+# Environment files
 .env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Vite timestamps
+vite.config.js.timestamp-*
+
+# Editor
+.vscode/
+.idea/

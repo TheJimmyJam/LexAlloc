@@ -158,16 +158,16 @@ export default function Apportionment() {
         .from('la_apportionments')
         .select(`
           *,
-          invoices(invoice_number, total_amount, invoice_date, billing_firm, service_start, service_end),
-          matters(name, matter_number),
-          party_apportionments(
+          invoices:la_invoices(invoice_number, total_amount, invoice_date, billing_firm, service_start, service_end),
+          matters:la_matters(name, matter_number),
+          party_apportionments:la_party_apportionments(
             id, percentage, amount,
-            parties(name, type),
-            insurer_apportionments(
+            parties:la_parties(name, type),
+            insurer_apportionments:la_insurer_apportionments(
               id, days_on_risk, total_days, percentage, amount,
               payment_status, amount_paid, payment_date, demanded_at, payment_notes,
-              insurers(name, policy_number),
-              insurer_policy_periods(policy_start, policy_end, policy_limit, deductible, claim_number, claims_rep_name, claims_rep_email, billing_address)
+              insurers:la_insurers(name, policy_number),
+              insurer_policy_periods:la_insurer_policy_periods(policy_start, policy_end, policy_limit, deductible, claim_number, claims_rep_name, claims_rep_email, billing_address)
             )
           )
         `)

@@ -502,7 +502,7 @@ export default function MatterDetail() {
     queryFn: async () => {
       const { data } = await supabase
         .from('la_insurer_policy_periods')
-        .select('*, insurers(name, policy_number), parties(name)')
+        .select('*, insurers:la_insurers(name, policy_number), parties:la_parties(name)')
         .eq('matter_id', matterId)
         .order('policy_start')
       return data || []
@@ -526,7 +526,7 @@ export default function MatterDetail() {
     queryFn: async () => {
       const { data } = await supabase
         .from('la_apportionments')
-        .select('*, invoices(invoice_number, total_amount)')
+        .select('*, invoices:la_invoices(invoice_number, total_amount)')
         .eq('matter_id', matterId)
         .order('calculated_at', { ascending: false })
       return data || []
@@ -541,13 +541,13 @@ export default function MatterDetail() {
         .from('la_apportionments')
         .select(`
           id, calculated_at,
-          invoices(id, invoice_number, invoice_date, total_amount),
-          party_apportionments(
+          invoices:la_invoices(id, invoice_number, invoice_date, total_amount),
+          party_apportionments:la_party_apportionments(
             id, amount,
-            parties(name),
-            insurer_apportionments(
+            parties:la_parties(name),
+            insurer_apportionments:la_insurer_apportionments(
               id, amount, amount_paid, payment_status, demanded_at, payment_date,
-              insurers(id, name, policy_number)
+              insurers:la_insurers(id, name, policy_number)
             )
           )
         `)

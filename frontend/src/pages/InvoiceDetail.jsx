@@ -18,7 +18,7 @@ export default function InvoiceDetail() {
   const { data: invoice, isLoading } = useQuery({
     queryKey: ['invoice', invoiceId],
     queryFn: async () => {
-      const { data } = await supabase.from('la_invoices').select('*, matters(name)').eq('id', invoiceId).single()
+      const { data } = await supabase.from('la_invoices').select('*, la_matters(name)').eq('id', invoiceId).single()
       return data
     }
   })
@@ -48,7 +48,7 @@ export default function InvoiceDetail() {
     queryFn: async () => {
       const { data } = await supabase
         .from('la_insurer_policy_periods')
-        .select('*, insurers(name)')
+        .select('*, la_insurers(name)')
         .eq('matter_id', matterId)
       return data || []
     }
@@ -67,7 +67,7 @@ export default function InvoiceDetail() {
           .filter(pp => pp.party_id === p.id)
           .map(pp => ({
             insurer_id:   pp.insurer_id,
-            insurer_name: pp.insurers?.name,
+            insurer_name: pp.la_insurers?.name,
             policy_start: pp.policy_start,
             policy_end:   pp.policy_end,
           }))
@@ -135,7 +135,7 @@ export default function InvoiceDetail() {
       {/* Header */}
       <div className="mb-6">
         <Link to={`/matters/${matterId}`} className="flex items-center gap-1 text-slate-500 hover:text-brand-600 text-sm mb-3">
-          <ArrowLeft className="h-3 w-3" /> {invoice.matters?.name}
+          <ArrowLeft className="h-3 w-3" /> {invoice.la_matters?.name}
         </Link>
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>

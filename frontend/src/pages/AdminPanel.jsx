@@ -100,7 +100,7 @@ export default function AdminPanel() {
     queryFn: async () => {
       const { data } = await supabase
         .from('la_profiles')
-        .select('*, organizations(name)')
+        .select('*, la_organizations(name)')
         .eq('org_id', profile.org_id)
         .order('created_at', { ascending: false })
       return data || []
@@ -112,7 +112,7 @@ export default function AdminPanel() {
     queryFn: async () => {
       const { data } = await supabase
         .from('la_organizations')
-        .select('*, profiles(count)')
+        .select('*, la_profiles(count)')
         .order('created_at', { ascending: false })
       return data || []
     }
@@ -231,7 +231,7 @@ export default function AdminPanel() {
                       {org.id === profile?.org_id && <span className="ml-2 text-xs text-brand-600 font-semibold">(your org)</span>}
                     </td>
                     <td className="px-4 py-4 text-right text-sm text-slate-600">
-                      {org.profiles?.[0]?.count ?? 0}
+                      {org.la_profiles?.[0]?.count ?? 0}
                     </td>
                     <td className="px-4 py-4 text-sm text-slate-400">
                       {org.created_at ? format(parseISO(org.created_at), 'MM/dd/yyyy') : '—'}

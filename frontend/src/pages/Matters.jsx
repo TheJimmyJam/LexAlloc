@@ -80,7 +80,7 @@ export default function Matters() {
         .from('la_matters')
         .select(`
           id, name, matter_number, status, created_at, description,
-          invoices(count), parties(count)
+          la_invoices(count), la_parties(count)
         `)
         .eq('org_id', profile.org_id)
         .order('created_at', { ascending: false })
@@ -195,8 +195,8 @@ export default function Matters() {
                     {m.description && <p className="text-xs text-slate-400 mt-0.5 truncate max-w-xs">{m.description}</p>}
                   </td>
                   <td className="px-4 py-4 text-sm text-slate-500">{m.matter_number || '—'}</td>
-                  <td className="px-4 py-4 text-sm text-slate-500">{m.parties?.[0]?.count ?? 0}</td>
-                  <td className="px-4 py-4 text-sm text-slate-500">{m.invoices?.[0]?.count ?? 0}</td>
+                  <td className="px-4 py-4 text-sm text-slate-500">{m.la_parties?.[0]?.count ?? 0}</td>
+                  <td className="px-4 py-4 text-sm text-slate-500">{m.la_invoices?.[0]?.count ?? 0}</td>
                   <td className="px-4 py-4">
                     <select
                       value={m.status}

@@ -64,7 +64,7 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data } = await supabase
         .from('la_invoices')
-        .select('id, invoice_number, invoice_date, total_amount, status, matter_id, matters(name)')
+        .select('id, invoice_number, invoice_date, total_amount, status, matter_id, la_matters(name)')
         .eq('org_id', profile.org_id)
         .order('created_at', { ascending: false })
         .limit(5)
@@ -142,7 +142,7 @@ export default function Dashboard() {
                 className="flex items-center justify-between p-4 hover:bg-slate-50 transition-colors">
                 <div>
                   <p className="text-sm font-medium text-slate-800">
-                    {inv.invoice_number || 'Invoice'} — {inv.matters?.name}
+                    {inv.invoice_number || 'Invoice'} — {inv.la_matters?.name}
                   </p>
                   <p className="text-xs text-slate-400">
                     {inv.invoice_date ? format(parseISO(inv.invoice_date), 'MMM d, yyyy') : ''}
