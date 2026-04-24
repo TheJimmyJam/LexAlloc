@@ -7,11 +7,13 @@ import { useForm } from 'react-hook-form'
 import { formatCurrency, exhaustionInfo } from '../lib/calculations.js'
 import {
   ArrowLeft, Plus, Trash2, X, Upload, FileText,
-  Users, Shield, Calculator, ChevronRight, Edit2, Check, TrendingUp, AlertTriangle
+  Users, Shield, Calculator, ChevronRight, Edit2, Check, TrendingUp, AlertTriangle,
+  Paperclip, Download, ExternalLink
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
+import DocumentUploadModal, { DOC_TYPES } from '../components/DocumentUploadModal.jsx'
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 const TABS = [
@@ -21,6 +23,7 @@ const TABS = [
   { key: 'insurers',      label: 'Insurers',       icon: Shield     },
   { key: 'invoices',      label: 'Invoices',       icon: Upload     },
   { key: 'apportionments',label: 'Apportionments', icon: Calculator },
+  { key: 'documents',     label: 'Documents',      icon: Paperclip  },
 ]
 
 const PAYMENT_STATUS_COLORS = {
@@ -479,6 +482,7 @@ export default function MatterDetail() {
   const [editingParty, setEditingParty] = useState(null)
   const [editingPct, setEditingPct] = useState({})   // { [partyId]: stringValue }
   const [showAddInsurer, setShowAddInsurer] = useState(false)
+  const [showUploadDoc, setShowUploadDoc] = useState(false)
   const [editingInsurer, setEditingInsurer] = useState(null)
   const [showUploadInvoice, setShowUploadInvoice] = useState(false)
 
@@ -518,6 +522,18 @@ export default function MatterDetail() {
         .select('*')
         .eq('matter_id', matterId)
         .order('invoice_date', { ascending: false })
+      return data || []
+    }
+  })
+
+  const { data: documents = [], refetch: refetchDocs } = useQuery({
+    queryKey: ['matter-documents', matterId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('la_matter_documents')
+        .select('*, uploader:la_profiles(first_name, last_name)')
+        .eq('matter_id', matterId)
+        .order('created_at', { ascending: false })
       return data || []
     }
   })
@@ -1317,6 +1333,124 @@ export default function MatterDetail() {
         </div>
       )}
 
+      {/* ── Documents Tab ── */}
+      {tab === 'documents' && (() => {
+        const docTypeMap = Object.fromEntries(DOC_TYPES.map(t => [t.value, t]))
+
+        const downloadDoc = async (doc) => {
+          const { data, error } = await supabase.storage
+            .from('la_documents')
+            .createSignedUrl(doc.file_path, 3600)
+          if (error) { toast.error('Could not generate download link'); return }
+          window.open(data.signedUrl, '_blank')
+        }
+
+        const deleteDoc = async (doc) => {
+          if (!confirm(`Delete "${doc.name}"?`)) return
+          await supabase.storage.from('la_documents').remove([doc.file_path])
+          await supabase.from('la_matter_documents').delete().eq('id', doc.id)
+          refetchDocs()
+          toast.success('Document deleted')
+        }
+
+        // Group by doc_type
+        const grouped = {}
+        documents.forEach(d => {
+          const key = d.doc_type || 'other'
+          if (!grouped[key]) grouped[key] = []
+          grouped[key].push(d)
+        })
+        // Sort groups by DOC_TYPES order
+        const orderedGroups = DOC_TYPES
+          .filter(t => grouped[t.value])
+          .map(t => ({ type: t, docs: grouped[t.value] }))
+
+        return (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="font-semibold text-slate-900">Documents</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Coverage opinions, ROR letters, settlement agreements, and more.</p>
+              </div>
+              <button onClick={() => setShowUploadDoc(true)} className="btn-primary">
+                <Paperclip className="h-4 w-4" /> Attach Document
+              </button>
+            </div>
+
+            {documents.length === 0 ? (
+              <div className="card p-12 text-center text-slate-400">
+                <Paperclip className="h-10 w-10 mx-auto mb-3 text-slate-300" />
+                <p className="font-medium">No documents attached yet.</p>
+                <p className="text-sm mt-1 mb-4">Attach coverage opinions, ROR letters, settlement agreements, and other key documents.</p>
+                <button onClick={() => setShowUploadDoc(true)} className="btn-primary">
+                  <Paperclip className="h-4 w-4" /> Attach First Document
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                {orderedGroups.map(({ type, docs }) => (
+                  <div key={type.value} className="card overflow-hidden">
+                    <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100 bg-slate-50">
+                      <span className={`badge text-xs font-semibold ${type.color}`}>{type.label}</span>
+                      <span className="text-xs text-slate-400">{docs.length} file{docs.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <table className="w-full">
+                      <tbody className="divide-y divide-slate-100">
+                        {docs.map(doc => (
+                          <tr key={doc.id} className="hover:bg-slate-50 group">
+                            <td className="px-5 py-3">
+                              <div className="flex items-center gap-3">
+                                <FileText className="h-4 w-4 text-slate-300 flex-shrink-0" />
+                                <div>
+                                  <p className="text-sm font-medium text-slate-800">{doc.name}</p>
+                                  <p className="text-xs text-slate-400">{doc.file_name}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap hidden sm:table-cell">
+                              {doc.file_size ? `${(doc.file_size / 1048576).toFixed(1)} MB` : '—'}
+                            </td>
+                            <td className="px-4 py-3 text-xs text-slate-400 hidden md:table-cell">
+                              {doc.uploader
+                                ? `${doc.uploader.first_name || ''} ${doc.uploader.last_name || ''}`.trim() || 'Unknown'
+                                : '—'}
+                            </td>
+                            <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap hidden lg:table-cell">
+                              {format(new Date(doc.created_at), 'MM/dd/yyyy')}
+                            </td>
+                            <td className="px-4 py-3 text-xs text-slate-500 max-w-xs hidden xl:table-cell">
+                              {doc.notes && <span className="truncate block">{doc.notes}</span>}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  onClick={() => downloadDoc(doc)}
+                                  className="text-slate-400 hover:text-brand-600 transition-colors"
+                                  title="Download"
+                                >
+                                  <Download className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => deleteDoc(doc)}
+                                  className="text-slate-300 hover:text-red-500 transition-colors"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
       {/* Modals */}
       {showEditMatter  && <EditMatterModal matter={matter} onClose={() => setShowEditMatter(false)} />}
       {showAddParty    && <AddPartyModal   matterId={matterId} onClose={() => setShowAddParty(false)} />}
@@ -1327,6 +1461,13 @@ export default function MatterDetail() {
         <InvoiceUploadModal
           matterId={matterId}
           onClose={() => { setShowUploadInvoice(false); qc.invalidateQueries({ queryKey: ['matter-invoices', matterId] }) }}
+        />
+      )}
+      {showUploadDoc && (
+        <DocumentUploadModal
+          matterId={matterId}
+          onClose={() => setShowUploadDoc(false)}
+          onUploaded={() => { refetchDocs(); setShowUploadDoc(false) }}
         />
       )}
     </div>
