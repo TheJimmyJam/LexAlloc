@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
-import { Scale, Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import toast from 'react-hot-toast'
 
@@ -20,8 +20,8 @@ export default function Login() {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-brand-900 to-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-brand-600 rounded-2xl mb-4">
-            <Scale className="h-6 w-6 text-white" />
+          <div className="flex justify-center mb-6">
+            <img src="/logo.svg" alt="LexAlloc" className="h-14 w-auto" />
           </div>
           <h1 className="text-2xl font-bold text-white">Sign in to LexAlloc</h1>
           <p className="text-slate-400 mt-1 text-sm">Legal invoice apportionment, simplified.</p>
