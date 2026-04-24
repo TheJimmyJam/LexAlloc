@@ -1,4 +1,4 @@
-import { differenceInCalendarDays, parseISO, isWithinInterval, max, min } from 'date-fns'
+import { differenceInCalendarDays, parseISO, max, min } from 'date-fns'
 
 /**
  * Calculate pro-rata time-on-risk percentage for each insurer
@@ -36,46 +36,112 @@ export function calcTimeOnRisk(exposureStart, exposureEnd, policyPeriods) {
 }
 
 /**
+ * Equal shares: split party amount evenly across all insurers.
+ *
+ * @param {number} partyAmount  - Dollar amount allocated to this party
+ * @param {Array}  policyPeriods - [{ insurer_id, insurer_name, policy_start, policy_end, ... }]
+ * @returns {Array} insurer breakdown with equal percentages
+ */
+export function calcEqualShares(partyAmount, policyPeriods) {
+  const n = policyPeriods.length
+  if (n === 0) return []
+  const share = 100 / n
+
+  return policyPeriods.map((pp) => ({
+    insurer_id:          pp.insurer_id,
+    insurer_name:        pp.insurer_name,
+    policy_start:        pp.policy_start,
+    policy_end:          pp.policy_end,
+    days_on_risk:        null,
+    total_exposure_days: null,
+    percentage:          share,
+    amount:              (share / 100) * partyAmount,
+    normalized_percentage: share,
+  }))
+}
+
+/**
+ * Limits-proportional: each insurer's share = their policy_limit / sum of all limits.
+ * Falls back to equal shares if no limits are set.
+ *
+ * @param {number} partyAmount  - Dollar amount allocated to this party
+ * @param {Array}  policyPeriods - [{ insurer_id, insurer_name, policy_limit, ... }]
+ * @returns {Array} insurer breakdown weighted by policy limits
+ */
+export function calcLimitsProportional(partyAmount, policyPeriods) {
+  const totalLimits = policyPeriods.reduce((s, pp) => s + (Number(pp.policy_limit) || 0), 0)
+
+  // Fall back to equal shares if no limits configured
+  if (totalLimits === 0) return calcEqualShares(partyAmount, policyPeriods)
+
+  return policyPeriods.map((pp) => {
+    const limit = Number(pp.policy_limit) || 0
+    const pct   = (limit / totalLimits) * 100
+    return {
+      insurer_id:          pp.insurer_id,
+      insurer_name:        pp.insurer_name,
+      policy_start:        pp.policy_start,
+      policy_end:          pp.policy_end,
+      days_on_risk:        null,
+      total_exposure_days: null,
+      percentage:          pct,
+      amount:              (pct / 100) * partyAmount,
+      normalized_percentage: pct,
+    }
+  })
+}
+
+/**
  * Apportion an invoice across parties and their insurers.
  *
- * @param {Object} invoice - { total_amount, line_items: [...], service_start, service_end }
- * @param {Array}  parties - [{ id, name, share_percentage, policy_periods: [...] }]
+ * @param {Object} invoice  - { total_amount, service_start, service_end }
+ * @param {Array}  parties  - [{ id, name, share_percentage, policy_periods: [...] }]
+ * @param {string} method   - 'pro_rata_time_on_risk' | 'equal_shares' | 'limits_proportional'
  * @returns {Object} Detailed apportionment breakdown
  */
-export function apportionInvoice(invoice, parties) {
+export function apportionInvoice(invoice, parties, method = 'pro_rata_time_on_risk') {
   const serviceStart = parseISO(invoice.service_start)
   const serviceEnd   = parseISO(invoice.service_end || invoice.service_start)
 
   const breakdown = parties.map((party) => {
     const partyAmount = (party.share_percentage / 100) * invoice.total_amount
+    const periods     = party.policy_periods || []
 
-    const insurerBreakdown = calcTimeOnRisk(serviceStart, serviceEnd, party.policy_periods || [])
-    const totalPct = insurerBreakdown.reduce((s, i) => s + i.percentage, 0)
-
-    const insurers = insurerBreakdown.map((ins) => ({
-      ...ins,
-      amount: (ins.percentage / (totalPct || 100)) * partyAmount,
-      normalized_percentage: totalPct > 0 ? (ins.percentage / totalPct) * 100 : 0,
-    }))
+    let insurers
+    if (method === 'equal_shares') {
+      insurers = calcEqualShares(partyAmount, periods)
+    } else if (method === 'limits_proportional') {
+      insurers = calcLimitsProportional(partyAmount, periods)
+    } else {
+      // pro_rata_time_on_risk (default)
+      const torBreakdown = calcTimeOnRisk(serviceStart, serviceEnd, periods)
+      const totalPct     = torBreakdown.reduce((s, i) => s + i.percentage, 0)
+      insurers = torBreakdown.map((ins) => ({
+        ...ins,
+        amount:                (ins.percentage / (totalPct || 100)) * partyAmount,
+        normalized_percentage: totalPct > 0 ? (ins.percentage / totalPct) * 100 : 0,
+      }))
+    }
 
     const uninsuredAmount = partyAmount - insurers.reduce((s, i) => s + i.amount, 0)
 
     return {
-      party_id:          party.id,
-      party_name:        party.name,
-      share_percentage:  party.share_percentage,
-      party_amount:      partyAmount,
+      party_id:         party.id,
+      party_name:       party.name,
+      share_percentage: party.share_percentage,
+      party_amount:     partyAmount,
       insurers,
-      uninsured_amount:  Math.max(0, uninsuredAmount),
+      uninsured_amount: Math.max(0, uninsuredAmount),
     }
   })
 
   return {
-    invoice_total:  invoice.total_amount,
-    service_start:  invoice.service_start,
-    service_end:    invoice.service_end || invoice.service_start,
+    invoice_total:   invoice.total_amount,
+    service_start:   invoice.service_start,
+    service_end:     invoice.service_end || invoice.service_start,
+    calculation_method: method,
     party_breakdown: breakdown,
-    calculated_at:  new Date().toISOString(),
+    calculated_at:   new Date().toISOString(),
   }
 }
 

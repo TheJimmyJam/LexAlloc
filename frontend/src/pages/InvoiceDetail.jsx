@@ -4,9 +4,27 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { formatCurrency, apportionInvoice } from '../lib/calculations.js'
-import { ArrowLeft, Calculator, FileText, ExternalLink, Plus, Trash2, Save, Loader2 } from 'lucide-react'
+import { ArrowLeft, Calculator, FileText, ExternalLink, Loader2 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
+
+const METHODS = [
+  {
+    value: 'pro_rata_time_on_risk',
+    label: 'Pro-Rata TOR',
+    description: 'Days each policy was on-risk during the service period',
+  },
+  {
+    value: 'equal_shares',
+    label: 'Equal Shares',
+    description: 'Split evenly across all triggered carriers',
+  },
+  {
+    value: 'limits_proportional',
+    label: 'Limits-Proportional',
+    description: 'Weighted by each policy\'s limit',
+  },
+]
 
 export default function InvoiceDetail() {
   const { matterId, invoiceId } = useParams()
@@ -14,6 +32,7 @@ export default function InvoiceDetail() {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [calculating, setCalculating] = useState(false)
+  const [calcMethod, setCalcMethod] = useState('pro_rata_time_on_risk')
 
   const { data: invoice, isLoading } = useQuery({
     queryKey: ['invoice', invoiceId],
@@ -23,7 +42,7 @@ export default function InvoiceDetail() {
     }
   })
 
-  const { data: lineItems = [], refetch: refetchLines } = useQuery({
+  const { data: lineItems = [] } = useQuery({
     queryKey: ['invoice-lines', invoiceId],
     queryFn: async () => {
       const { data } = await supabase
@@ -60,7 +79,6 @@ export default function InvoiceDetail() {
 
     setCalculating(true)
     try {
-      // Build payload for calculation
       const partiesWithPolicies = parties.map(p => ({
         ...p,
         policy_periods: insurerPeriods
@@ -70,20 +88,23 @@ export default function InvoiceDetail() {
             insurer_name: pp.la_insurers?.name,
             policy_start: pp.policy_start,
             policy_end:   pp.policy_end,
+            policy_limit: pp.policy_limit,   // needed for limits_proportional
           }))
       }))
 
-      const result = apportionInvoice(invoice, partiesWithPolicies)
+      const result = apportionInvoice(invoice, partiesWithPolicies, calcMethod)
+
+      const methodLabel = METHODS.find(m => m.value === calcMethod)?.label || calcMethod
 
       // Save apportionment to DB
       const { data: apport, error: aErr } = await supabase.from('la_apportionments').insert({
         invoice_id:         invoiceId,
         matter_id:          matterId,
         org_id:             profile.org_id,
-        calculation_method: 'pro_rata_time_on_risk',
+        calculation_method: calcMethod,
         result_json:        result,
         calculated_at:      new Date().toISOString(),
-        notes:              `Auto-calculated: pro-rata time-on-risk`,
+        notes:              `Auto-calculated: ${methodLabel}`,
       }).select().single()
       if (aErr) throw aErr
 
@@ -98,13 +119,13 @@ export default function InvoiceDetail() {
 
         for (const ins of pb.insurers) {
           await supabase.from('la_insurer_apportionments').insert({
-            apportionment_id:      apport.id,
+            apportionment_id:       apport.id,
             party_apportionment_id: pa.id,
-            insurer_id:            ins.insurer_id,
-            days_on_risk:          ins.days_on_risk,
-            total_days:            ins.total_exposure_days,
-            percentage:            ins.normalized_percentage,
-            amount:                ins.amount,
+            insurer_id:             ins.insurer_id,
+            days_on_risk:           ins.days_on_risk ?? null,
+            total_days:             ins.total_exposure_days ?? null,
+            percentage:             ins.normalized_percentage,
+            amount:                 ins.amount,
           })
         }
       }
@@ -157,7 +178,9 @@ export default function InvoiceDetail() {
               </a>
             )}
             <button onClick={handleRunApportionment} className="btn-primary" disabled={calculating}>
-              {calculating ? <><Loader2 className="h-4 w-4 animate-spin" /> Calculating…</> : <><Calculator className="h-4 w-4" /> Run Apportionment</>}
+              {calculating
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Calculating…</>
+                : <><Calculator className="h-4 w-4" /> Run Apportionment</>}
             </button>
           </div>
         </div>
@@ -185,6 +208,36 @@ export default function InvoiceDetail() {
           <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Line Items</p>
           <p className="text-xl font-bold text-slate-900 mt-1">{lineItems.length}</p>
         </div>
+      </div>
+
+      {/* Calculation Method Selector */}
+      <div className="card p-5 mb-6">
+        <h2 className="font-semibold text-slate-900 mb-1">Calculation Method</h2>
+        <p className="text-sm text-slate-400 mb-4">Choose how carrier obligations are allocated within each party's share.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {METHODS.map((m) => (
+            <button
+              key={m.value}
+              type="button"
+              onClick={() => setCalcMethod(m.value)}
+              className={`text-left rounded-xl border-2 p-4 transition-all ${
+                calcMethod === m.value
+                  ? 'border-brand-600 bg-brand-50'
+                  : 'border-slate-200 bg-white hover:border-slate-300'
+              }`}
+            >
+              <p className={`font-semibold text-sm ${calcMethod === m.value ? 'text-brand-700' : 'text-slate-800'}`}>
+                {m.label}
+              </p>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">{m.description}</p>
+            </button>
+          ))}
+        </div>
+        {calcMethod === 'limits_proportional' && (
+          <p className="text-xs text-amber-600 mt-3 bg-amber-50 rounded-lg px-3 py-2">
+            ⚠ Make sure policy limits are entered for all insurer policy periods — carriers without a limit will fall back to equal shares.
+          </p>
+        )}
       </div>
 
       {/* Line Items */}

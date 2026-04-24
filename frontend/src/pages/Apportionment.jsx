@@ -199,6 +199,14 @@ export default function Apportionment() {
   const invoice  = apport.invoices || {}
   const partyApps = apport.party_apportionments || []
 
+  // Method-aware display helpers
+  const calcMethod = apport.calculation_method || 'pro_rata_time_on_risk'
+  const isTOR      = calcMethod === 'pro_rata_time_on_risk'
+  const isEqual    = calcMethod === 'equal_shares'
+  const isLimits   = calcMethod === 'limits_proportional'
+  const allocationLabel = isTOR ? 'TOR %' : isEqual ? 'Equal Split' : 'Limit Share %'
+  const sectionSuffix   = isTOR ? 'Time-on-Risk Breakdown' : isEqual ? 'Equal Shares Breakdown' : 'Limits-Proportional Breakdown'
+
   // Chart data
   const pieData = partyApps.map((pa, i) => ({
     name:  pa.parties?.name || 'Unknown',
@@ -396,7 +404,7 @@ export default function Apportionment() {
         {partyApps.map((pa) => (
           <SectionCard
             key={pa.id}
-            title={`${pa.parties?.name} — Insurer Time-on-Risk Breakdown`}
+            title={`${pa.parties?.name} — Insurer ${sectionSuffix}`}
             icon={Shield}
             defaultOpen={true}
           >
@@ -417,12 +425,14 @@ export default function Apportionment() {
                   {invoice.service_end ? ` – ${format(parseISO(invoice.service_end), 'MM/dd/yyyy')}` : ''}
                 </p>
               </div>
-              <div>
-                <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Total Exposure Days</p>
-                <p className="text-xl font-bold text-slate-900 mt-0.5">
-                  {pa.insurer_apportionments?.[0]?.total_days || '—'}
-                </p>
-              </div>
+              {isTOR && (
+                <div>
+                  <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Total Exposure Days</p>
+                  <p className="text-xl font-bold text-slate-900 mt-0.5">
+                    {pa.insurer_apportionments?.[0]?.total_days || '—'}
+                  </p>
+                </div>
+              )}
             </div>
 
             {(!pa.insurer_apportionments || pa.insurer_apportionments.length === 0) ? (
@@ -440,8 +450,8 @@ export default function Apportionment() {
                       <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Claim #</th>
                       <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Claims Rep</th>
                       <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Policy Period</th>
-                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Days on Risk</th>
-                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">TOR %</th>
+                      {isTOR && <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Days on Risk</th>}
+                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">{allocationLabel}</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Obligation</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Policy Limit</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Paid</th>
@@ -475,7 +485,9 @@ export default function Apportionment() {
                               <span>{format(parseISO(pp.policy_start), 'MM/dd/yyyy')} – {format(parseISO(pp.policy_end), 'MM/dd/yyyy')}</span>
                             ) : '—'}
                           </td>
-                          <td className="py-3 text-right text-slate-600">{ia.days_on_risk} / {ia.total_days}</td>
+                          {isTOR && (
+                            <td className="py-3 text-right text-slate-600">{ia.days_on_risk} / {ia.total_days}</td>
+                          )}
                           <td className="py-3 text-right">
                             <div className="flex items-center justify-end gap-2">
                               <div className="w-14 bg-slate-100 rounded-full h-1.5 print:hidden">
@@ -533,7 +545,7 @@ export default function Apportionment() {
                   </tbody>
                   <tfoot>
                     <tr className="border-t-2 border-slate-200 bg-slate-50">
-                      <td colSpan={5} className="pt-3 font-semibold text-slate-700 text-sm">Insured Subtotal</td>
+                      <td colSpan={isTOR ? 6 : 5} className="pt-3 font-semibold text-slate-700 text-sm">Insured Subtotal</td>
                       <td className="pt-3 text-right font-bold text-brand-700">
                         {formatCurrency(pa.insurer_apportionments.reduce((s, ia) => s + (ia.amount || 0), 0))}
                       </td>
@@ -545,7 +557,7 @@ export default function Apportionment() {
                     </tr>
                     {pa.amount - pa.insurer_apportionments.reduce((s, ia) => s + (ia.amount || 0), 0) > 0.01 && (
                       <tr className="bg-amber-50">
-                        <td colSpan={6} className="pt-2 pb-3 text-amber-700 text-sm font-medium">
+                        <td colSpan={isTOR ? 7 : 6} className="pt-2 pb-3 text-amber-700 text-sm font-medium">
                           ⚠ Uninsured / Gap (no triggering policy)
                         </td>
                         <td colSpan={2} className="pt-2 pb-3 text-right font-bold text-amber-700">
@@ -568,8 +580,8 @@ export default function Apportionment() {
                 <tr className="border-b border-slate-100">
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Party</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Insurer</th>
-                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Days on Risk</th>
-                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">TOR %</th>
+                  {isTOR && <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Days on Risk</th>}
+                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">{allocationLabel}</th>
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Party %</th>
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Net Obligation</th>
                 </tr>
@@ -580,7 +592,7 @@ export default function Apportionment() {
                     <tr key={`${pa.id}-${ia.id}`} className="hover:bg-slate-50">
                       <td className="py-2.5 font-medium text-slate-800 text-sm">{pa.parties?.name}</td>
                       <td className="py-2.5 text-sm text-slate-600">{ia.insurers?.name}</td>
-                      <td className="py-2.5 text-right text-sm text-slate-600">{ia.days_on_risk}</td>
+                      {isTOR && <td className="py-2.5 text-right text-sm text-slate-600">{ia.days_on_risk}</td>}
                       <td className="py-2.5 text-right text-sm text-brand-600 font-medium">{formatPercent(ia.percentage)}</td>
                       <td className="py-2.5 text-right text-sm text-slate-500">{formatPercent(pa.percentage)}</td>
                       <td className="py-2.5 text-right font-bold text-slate-900">{formatCurrency(ia.amount)}</td>
@@ -590,7 +602,7 @@ export default function Apportionment() {
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-slate-300 bg-slate-50">
-                  <td colSpan={5} className="pt-3 font-bold text-slate-900">Invoice Total</td>
+                  <td colSpan={isTOR ? 5 : 4} className="pt-3 font-bold text-slate-900">Invoice Total</td>
                   <td className="pt-3 text-right font-bold text-brand-700 text-xl">{formatCurrency(invoice.total_amount)}</td>
                 </tr>
               </tfoot>
