@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { db } from '../lib/mockDb.js'
 import { useForm } from 'react-hook-form'
-import { Plus, Search, FolderOpen, X, ChevronRight } from 'lucide-react'
+import { Plus, Search, FolderOpen, X, ChevronRight, FileText, Calculator } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 
@@ -53,14 +53,20 @@ export default function Matters() {
   const [matters, setMatters] = useState([])
   const [search, setSearch]   = useState('')
   const [showModal, setShowModal] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = searchParams.get('tab') // 'invoices' | 'apportionments' | null
 
   const load = () => setMatters(db.getMatterWithCounts(profile?.org_id))
   useEffect(() => { if (profile) load() }, [profile])
 
-  const filtered = matters.filter(m =>
-    m.name.toLowerCase().includes(search.toLowerCase()) ||
-    (m.matter_number||'').toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = matters.filter(m => {
+    const matchesSearch = m.name.toLowerCase().includes(search.toLowerCase()) ||
+      (m.matter_number||'').toLowerCase().includes(search.toLowerCase())
+    if (!matchesSearch) return false
+    if (activeTab === 'invoices')       return (m.invoices?.[0]?.count ?? 0) > 0
+    if (activeTab === 'apportionments') return (m.invoices?.[0]?.count ?? 0) > 0 // matters with activity
+    return true
+  })
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
@@ -71,6 +77,25 @@ export default function Matters() {
         </div>
         <button onClick={() => setShowModal(true)} className="btn-primary"><Plus className="h-4 w-4" /> New Matter</button>
       </div>
+
+      {activeTab === 'invoices' && (
+        <div className="flex items-center gap-3 mb-4 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-700 text-sm">
+          <FileText className="h-4 w-4 flex-shrink-0" />
+          <span>Showing matters with invoices.</span>
+          <button onClick={() => setSearchParams({})} className="ml-auto text-blue-500 hover:text-blue-700 font-medium flex items-center gap-1">
+            <X className="h-3 w-3" /> Clear filter
+          </button>
+        </div>
+      )}
+      {activeTab === 'apportionments' && (
+        <div className="flex items-center gap-3 mb-4 px-4 py-3 bg-purple-50 border border-purple-200 rounded-lg text-purple-700 text-sm">
+          <Calculator className="h-4 w-4 flex-shrink-0" />
+          <span>Showing matters with apportionment activity.</span>
+          <button onClick={() => setSearchParams({})} className="ml-auto text-purple-500 hover:text-purple-700 font-medium flex items-center gap-1">
+            <X className="h-3 w-3" /> Clear filter
+          </button>
+        </div>
+      )}
 
       <div className="relative mb-6">
         <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
