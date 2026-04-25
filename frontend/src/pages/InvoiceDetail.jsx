@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { formatCurrency, apportionInvoice } from '../lib/calculations.js'
-import { ArrowLeft, Calculator, FileText, ExternalLink, Loader2, GitCompare, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, Calculator, FileText, ExternalLink, Loader2, GitCompare, ChevronDown, ChevronUp, CheckCircle2, AlertCircle } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
@@ -142,10 +142,26 @@ export default function InvoiceDetail() {
     }
   }
 
-  // Build parties+policies structure (reused for both run and comparison)
-  const partiesWithPolicies = useMemo(() => parties.map(p => ({
-    ...p,
-    policy_periods: insurerPeriods
+  // ── Date-overlap helper ───────────────────────────────────────────────────────
+  // Returns true if a party's responsible date range overlaps the invoice service period.
+  // A party with no dates set is always included.
+  const partyActiveForInvoice = (party, inv) => {
+    if (!party.responsible_start && !party.responsible_end) return true
+    if (!inv?.service_start) return true
+    const invoiceStart = new Date(inv.service_start)
+    const invoiceEnd   = new Date(inv.service_end || inv.service_start)
+    const pStart = party.responsible_start ? new Date(party.responsible_start) : null
+    const pEnd   = party.responsible_end   ? new Date(party.responsible_end)   : null
+    // Overlap: party start <= invoice end  AND  party end >= invoice start
+    if (pStart && pStart > invoiceEnd)   return false
+    if (pEnd   && pEnd   < invoiceStart) return false
+    return true
+  }
+
+  // Build parties+policies structure — filtered to parties active for this invoice's
+  // service period, with shares normalized among those included parties.
+  const { partiesWithPolicies, excludedParties } = useMemo(() => {
+    const allPolicies = (p) => insurerPeriods
       .filter(pp => pp.party_id === p.id)
       .map(pp => ({
         insurer_id:   pp.insurer_id,
@@ -154,7 +170,23 @@ export default function InvoiceDetail() {
         policy_end:   pp.policy_end,
         policy_limit: pp.policy_limit,
       }))
-  })), [parties, insurerPeriods])
+
+    const included = parties.filter(p =>  partyActiveForInvoice(p, invoice))
+    const excluded = parties.filter(p => !partyActiveForInvoice(p, invoice))
+
+    // Normalize shares so included parties sum to 100%
+    const totalIncludedPct = included.reduce((s, p) => s + (p.share_percentage || 0), 0)
+
+    const partiesWithPolicies = included.map(p => ({
+      ...p,
+      share_percentage: totalIncludedPct > 0
+        ? parseFloat(((p.share_percentage / totalIncludedPct) * 100).toFixed(4))
+        : p.share_percentage,
+      policy_periods: allPolicies(p),
+    }))
+
+    return { partiesWithPolicies, excludedParties: excluded }
+  }, [parties, insurerPeriods, invoice])
 
   // Compute all three methods for comparison (only when invoice + parties ready)
   const comparisonResults = useMemo(() => {
@@ -199,6 +231,16 @@ export default function InvoiceDetail() {
               <a href={invoice.file_url} target="_blank" rel="noopener noreferrer" className="btn-secondary">
                 <ExternalLink className="h-4 w-4" /> View PDF
               </a>
+            )}
+            {excludedParties.length > 0 && (
+              <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 max-w-xs text-left">
+                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                <span>
+                  <strong>{excludedParties.map(p => p.name).join(', ')}</strong>
+                  {' '}excluded — service period outside their responsible dates.
+                  Shares normalized among {partiesWithPolicies.length} included {partiesWithPolicies.length === 1 ? 'party' : 'parties'}.
+                </span>
+              </div>
             )}
             <button onClick={handleRunApportionment} className="btn-primary" disabled={calculating}>
               {calculating
