@@ -5,6 +5,7 @@ import invoiceRoutes    from './routes/invoices.js'
 import apportRoutes     from './routes/apportionments.js'
 import notifRoutes      from './routes/notifications.js'
 import inviteRoutes     from './routes/invitations.js'
+import billingRoutes, { webhookHandler } from './routes/billing.js'
 
 const app  = express()
 const PORT = process.env.PORT || 8080
@@ -14,6 +15,10 @@ app.use(cors({
   origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
   credentials: true,
 }))
+
+// Stripe webhook must receive the raw body BEFORE express.json() parses it
+app.post('/billing/webhook', express.raw({ type: 'application/json' }), webhookHandler)
+
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
@@ -43,6 +48,7 @@ app.use('/api/invoices',       invoiceRoutes)
 app.use('/api/apportionments', apportRoutes)
 app.use('/api/notifications',  notifRoutes)
 app.use('/api/invitations',    inviteRoutes)
+app.use('/api/billing',        billingRoutes)
 
 // ── Error handler ─────────────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
