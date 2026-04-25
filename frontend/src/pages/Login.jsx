@@ -3,12 +3,16 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { Eye, EyeOff } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
+import { useBranding } from '../context/BrandingContext.jsx'
 import toast from 'react-hot-toast'
 
 export default function Login() {
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm()
   const [showPassword, setShowPassword] = useState(false)
   const navigate = useNavigate()
+  const { brandName, logoUrl, supportEmail, isWhiteLabeled } = useBranding()
+  const appName = brandName || 'LexAlloc'
+  const logoSrc = logoUrl  || '/logo.svg'
 
   const onSubmit = async ({ email, password }) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
@@ -28,10 +32,19 @@ export default function Login() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="flex justify-center mb-6">
-            <img src="/logo.svg" alt="LexAlloc" className="h-20 w-auto" />
+            <img src={logoSrc} alt={appName} className="h-20 w-auto" />
           </div>
-          <h1 className="text-2xl font-bold text-white">Sign in to LexAlloc</h1>
-          <p className="text-slate-400 mt-1 text-sm">Legal invoice apportionment, simplified.</p>
+          <h1 className="text-2xl font-bold text-white">Sign in to {appName}</h1>
+          <p className="text-slate-400 mt-1 text-sm">
+            {isWhiteLabeled
+              ? 'Invoice apportionment, simplified.'
+              : 'Legal invoice apportionment, simplified.'}
+          </p>
+          {supportEmail && (
+            <p className="text-slate-500 mt-1 text-xs">
+              Need help? <a href={`mailto:${supportEmail}`} className="text-brand-400 hover:text-brand-300">{supportEmail}</a>
+            </p>
+          )}
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="bg-white rounded-2xl p-8 shadow-2xl space-y-5">
