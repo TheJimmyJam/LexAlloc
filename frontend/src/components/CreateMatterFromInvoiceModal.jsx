@@ -633,7 +633,7 @@ export default function CreateMatterFromInvoiceModal({ onClose }) {
                 <ArrowLeft className="h-4 w-4" /> Back
               </button>
               <button
-                onClick={handleCreate}
+                onClick={() => handleCreate()}
                 disabled={saving || !matterName.trim()}
                 className="btn-primary"
               >
