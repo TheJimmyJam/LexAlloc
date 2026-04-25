@@ -208,17 +208,88 @@ function MatterCard({ matter, rows, insurerName, onPay, payingId }) {
   )
 }
 
+// ── Payment success modal ─────────────────────────────────────────────────────
+function PaymentSuccessModal({ obligation, onClose }) {
+  const [seconds, setSeconds] = useState(10)
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setSeconds(s => {
+        if (s <= 1) { clearInterval(t); onClose(); return 0 }
+        return s - 1
+      })
+    }, 1000)
+    return () => clearInterval(t)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 relative animate-in fade-in zoom-in duration-200">
+        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors">
+          <X className="h-5 w-5" />
+        </button>
+
+        {/* Icon */}
+        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-5">
+          <CheckCircle className="h-9 w-9 text-green-500" />
+        </div>
+
+        <h2 className="text-xl font-bold text-center text-slate-900 mb-1">Payment Successful</h2>
+        <p className="text-center text-slate-500 text-sm mb-6">Your payment has been received. A confirmation email has been sent to you.</p>
+
+        {/* Payment details */}
+        {obligation && (
+          <div className="bg-slate-50 rounded-xl p-4 space-y-3 mb-6 border border-slate-100">
+            {obligation.matter?.name && (
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-500">Matter</span>
+                <span className="font-semibold text-slate-900 text-right max-w-[60%]">{obligation.matter.name}</span>
+              </div>
+            )}
+            {obligation.invoice?.invoice_number && (
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-500">Invoice</span>
+                <span className="font-semibold text-slate-900">{obligation.invoice.invoice_number}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-center text-sm pt-2 border-t border-slate-200">
+              <span className="text-slate-500 font-medium">Amount Paid</span>
+              <span className="font-bold text-green-600 text-base">{formatCurrency(obligation.amount)}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Countdown bar */}
+        <div className="space-y-1.5">
+          <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+            <div
+              className="bg-green-500 h-1.5 rounded-full transition-all duration-1000 ease-linear"
+              style={{ width: `${(seconds / 10) * 100}%` }}
+            />
+          </div>
+          <p className="text-xs text-center text-slate-400">Closing in {seconds}s</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main portal ───────────────────────────────────────────────────────────────
 export default function ClientPortal() {
   const { profile } = useAuth()
   const qc = useQueryClient()
   const [payingId, setPayingId] = useState(null)
   const [paymentBanner, setPaymentBanner] = useState(null)
+  const [successSessionId, setSuccessSessionId] = useState(null)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const result = params.get('payment')
-    if (result === 'success')   { setPaymentBanner('success');   qc.invalidateQueries({ queryKey: ['client-obligations'] }) }
+    const result    = params.get('payment')
+    const sessionId = params.get('session_id')
+    if (result === 'success') {
+      setSuccessSessionId(sessionId)
+      qc.invalidateQueries({ queryKey: ['client-obligations'] })
+    }
     if (result === 'cancelled') { setPaymentBanner('cancelled') }
     if (result) window.history.replaceState({}, '', window.location.pathname)
   }, [])
@@ -308,8 +379,20 @@ export default function ClientPortal() {
     byMatter[key].rows.push(o)
   })
 
+  const successObligation = successSessionId
+    ? obligations.find(o => o.stripe_session_id === successSessionId) ?? null
+    : null
+
   return (
     <div className="min-h-screen bg-slate-50">
+
+      {/* ── Payment success modal ──────────────────────────────────────────── */}
+      {successSessionId && (
+        <PaymentSuccessModal
+          obligation={successObligation}
+          onClose={() => setSuccessSessionId(null)}
+        />
+      )}
 
       {/* ── Portal header ──────────────────────────────────────────────────── */}
       <div className="bg-slate-900 border-b border-slate-800">
@@ -335,18 +418,6 @@ export default function ClientPortal() {
       <div className="max-w-7xl mx-auto px-6 lg:px-8 py-8">
 
         {/* Payment result banners */}
-        {paymentBanner === 'success' && (
-          <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-5 py-4 mb-6 shadow-sm">
-            <div className="flex items-center gap-3">
-              <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
-              <div>
-                <p className="font-semibold text-green-800 text-sm">Payment received</p>
-                <p className="text-green-700 text-xs mt-0.5">Your payment was processed successfully. The obligation will be marked paid shortly.</p>
-              </div>
-            </div>
-            <button onClick={() => setPaymentBanner(null)} className="text-green-400 hover:text-green-600 ml-4"><X className="h-4 w-4" /></button>
-          </div>
-        )}
         {paymentBanner === 'cancelled' && (
           <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 mb-6 shadow-sm">
             <div className="flex items-center gap-3">
