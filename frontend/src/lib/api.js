@@ -47,12 +47,16 @@ export const api = {
     return data
   },
 
-  // ── AI Method Advisor ──────────────────────────────────────────────────────
-  recommendMethod: (context) =>
-    request('/api/ai/recommend-method', {
-      method: 'POST',
-      body: JSON.stringify(context),
-    }),
+  // ── AI Method Advisor — Supabase Edge Function ────────────────────────────
+  recommendMethod: async (context) => {
+    const { supabase } = await import('./supabase.js')
+    const { data, error } = await supabase.functions.invoke('recommend-method', {
+      body: context,
+    })
+    if (error) throw new Error(error.message || 'AI request failed')
+    if (data?.error) throw new Error(data.error)
+    return data
+  },
 
   // ── Billing ────────────────────────────────────────────────────────────────
   getSubscription: () =>
