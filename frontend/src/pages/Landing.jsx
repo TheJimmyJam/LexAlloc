@@ -137,7 +137,7 @@ export default function Landing() {
       </nav>
 
       {/* ── Hero ────────────────────────────────────────────────────────────── */}
-      <section className="relative px-6 lg:px-16 pt-24 pb-32 text-center overflow-hidden">
+      <section className="relative px-6 lg:px-16 pt-12 pb-32 text-center overflow-hidden">
         {/* Background glow */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[800px] h-[600px] bg-brand-600/20 rounded-full blur-3xl" />
