@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth.jsx'
+import { BrandingProvider } from './context/BrandingContext.jsx'
 import Layout from './components/Layout.jsx'
 import { supabaseMisconfigured } from './lib/supabase.js'
 
@@ -79,6 +80,7 @@ export default function App() {
   }
 
   return (
+    <BrandingProvider>
     <AuthProvider>
       <Routes>
         {/* Public */}
@@ -106,5 +108,6 @@ export default function App() {
         <Route path="*" element={<DashboardRedirect />} />
       </Routes>
     </AuthProvider>
+    </BrandingProvider>
   )
 }
