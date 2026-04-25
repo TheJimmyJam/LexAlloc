@@ -348,11 +348,23 @@ export default function InvoiceDetail() {
                     )}
                   </div>
 
-                  {comparisonResults[m.value].party_breakdown.map(pb => (
+                  {comparisonResults[m.value].party_breakdown.map(pb => {
+                    const partyMeta = partiesWithPolicies.find(p => p.id === pb.party_id)
+                    const respStart = partyMeta?.responsible_start ? format(parseISO(partyMeta.responsible_start), 'MM/dd/yyyy') : null
+                    const respEnd   = partyMeta?.responsible_end   ? format(parseISO(partyMeta.responsible_end),   'MM/dd/yyyy') : null
+                    const respLabel = respStart || respEnd
+                      ? `${respStart ?? '…'} – ${respEnd ?? 'present'}`
+                      : 'All dates'
+                    return (
                     <div key={pb.party_id} className="mb-3 last:mb-0">
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
-                        {pb.party_name} — {pb.share_percentage}% → {formatCurrency(pb.party_amount)}
-                      </p>
+                      <div className="flex items-baseline justify-between mb-1.5 flex-wrap gap-x-4">
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                          {pb.party_name} — {pb.share_percentage.toFixed(2)}% → {formatCurrency(pb.party_amount)}
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          <span className="font-medium text-slate-500">Responsible:</span> {respLabel}
+                        </p>
+                      </div>
                       {pb.insurers.length === 0 ? (
                         <p className="text-xs text-slate-400 italic">No insurers assigned</p>
                       ) : (
@@ -410,7 +422,7 @@ export default function InvoiceDetail() {
                         </div>
                       )}
                     </div>
-                  ))}
+                  )})}
                 </div>
               ))}
 
