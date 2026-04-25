@@ -1,48 +1,49 @@
-import { differenceInCalendarDays, parseISO, max, min } from 'date-fns'
+import { differenceInCalendarDays, parseISO } from 'date-fns'
 
 /**
- * Calculate pro-rata time-on-risk percentage for each insurer
- * for a given date range (e.g., invoice date or service period).
+ * Pro-rata time-on-risk for each insurer under a single party.
  *
- * @param {Date} exposureStart - Start of exposure period
- * @param {Date} exposureEnd   - End of exposure period
- * @param {Array} policyPeriods - [{ id, insurer_id, insurer_name, policy_start, policy_end }]
- * @returns {Array} [{ insurer_id, insurer_name, days_on_risk, total_exposure_days, percentage }]
+ * TOR = insurer's raw policy duration / sum of all insurer policy durations for this party.
+ * No reference to invoice service dates — this is purely about coverage period length.
+ * Policies with no end date (still in effect) use today as the ceiling.
+ *
+ * @param {Array} policyPeriods - [{ insurer_id, insurer_name, policy_start, policy_end }]
+ * @returns {Array} [{ insurer_id, insurer_name, days_on_risk, total_coverage_days, percentage }]
  */
-export function calcTimeOnRisk(exposureStart, exposureEnd, policyPeriods) {
-  const totalDays = differenceInCalendarDays(exposureEnd, exposureStart) || 1
+export function calcTimeOnRisk(policyPeriods) {
+  const today = new Date()
 
-  const results = policyPeriods.map((pp) => {
+  const withDays = policyPeriods.map((pp) => {
     const pStart = typeof pp.policy_start === 'string' ? parseISO(pp.policy_start) : pp.policy_start
-    // null/empty policy_end = policy still in effect; treat as covering through exposure end
-    const pEnd = pp.policy_end
+    const pEnd   = pp.policy_end
       ? (typeof pp.policy_end === 'string' ? parseISO(pp.policy_end) : pp.policy_end)
-      : exposureEnd
+      : today
 
-    // Overlap window
-    const overlapStart = max([exposureStart, pStart])
-    const overlapEnd   = min([exposureEnd, pEnd])
-    const daysOnRisk   = Math.max(0, differenceInCalendarDays(overlapEnd, overlapStart))
+    const days = Math.max(1, differenceInCalendarDays(pEnd, pStart))
 
     return {
-      insurer_id:     pp.insurer_id,
-      insurer_name:   pp.insurer_name,
-      policy_start:   pp.policy_start,
-      policy_end:     pp.policy_end,
-      days_on_risk:   daysOnRisk,
-      total_exposure_days: totalDays,
-      percentage:     totalDays > 0 ? (daysOnRisk / totalDays) * 100 : 0,
+      insurer_id:   pp.insurer_id,
+      insurer_name: pp.insurer_name,
+      policy_start: pp.policy_start,
+      policy_end:   pp.policy_end,
+      days_on_risk: days,
     }
   })
 
-  return results
+  const totalDays = withDays.reduce((s, r) => s + r.days_on_risk, 0) || 1
+
+  return withDays.map(r => ({
+    ...r,
+    total_coverage_days: totalDays,
+    percentage: (r.days_on_risk / totalDays) * 100,
+  }))
 }
 
 /**
  * Equal shares: split party amount evenly across all insurers.
  *
- * @param {number} partyAmount  - Dollar amount allocated to this party
- * @param {Array}  policyPeriods - [{ insurer_id, insurer_name, policy_start, policy_end, ... }]
+ * @param {number} partyAmount   - Dollar amount allocated to this party
+ * @param {Array}  policyPeriods - [{ insurer_id, insurer_name, ... }]
  * @returns {Array} insurer breakdown with equal percentages
  */
 export function calcEqualShares(partyAmount, policyPeriods) {
@@ -51,14 +52,14 @@ export function calcEqualShares(partyAmount, policyPeriods) {
   const share = 100 / n
 
   return policyPeriods.map((pp) => ({
-    insurer_id:          pp.insurer_id,
-    insurer_name:        pp.insurer_name,
-    policy_start:        pp.policy_start,
-    policy_end:          pp.policy_end,
-    days_on_risk:        null,
-    total_exposure_days: null,
-    percentage:          share,
-    amount:              (share / 100) * partyAmount,
+    insurer_id:            pp.insurer_id,
+    insurer_name:          pp.insurer_name,
+    policy_start:          pp.policy_start,
+    policy_end:            pp.policy_end,
+    days_on_risk:          null,
+    total_coverage_days:   null,
+    percentage:            share,
+    amount:                (share / 100) * partyAmount,
     normalized_percentage: share,
   }))
 }
@@ -67,28 +68,27 @@ export function calcEqualShares(partyAmount, policyPeriods) {
  * Limits-proportional: each insurer's share = their policy_limit / sum of all limits.
  * Falls back to equal shares if no limits are set.
  *
- * @param {number} partyAmount  - Dollar amount allocated to this party
+ * @param {number} partyAmount   - Dollar amount allocated to this party
  * @param {Array}  policyPeriods - [{ insurer_id, insurer_name, policy_limit, ... }]
  * @returns {Array} insurer breakdown weighted by policy limits
  */
 export function calcLimitsProportional(partyAmount, policyPeriods) {
   const totalLimits = policyPeriods.reduce((s, pp) => s + (Number(pp.policy_limit) || 0), 0)
 
-  // Fall back to equal shares if no limits configured
   if (totalLimits === 0) return calcEqualShares(partyAmount, policyPeriods)
 
   return policyPeriods.map((pp) => {
     const limit = Number(pp.policy_limit) || 0
     const pct   = (limit / totalLimits) * 100
     return {
-      insurer_id:          pp.insurer_id,
-      insurer_name:        pp.insurer_name,
-      policy_start:        pp.policy_start,
-      policy_end:          pp.policy_end,
-      days_on_risk:        null,
-      total_exposure_days: null,
-      percentage:          pct,
-      amount:              (pct / 100) * partyAmount,
+      insurer_id:            pp.insurer_id,
+      insurer_name:          pp.insurer_name,
+      policy_start:          pp.policy_start,
+      policy_end:            pp.policy_end,
+      days_on_risk:          null,
+      total_coverage_days:   null,
+      percentage:            pct,
+      amount:                (pct / 100) * partyAmount,
       normalized_percentage: pct,
     }
   })
@@ -97,25 +97,21 @@ export function calcLimitsProportional(partyAmount, policyPeriods) {
 /**
  * Apportion an invoice across parties and their insurers.
  *
+ * Party shares must already be set on each party object (share_percentage).
+ * Insurer allocation within each party uses the selected method:
+ *   - pro_rata_time_on_risk: insurer policy duration / total policy duration for this party
+ *   - equal_shares: split evenly across all insurers
+ *   - limits_proportional: weighted by policy limit
+ *
  * @param {Object} invoice  - { total_amount, service_start, service_end }
  * @param {Array}  parties  - [{ id, name, share_percentage, policy_periods: [...] }]
  * @param {string} method   - 'pro_rata_time_on_risk' | 'equal_shares' | 'limits_proportional'
  * @returns {Object} Detailed apportionment breakdown
  */
 export function apportionInvoice(invoice, parties, method = 'pro_rata_time_on_risk') {
-  const serviceStart = parseISO(invoice.service_start)
-  const serviceEnd   = parseISO(invoice.service_end || invoice.service_start)
-
   const breakdown = parties.map((party) => {
     const partyAmount = (party.share_percentage / 100) * invoice.total_amount
     const periods     = party.policy_periods || []
-
-    // Effective exposure for this party = party's responsible dates clipped to the invoice period.
-    // Insurers' TOR is measured against this window, not the full invoice service period.
-    const pRespStart    = party.responsible_start ? parseISO(party.responsible_start) : serviceStart
-    const pRespEnd      = party.responsible_end   ? parseISO(party.responsible_end)   : serviceEnd
-    const exposureStart = pRespStart > serviceStart ? pRespStart : serviceStart
-    const exposureEnd   = pRespEnd   < serviceEnd   ? pRespEnd   : serviceEnd
 
     let insurers
     if (method === 'equal_shares') {
@@ -123,13 +119,12 @@ export function apportionInvoice(invoice, parties, method = 'pro_rata_time_on_ri
     } else if (method === 'limits_proportional') {
       insurers = calcLimitsProportional(partyAmount, periods)
     } else {
-      // pro_rata_time_on_risk — insurer overlap measured against party's effective period
-      const torBreakdown = calcTimeOnRisk(exposureStart, exposureEnd, periods)
-      const totalPct     = torBreakdown.reduce((s, i) => s + i.percentage, 0)
+      // pro_rata_time_on_risk: insurer share = policy_duration / sum of all policy durations
+      const torBreakdown = calcTimeOnRisk(periods)
       insurers = torBreakdown.map((ins) => ({
         ...ins,
-        amount:                (ins.percentage / (totalPct || 100)) * partyAmount,
-        normalized_percentage: totalPct > 0 ? (ins.percentage / totalPct) * 100 : 0,
+        amount:                (ins.percentage / 100) * partyAmount,
+        normalized_percentage: ins.percentage,
       }))
     }
 
@@ -146,12 +141,12 @@ export function apportionInvoice(invoice, parties, method = 'pro_rata_time_on_ri
   })
 
   return {
-    invoice_total:   invoice.total_amount,
-    service_start:   invoice.service_start,
-    service_end:     invoice.service_end || invoice.service_start,
+    invoice_total:      invoice.total_amount,
+    service_start:      invoice.service_start,
+    service_end:        invoice.service_end || invoice.service_start,
     calculation_method: method,
-    party_breakdown: breakdown,
-    calculated_at:   new Date().toISOString(),
+    party_breakdown:    breakdown,
+    calculated_at:      new Date().toISOString(),
   }
 }
 
