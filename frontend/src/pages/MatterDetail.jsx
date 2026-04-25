@@ -2077,45 +2077,66 @@ export default function MatterDetail() {
       )}
 
       {/* ── Apportionments Tab ── */}
-      {tab === 'apportionments' && (
-        <div>
-          <h2 className="font-semibold text-slate-900 mb-4">Apportionments</h2>
-          <div className="card overflow-hidden">
-            {apportionments.length === 0 ? (
-              <div className="p-10 text-center text-slate-400">
-                <Calculator className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-                <p>No apportionments calculated yet.</p>
-                <p className="text-xs mt-1">Upload an invoice, then run an apportionment from the invoice detail page.</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50">
-                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Invoice</th>
-                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Total</th>
-                    <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Method</th>
-                    <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Calculated</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {apportionments.map(a => (
-                    <tr key={a.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => navigate(`/matters/${matterId}/apportionments/${a.id}`)}>
-                      <td className="px-5 py-4 font-medium text-slate-800">{a.invoices?.invoice_number || 'Invoice'}</td>
-                      <td className="px-4 py-4 text-right font-semibold">{formatCurrency(a.invoices?.total_amount)}</td>
-                      <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-500 capitalize">{a.calculation_method?.replace('_', ' ')}</td>
-                      <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-400">
-                        {a.calculated_at ? format(parseISO(a.calculated_at), 'MM/dd/yyyy HH:mm') : '—'}
-                      </td>
+      {tab === 'apportionments' && (() => {
+        const deleteApportionment = async (e, a) => {
+          e.stopPropagation()
+          if (!confirm(`Delete the apportionment for ${a.invoices?.invoice_number || 'this invoice'}? This cannot be undone.`)) return
+          const { error } = await supabase.from('la_apportionments').delete().eq('id', a.id)
+          if (error) { toast.error('Failed to delete apportionment'); return }
+          qc.invalidateQueries({ queryKey: ['matter-apportionments', matterId] })
+          toast.success('Apportionment deleted')
+        }
+
+        return (
+          <div>
+            <h2 className="font-semibold text-slate-900 mb-4">Apportionments</h2>
+            <div className="card overflow-hidden">
+              {apportionments.length === 0 ? (
+                <div className="p-10 text-center text-slate-400">
+                  <Calculator className="h-8 w-8 mx-auto mb-2 text-slate-300" />
+                  <p>No apportionments calculated yet.</p>
+                  <p className="text-xs mt-1">Upload an invoice, then run an apportionment from the invoice detail page.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50">
+                      <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Invoice</th>
+                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Total</th>
+                      <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Method</th>
+                      <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Calculated</th>
+                      <th className="px-4 py-3 w-10"></th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
-            )}
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {apportionments.map(a => (
+                      <tr key={a.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => navigate(`/matters/${matterId}/apportionments/${a.id}`)}>
+                        <td className="px-5 py-4 font-medium text-slate-800">{a.invoices?.invoice_number || 'Invoice'}</td>
+                        <td className="px-4 py-4 text-right font-semibold">{formatCurrency(a.invoices?.total_amount)}</td>
+                        <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-500 capitalize">{a.calculation_method?.replace('_', ' ')}</td>
+                        <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-400">
+                          {a.calculated_at ? format(parseISO(a.calculated_at), 'MM/dd/yyyy HH:mm') : '—'}
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          <button
+                            onClick={(e) => deleteApportionment(e, a)}
+                            className="p-1.5 rounded-md text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                            title="Delete apportionment"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* ── Documents Tab ── */}
       {tab === 'documents' && (() => {
