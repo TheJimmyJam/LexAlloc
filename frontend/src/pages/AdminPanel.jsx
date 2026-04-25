@@ -129,20 +129,13 @@ function InviteUserModal({ onClose, orgs, defaultOrgId, insurers = [] }) {
 
   const onSubmit = async (values) => {
     try {
-      await api.inviteUser(values.email, values.role, values.org_id)
-      // If inviting a client with an insurer pre-selected, assign after invite
-      if (values.role === 'client' && selectedInsurer) {
-        await new Promise(r => setTimeout(r, 1500))
-        const { data: newProfile } = await supabase
-          .from('la_profiles')
-          .select('id')
-          .eq('email', values.email)
-          .maybeSingle()
-        if (newProfile?.id) {
-          await supabase.from('la_profiles')
-            .update({ insurer_id: selectedInsurer })
-            .eq('id', newProfile.id)
-        }
+      // Edge function pre-creates the profile and returns user_id synchronously
+      const result = await api.inviteUser(values.email, values.role, values.org_id)
+      // Assign insurer immediately using the returned user_id — no delay needed
+      if (values.role === 'client' && selectedInsurer && result?.user_id) {
+        await supabase.from('la_profiles')
+          .update({ insurer_id: selectedInsurer })
+          .eq('id', result.user_id)
       }
       setSentEmail(values.email)
       setSent(true)
