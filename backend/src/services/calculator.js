@@ -14,7 +14,8 @@ export function calcTimeOnRisk(invoice, parties) {
 
     const insurers = (party.policy_periods || []).map(pp => {
       const pStart     = parseISO(pp.policy_start)
-      const pEnd       = parseISO(pp.policy_end)
+      // null/empty policy_end = policy still in effect; treat as covering through service end
+      const pEnd       = pp.policy_end ? parseISO(pp.policy_end) : serviceEnd
       const overlapStart = max([serviceStart, pStart])
       const overlapEnd   = min([serviceEnd,   pEnd])
       const daysOnRisk   = Math.max(0, differenceInCalendarDays(overlapEnd, overlapStart))
