@@ -650,6 +650,173 @@ function FileVineConnectionCard({ orgId }) {
   )
 }
 
+// ─── Org Detail Drawer ────────────────────────────────────────────────────────
+
+function OrgDetailDrawer({ org, orgUsers, currentUserId, isPlatformAdmin, roleColors, onClose, onInvite, onRoleChange, onInvalidate }) {
+  const [search, setSearch] = useState('')
+
+  const { data: orgStats } = useQuery({
+    queryKey: ['org-detail-stats', org.id],
+    queryFn: async () => {
+      const [mattersRes, invoicesRes] = await Promise.all([
+        supabase.from('la_matters').select('id', { count: 'exact', head: true }).eq('org_id', org.id),
+        supabase.from('la_invoices').select('id', { count: 'exact', head: true }).eq('org_id', org.id),
+      ])
+      return {
+        matters:  mattersRes.count  ?? 0,
+        invoices: invoicesRes.count ?? 0,
+      }
+    },
+  })
+
+  const filtered = orgUsers.filter(u => {
+    const q = search.toLowerCase()
+    const name = `${u.first_name || ''} ${u.last_name || ''}`.toLowerCase()
+    return !q || name.includes(q) || (u.email || '').toLowerCase().includes(q)
+  })
+
+  const initials = (u) => {
+    const f = (u.first_name || '')[0] || ''
+    const l = (u.last_name  || '')[0] || ''
+    return (f + l).toUpperCase() || (u.email || '?')[0].toUpperCase()
+  }
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 bg-black/30 z-40"
+        onClick={onClose}
+      />
+
+      {/* Drawer */}
+      <div className="fixed right-0 top-0 h-full w-full max-w-2xl bg-white shadow-2xl z-50 flex flex-col">
+
+        {/* Header */}
+        <div className="flex items-start justify-between p-6 border-b border-slate-100">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Building2 className="h-5 w-5 text-brand-600" />
+              <h2 className="text-lg font-semibold text-slate-900">{org.name}</h2>
+            </div>
+            <p className="text-sm text-slate-400">
+              Created {org.created_at ? format(parseISO(org.created_at), 'MMMM d, yyyy') : '—'}
+              {org.slug && <span className="ml-2 font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">{org.slug}</span>}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-4 p-6 border-b border-slate-100">
+          {[
+            { label: 'Users',    value: orgUsers.length,         color: 'text-brand-600',  bg: 'bg-brand-50'  },
+            { label: 'Matters',  value: orgStats?.matters  ?? '—', color: 'text-indigo-600', bg: 'bg-indigo-50' },
+            { label: 'Invoices', value: orgStats?.invoices ?? '—', color: 'text-emerald-600',bg: 'bg-emerald-50'},
+          ].map(s => (
+            <div key={s.label} className={`rounded-xl p-4 ${s.bg}`}>
+              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{s.label}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Users section */}
+        <div className="flex items-center justify-between px-6 pt-4 pb-3">
+          <h3 className="font-semibold text-slate-800 text-sm">Users</h3>
+          <div className="flex items-center gap-2">
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search users…"
+              className="form-input text-xs py-1.5 px-3 h-auto w-44"
+            />
+            <button
+              onClick={onInvite}
+              className="btn-primary text-xs py-1.5 px-3"
+            >
+              <UserPlus className="h-3.5 w-3.5" /> Invite User
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 pb-6">
+          {filtered.length === 0 ? (
+            <div className="text-center py-10 text-sm text-slate-400">
+              {orgUsers.length === 0 ? 'No users in this organization yet.' : 'No users match your search.'}
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide pb-2">User</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide pb-2">Role</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide pb-2">Joined</th>
+                  {isPlatformAdmin && (
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide pb-2">DB Admin</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {filtered.map(u => {
+                  const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email || 'Unknown'
+                  return (
+                    <tr key={u.id} className="hover:bg-slate-50">
+                      <td className="py-3 pr-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                            {initials(u)}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-slate-800 flex items-center gap-1">
+                              {name}
+                              {u.id === currentUserId && <span className="text-xs text-brand-600 font-normal">(you)</span>}
+                            </p>
+                            <p className="text-xs text-slate-400">{u.email}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 pr-4">
+                        {isPlatformAdmin ? (
+                          <select
+                            value={u.role}
+                            onChange={e => { onRoleChange(u.id, e.target.value); onInvalidate() }}
+                            disabled={u.id === currentUserId}
+                            className={`badge border-0 cursor-pointer ${roleColors[u.role] || 'bg-slate-100 text-slate-600'} disabled:opacity-50`}
+                          >
+                            <option value="admin">Admin</option>
+                            <option value="user">User</option>
+                            <option value="client">Client</option>
+                          </select>
+                        ) : (
+                          <span className={`badge ${roleColors[u.role] || 'bg-slate-100 text-slate-600'}`}>{u.role}</span>
+                        )}
+                      </td>
+                      <td className="py-3 pr-4 text-xs text-slate-400">
+                        {u.created_at ? format(parseISO(u.created_at), 'MM/dd/yyyy') : '—'}
+                      </td>
+                      {isPlatformAdmin && (
+                        <td className="py-3">
+                          {u.is_platform_admin
+                            ? <span className="badge bg-purple-100 text-purple-700 text-xs">DB Admin</span>
+                            : <span className="text-xs text-slate-300">—</span>
+                          }
+                        </td>
+                      )}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 export default function AdminPanel() {
@@ -687,6 +854,7 @@ export default function AdminPanel() {
   const [showInvite,     setShowInvite]     = useState(false)
   const [showAddOrg,     setShowAddOrg]     = useState(false)
   const [assignModal,    setAssignModal]    = useState(null)
+  const [selectedOrg,    setSelectedOrg]    = useState(null)
   // Optimistic insurer display — keyed by userId, cleared after refetch
   const [pendingInsurers, setPendingInsurers] = useState({})
 
@@ -1562,7 +1730,11 @@ export default function AdminPanel() {
                 {orgs.map(org => {
                   const orgUsers = users.filter(u => u.org_id === org.id)
                   return (
-                    <tr key={org.id} className="hover:bg-slate-50">
+                    <tr
+                      key={org.id}
+                      className="hover:bg-slate-50 cursor-pointer"
+                      onClick={() => setSelectedOrg(org)}
+                    >
                       <td className="px-5 py-4">
                         <p className="font-medium text-slate-800">
                           {org.name}
@@ -1589,7 +1761,7 @@ export default function AdminPanel() {
                         {org.created_at ? format(parseISO(org.created_at), 'MM/dd/yyyy') : '—'}
                       </td>
                       {isPlatformAdmin && (
-                        <td className="px-4 py-4">
+                        <td className="px-4 py-4" onClick={e => e.stopPropagation()}>
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => setAssignModal(org)}
@@ -2267,11 +2439,26 @@ export default function AdminPanel() {
         </div>
       )}
 
+      {/* Org Detail Drawer */}
+      {selectedOrg && (
+        <OrgDetailDrawer
+          org={selectedOrg}
+          orgUsers={users.filter(u => u.org_id === selectedOrg.id)}
+          currentUserId={profile?.id}
+          isPlatformAdmin={isPlatformAdmin}
+          roleColors={roleColors}
+          onClose={() => setSelectedOrg(null)}
+          onInvite={() => { setSelectedOrg(null); setShowInvite(true) }}
+          onRoleChange={changeRole}
+          onInvalidate={() => qc.invalidateQueries({ queryKey: ['admin-users', isPlatformAdmin ? 'all' : profile?.org_id] })}
+        />
+      )}
+
       {/* Modals */}
       {showInvite && (
         <InviteUserModal
           orgs={orgs}
-          defaultOrgId={profile?.org_id}
+          defaultOrgId={selectedOrg?.id || profile?.org_id}
           insurers={insurers}
           onClose={() => setShowInvite(false)}
         />
