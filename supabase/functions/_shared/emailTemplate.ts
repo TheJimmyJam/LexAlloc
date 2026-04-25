@@ -229,30 +229,9 @@ export function layout(opts: LayoutOptions): string {
                 <tr>
                   <td>
                     <!-- Footer logo -->
-                    <table cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:12px;">
-                      <tr>
-                        <td style="
-                          background:#4f46e5;
-                          width:22px;height:22px;
-                          border-radius:5px;
-                          text-align:center;
-                          vertical-align:middle;
-                          font-family:Georgia,serif;
-                          font-size:12px;
-                          font-weight:900;
-                          color:#ffffff;
-                          line-height:22px;
-                        ">L</td>
-                        <td style="padding-left:7px;vertical-align:middle;">
-                          <span style="
-                            color:#475569;
-                            font-size:13px;
-                            font-weight:600;
-                            font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
-                          ">LexAlloc</span>
-                        </td>
-                      </tr>
-                    </table>
+                    <div style="margin-bottom:12px;">
+                      <img src="https://raw.githubusercontent.com/TheJimmyJam/LexAlloc/main/frontend/public/logo-email.png" alt="LexAlloc" width="120" style="display:block;height:auto;opacity:0.6;" />
+                    </div>
 
                     <p style="
                       margin:0 0 6px;
