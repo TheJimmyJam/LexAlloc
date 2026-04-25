@@ -3,15 +3,16 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw } from 'lucide-react'
+import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw, CreditCard, Zap, Star, Building, ChevronRight, Loader2 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
 
 const TABS = [
-  { key: 'users',        label: 'Users',         icon: Users    },
-  { key: 'orgs',         label: 'Organizations', icon: Building2 },
-  { key: 'integrations', label: 'Integrations',  icon: Plug     },
+  { key: 'users',        label: 'Users',         icon: Users      },
+  { key: 'orgs',         label: 'Organizations', icon: Building2  },
+  { key: 'integrations', label: 'Integrations',  icon: Plug       },
+  { key: 'billing',      label: 'Billing',        icon: CreditCard },
 ]
 
 // ── QBO / Clio OAuth URLs (client_id goes in frontend — it's not a secret) ───
@@ -453,10 +454,22 @@ export default function AdminPanel() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const connected = params.get('connected')
+    const billing   = params.get('billing')
+    const tabParam  = params.get('tab')
     const error     = params.get('error')
     if (connected) {
       setTab('integrations')
       toast.success(`${connected === 'quickbooks' ? 'QuickBooks' : 'Clio'} connected!`)
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (billing === 'success') {
+      setTab('billing')
+      toast.success('Subscription activated — welcome to Professional! 🎉')
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (billing === 'canceled') {
+      setTab('billing')
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (tabParam) {
+      setTab(tabParam)
       window.history.replaceState({}, '', window.location.pathname)
     } else if (error) {
       setTab('integrations')
@@ -505,6 +518,51 @@ export default function AdminPanel() {
     },
     enabled: !!profile?.org_id,
   })
+
+  // ── Billing ───────────────────────────────────────────────────────────────
+  const [billingInterval, setBillingInterval] = useState('monthly')
+  const [seats,           setSeats]           = useState(1)
+  const [billingLoading,  setBillingLoading]  = useState(null) // 'checkout' | 'portal'
+
+  const { data: subscription, isLoading: subLoading } = useQuery({
+    queryKey: ['billing-subscription', profile?.org_id],
+    queryFn:  () => api.getSubscription(),
+    enabled:  !!profile?.org_id && tab === 'billing',
+    staleTime: 30_000,
+  })
+
+  // Sync seat count from existing subscription
+  useEffect(() => {
+    if (subscription?.seat_count) setSeats(subscription.seat_count)
+  }, [subscription?.seat_count])
+
+  const handleUpgrade = async (plan) => {
+    if (plan === 'enterprise') {
+      window.location.href = 'mailto:sales@lexalloc.com?subject=LexAlloc%20Enterprise%20Inquiry'
+      return
+    }
+    setBillingLoading('checkout')
+    try {
+      const { url } = await api.createCheckoutSession({ plan, seats, interval: billingInterval })
+      window.location.href = url
+    } catch (err) {
+      toast.error(err.message || 'Could not start checkout')
+    } finally {
+      setBillingLoading(null)
+    }
+  }
+
+  const handleManageBilling = async () => {
+    setBillingLoading('portal')
+    try {
+      const { url } = await api.createPortalSession()
+      window.location.href = url
+    } catch (err) {
+      toast.error(err.message || 'Could not open billing portal')
+    } finally {
+      setBillingLoading(null)
+    }
+  }
 
   const disconnectProvider = async (provider) => {
     if (!confirm(`Disconnect ${provider === 'quickbooks' ? 'QuickBooks' : 'Clio'}? Push buttons will stop working.`)) return
@@ -1025,6 +1083,239 @@ export default function AdminPanel() {
           </details>
         </div>
       )}
+
+      {/* ── Billing Tab ── */}
+      {tab === 'billing' && (() => {
+        const PLANS = [
+          {
+            id: 'starter', name: 'Starter', icon: Zap, iconBg: 'bg-slate-100', iconColor: 'text-slate-600',
+            tagline: 'For small teams getting started',
+            price: { monthly: 0, annual: 0 }, unit: null,
+            features: ['Up to 3 users', '10 active matters', 'Core apportionment methods', 'Community support'],
+            cta: 'Current plan', ctaDisabled: true,
+          },
+          {
+            id: 'professional', name: 'Professional', icon: Star, iconBg: 'bg-brand-100', iconColor: 'text-brand-600',
+            tagline: 'For growing firms that need more',
+            price: { monthly: 49, annual: 39 }, unit: '/seat/mo',
+            badge: 'Most popular',
+            features: ['Unlimited users & matters', 'All calculation methods', 'Custom % overrides', 'Audit log & 2FA', 'Policy limit alerts', 'Priority support'],
+            cta: 'Upgrade to Professional',
+          },
+          {
+            id: 'enterprise', name: 'Enterprise', icon: Building, iconBg: 'bg-purple-100', iconColor: 'text-purple-700',
+            tagline: 'Custom pricing for large firms',
+            price: { monthly: 'Custom', annual: 'Custom' }, unit: null,
+            features: ['Everything in Professional', 'SSO / SAML', 'Dedicated CSM', 'Custom integrations', 'SLA guarantee'],
+            cta: 'Contact Sales',
+          },
+        ]
+
+        const currentPlan = subscription?.plan || 'starter'
+        const subStatus   = subscription?.status || 'active'
+        const periodEnd   = subscription?.period_end
+        const hasStripe   = subscription?.has_subscription
+
+        const statusColor = {
+          active:     'bg-green-100 text-green-700',
+          trialing:   'bg-brand-100 text-brand-700',
+          past_due:   'bg-red-100 text-red-700',
+          canceled:   'bg-slate-100 text-slate-500',
+          unpaid:     'bg-red-100 text-red-700',
+          incomplete: 'bg-amber-100 text-amber-700',
+        }[subStatus] || 'bg-slate-100 text-slate-600'
+
+        return (
+          <div className="max-w-3xl space-y-6">
+            {/* Current plan banner */}
+            {subLoading ? (
+              <div className="card p-6 flex items-center gap-3 text-slate-400">
+                <Loader2 className="h-5 w-5 animate-spin" /> Loading subscription…
+              </div>
+            ) : (
+              <div className="card p-6">
+                <div className="flex items-start justify-between flex-wrap gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h2 className="font-semibold text-slate-900 text-lg capitalize">{currentPlan} Plan</h2>
+                      <span className={`badge text-xs font-semibold capitalize ${statusColor}`}>{subStatus.replace('_', ' ')}</span>
+                    </div>
+                    {periodEnd && (
+                      <p className="text-sm text-slate-500">
+                        {subStatus === 'canceled' ? 'Access ends' : 'Renews'}{' '}
+                        {format(new Date(periodEnd), 'MMMM d, yyyy')}
+                      </p>
+                    )}
+                    {currentPlan === 'professional' && (
+                      <p className="text-sm text-slate-500 mt-0.5">
+                        {subscription?.seat_count || 1} seat{(subscription?.seat_count || 1) !== 1 ? 's' : ''} · {subscription?.billing_interval === 'annual' ? 'Billed annually' : 'Billed monthly'}
+                      </p>
+                    )}
+                  </div>
+                  {hasStripe && (
+                    <button
+                      onClick={handleManageBilling}
+                      disabled={billingLoading === 'portal'}
+                      className="btn-secondary flex items-center gap-2 text-sm"
+                    >
+                      {billingLoading === 'portal'
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : <CreditCard className="h-4 w-4" />}
+                      Manage Subscription
+                    </button>
+                  )}
+                </div>
+                {subStatus === 'past_due' && (
+                  <div className="mt-4 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                    Payment failed. Update your payment method to avoid service interruption.
+                    <button onClick={handleManageBilling} className="ml-auto font-medium underline">Fix now</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Billing interval toggle */}
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-slate-700">Billing:</span>
+              <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+                {['monthly', 'annual'].map(interval => (
+                  <button
+                    key={interval}
+                    onClick={() => setBillingInterval(interval)}
+                    className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                      billingInterval === interval
+                        ? 'bg-brand-600 text-white'
+                        : 'bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {interval === 'monthly' ? 'Monthly' : 'Annual'}
+                    {interval === 'annual' && <span className="ml-1.5 text-xs font-semibold text-green-600 bg-green-100 px-1.5 py-0.5 rounded-full">Save 20%</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Plan cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {PLANS.map(plan => {
+                const Icon      = plan.icon
+                const isCurrent = plan.id === currentPlan
+                const price     = plan.price[billingInterval]
+
+                return (
+                  <div
+                    key={plan.id}
+                    className={`card p-5 flex flex-col relative ${
+                      plan.id === 'professional' ? 'ring-2 ring-brand-400 shadow-lg' : ''
+                    } ${isCurrent ? 'bg-slate-50' : ''}`}
+                  >
+                    {plan.badge && (
+                      <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-600 text-white text-xs font-bold px-3 py-1 rounded-full">
+                        {plan.badge}
+                      </span>
+                    )}
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${plan.iconBg} mb-4`}>
+                      <Icon className={`h-5 w-5 ${plan.iconColor}`} />
+                    </div>
+                    <h3 className="font-bold text-slate-900 text-lg">{plan.name}</h3>
+                    <p className="text-xs text-slate-500 mb-3">{plan.tagline}</p>
+
+                    {/* Price */}
+                    <div className="mb-4">
+                      {typeof price === 'number' ? (
+                        price === 0 ? (
+                          <span className="text-3xl font-bold text-slate-800">Free</span>
+                        ) : (
+                          <div className="flex items-end gap-1">
+                            <span className="text-3xl font-bold text-slate-800">${price}</span>
+                            <span className="text-sm text-slate-500 mb-1">{plan.unit}</span>
+                          </div>
+                        )
+                      ) : (
+                        <span className="text-2xl font-bold text-slate-800">Custom</span>
+                      )}
+                    </div>
+
+                    {/* Seat adjuster for Pro */}
+                    {plan.id === 'professional' && !isCurrent && (
+                      <div className="flex items-center gap-2 mb-4 p-2 bg-slate-50 rounded-lg">
+                        <span className="text-xs text-slate-500">Seats:</span>
+                        <button
+                          onClick={() => setSeats(s => Math.max(1, s - 1))}
+                          className="w-6 h-6 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center justify-center text-sm font-bold"
+                        >−</button>
+                        <span className="text-sm font-bold text-slate-800 w-6 text-center">{seats}</span>
+                        <button
+                          onClick={() => setSeats(s => s + 1)}
+                          className="w-6 h-6 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center justify-center text-sm font-bold"
+                        >+</button>
+                        {typeof price === 'number' && price > 0 && (
+                          <span className="text-xs text-brand-600 font-semibold ml-auto">
+                            ${(price * seats * (billingInterval === 'annual' ? 12 : 1)).toLocaleString()}/{billingInterval === 'annual' ? 'yr' : 'mo'}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Features */}
+                    <ul className="space-y-1.5 mb-6 flex-1">
+                      {plan.features.map(f => (
+                        <li key={f} className="flex items-start gap-2 text-sm text-slate-600">
+                          <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+
+                    <button
+                      onClick={() => !isCurrent && handleUpgrade(plan.id)}
+                      disabled={isCurrent || billingLoading === 'checkout'}
+                      className={`w-full py-2 rounded-xl font-semibold text-sm transition-colors flex items-center justify-center gap-2 ${
+                        isCurrent
+                          ? 'bg-slate-100 text-slate-400 cursor-default'
+                          : plan.id === 'professional'
+                          ? 'bg-brand-600 hover:bg-brand-700 text-white'
+                          : plan.id === 'enterprise'
+                          ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                          : 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                      }`}
+                    >
+                      {billingLoading === 'checkout' && plan.id !== 'enterprise'
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : isCurrent
+                        ? '✓ Current plan'
+                        : <>{plan.cta} <ChevronRight className="h-4 w-4" /></>
+                      }
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Setup note for developers */}
+            <details className="card p-5 text-sm">
+              <summary className="cursor-pointer font-medium text-slate-700 flex items-center gap-2 select-none">
+                <Settings2 className="h-4 w-4 text-slate-400" />
+                Developer setup — Stripe environment variables
+              </summary>
+              <div className="mt-4 space-y-3 text-slate-600">
+                <p className="font-medium text-slate-800">Railway backend (.env)</p>
+                <ul className="space-y-1 font-mono text-xs bg-slate-50 rounded-lg p-3">
+                  {['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_PRICE_PRO_MONTHLY', 'STRIPE_PRICE_PRO_ANNUAL', 'APP_URL'].map(v => (
+                    <li key={v} className="text-slate-700">{v}=<span className="text-slate-400">your_value_here</span></li>
+                  ))}
+                </ul>
+                <p className="text-xs text-slate-500">
+                  Create products in the Stripe Dashboard → Products. Copy the Price IDs into the env vars above.
+                  Set the webhook endpoint to <code className="bg-slate-100 px-1 rounded">{'{YOUR_RAILWAY_URL}'}/billing/webhook</code> and enable events:
+                  checkout.session.completed, customer.subscription.updated, customer.subscription.deleted, invoice.payment_failed, invoice.payment_succeeded.
+                </p>
+              </div>
+            </details>
+          </div>
+        )
+      })()}
 
       {/* Modals */}
       {showInvite && (
