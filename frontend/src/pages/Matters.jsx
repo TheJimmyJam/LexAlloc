@@ -23,13 +23,14 @@ function CreateMatterModal({ isTemplate = false, onClose }) {
       org_id:        profile.org_id,
       name:          values.name,
       matter_number: values.matter_number || null,
+      firm_name:     values.firm_name     || null,
       description:   values.description  || null,
       status:        'active',
       created_by:    profile.id,
       is_template:   isTemplate,
     }).select().single()
     if (error) { toast.error(error.message); return }
-    logAudit({ profile, matterId: newMatter?.id, action: 'matter.created', entityType: 'matter', entityId: newMatter?.id, entityName: values.name, metadata: { matter_number: values.matter_number || null, is_template: isTemplate } })
+    logAudit({ profile, matterId: newMatter?.id, action: 'matter.created', entityType: 'matter', entityId: newMatter?.id, entityName: values.name, metadata: { matter_number: values.matter_number || null, firm_name: values.firm_name || null, is_template: isTemplate } })
     toast.success(isTemplate ? 'Template created!' : 'Matter created!')
     qc.invalidateQueries({ queryKey: ['matters'] })
     qc.invalidateQueries({ queryKey: ['dashboard-stats'] })
@@ -53,20 +54,27 @@ function CreateMatterModal({ isTemplate = false, onClose }) {
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
-          <div>
-            <label className="form-label">{isTemplate ? 'Template Name' : 'Matter Name'} *</label>
-            <input className="form-input"
-              placeholder={isTemplate ? 'e.g. Construction Defect — Multi-Carrier' : 'Smith v. Acme Corporation'}
-              {...register('name', { required: 'Name is required' })} />
-            {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
-          </div>
+          {!isTemplate && (
+            <div>
+              <label className="form-label">Firm Name</label>
+              <input className="form-input" placeholder="ABC Legal, LLP"
+                {...register('firm_name')} />
+            </div>
+          )}
           {!isTemplate && (
             <div>
               <label className="form-label">Matter Number</label>
-              <input className="form-input" placeholder="2024-001"
+              <input className="form-input" placeholder="2025-MDN-0047"
                 {...register('matter_number')} />
             </div>
           )}
+          <div>
+            <label className="form-label">{isTemplate ? 'Template Name' : 'Matter Name'} *</label>
+            <input className="form-input"
+              placeholder={isTemplate ? 'e.g. Construction Defect — Multi-Carrier' : 'Holloway v. Meridian Industries — Employment Dispute'}
+              {...register('name', { required: 'Name is required' })} />
+            {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
+          </div>
           <div>
             <label className="form-label">Description</label>
             <textarea className="form-input h-24 resize-none"
@@ -91,7 +99,7 @@ export function UseTemplateModal({ template, onClose }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({
-    defaultValues: { name: '', matter_number: '' }
+    defaultValues: { name: '', matter_number: '', firm_name: '' }
   })
 
   const onSubmit = async (values) => {
@@ -103,6 +111,7 @@ export function UseTemplateModal({ template, onClose }) {
           org_id:        profile.org_id,
           name:          values.name,
           matter_number: values.matter_number || null,
+          firm_name:     values.firm_name     || null,
           description:   template.description || null,
           status:        'active',
           created_by:    profile.id,
@@ -204,15 +213,20 @@ export function UseTemplateModal({ template, onClose }) {
 
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
           <div>
-            <label className="form-label">Matter Name *</label>
-            <input className="form-input" placeholder="Smith v. Acme Corporation"
-              {...register('name', { required: 'Matter name is required' })} />
-            {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
+            <label className="form-label">Firm Name</label>
+            <input className="form-input" placeholder="ABC Legal, LLP"
+              {...register('firm_name')} />
           </div>
           <div>
             <label className="form-label">Matter Number</label>
-            <input className="form-input" placeholder="2024-001"
+            <input className="form-input" placeholder="2025-MDN-0047"
               {...register('matter_number')} />
+          </div>
+          <div>
+            <label className="form-label">Matter Name *</label>
+            <input className="form-input" placeholder="Holloway v. Meridian Industries — Employment Dispute"
+              {...register('name', { required: 'Matter name is required' })} />
+            {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
           </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
