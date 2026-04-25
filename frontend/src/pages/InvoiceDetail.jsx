@@ -159,7 +159,7 @@ export default function InvoiceDetail() {
   }
 
   // Build parties+policies structure — filtered to parties active for this invoice's
-  // service period, with shares normalized among those included parties.
+  // service period, with responsibility split equally among included parties.
   const { partiesWithPolicies, excludedParties } = useMemo(() => {
     const allPolicies = (p) => insurerPeriods
       .filter(pp => pp.party_id === p.id)
@@ -174,14 +174,14 @@ export default function InvoiceDetail() {
     const included = parties.filter(p =>  partyActiveForInvoice(p, invoice))
     const excluded = parties.filter(p => !partyActiveForInvoice(p, invoice))
 
-    // Normalize shares so included parties sum to 100%
-    const totalIncludedPct = included.reduce((s, p) => s + (p.share_percentage || 0), 0)
+    // Equal shares among active parties
+    const equalShare = included.length > 0
+      ? parseFloat((100 / included.length).toFixed(4))
+      : 0
 
     const partiesWithPolicies = included.map(p => ({
       ...p,
-      share_percentage: totalIncludedPct > 0
-        ? parseFloat(((p.share_percentage / totalIncludedPct) * 100).toFixed(4))
-        : p.share_percentage,
+      share_percentage: equalShare,
       policy_periods: allPolicies(p),
     }))
 
