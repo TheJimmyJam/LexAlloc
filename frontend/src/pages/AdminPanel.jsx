@@ -31,10 +31,30 @@ const DEMO_MATTERS = [
   'Robinson v. Auto-Owners','Clark v. Westfield Group',
 ]
 
+const DEMO_PARTY_NAMES = [
+  'Apex Manufacturing Corp.','Summit Contractors LLC','Coastal Properties Inc.',
+  'Meridian Industrial Group','Pacific Distribution Co.','Atlas Construction Services',
+  'Horizon Chemical Corp.','Delta Transport Solutions','Cascade Environmental Inc.',
+  'Northern Supply Chain Ltd.','Granite Industrial Partners','Lakeside Logistics LLC',
+  'Pinnacle Operations Group','Vector Technology Corp.','Stellar Fabrication Inc.',
+  'Ironwood Properties LLC','Sunbelt Services Corp.','Keystone Maintenance Group',
+  'Clearwater Industries','Anchor Building Solutions','Riverfront Holdings LLC',
+  'Crestline Contractors Inc.','Monarch Industrial Partners','Blue Ridge Equipment Co.',
+]
+
 const DEMO_INSURERS = [
-  'Hartford Insurance Co.','Allstate Insurance','State Farm Mutual',
-  'Liberty Mutual Group','Travelers Insurance','Nationwide Mutual',
-  'Progressive Corp','USAA Insurance','Farmers Insurance Exchange','CNA Financial',
+  { name: 'Hartford Insurance Co.',    policyPrefix: 'HIC' },
+  { name: 'Allstate Insurance',         policyPrefix: 'ALI' },
+  { name: 'State Farm Mutual',          policyPrefix: 'SFM' },
+  { name: 'Liberty Mutual Group',       policyPrefix: 'LMG' },
+  { name: 'Travelers Insurance',        policyPrefix: 'TRV' },
+  { name: 'Nationwide Mutual',          policyPrefix: 'NWM' },
+  { name: 'Progressive Corp',           policyPrefix: 'PRG' },
+  { name: 'USAA Insurance',             policyPrefix: 'USA' },
+  { name: 'Farmers Insurance Exchange', policyPrefix: 'FIE' },
+  { name: 'CNA Financial',              policyPrefix: 'CNA' },
+  { name: 'Zurich Insurance Group',     policyPrefix: 'ZIG' },
+  { name: 'Chubb Limited',              policyPrefix: 'CHB' },
 ]
 
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min }
@@ -44,6 +64,31 @@ function randStatus() {
   if (r < 0.50) return 'paid'
   if (r < 0.75) return 'pending'
   return 'demanded'
+}
+// Returns N percentages that sum to exactly 100, each rounded to 2dp
+function randShares(n) {
+  const raw  = Array.from({ length: n }, () => Math.random())
+  const sum  = raw.reduce((a, b) => a + b, 0)
+  const pcts = raw.map(v => Math.round(v / sum * 10000) / 100)
+  // Fix rounding drift on first element
+  const drift = parseFloat((100 - pcts.reduce((a, b) => a + b, 0)).toFixed(2))
+  pcts[0] = parseFloat((pcts[0] + drift).toFixed(2))
+  return pcts
+}
+// ISO date string from year + month offset
+function isoDate(year, monthOffset = 0) {
+  const d = new Date(year, monthOffset, 1)
+  return d.toISOString().split('T')[0]
+}
+// Pick n unique items at random from array (no repeat)
+function pickN(arr, n) {
+  const copy = [...arr]
+  const out  = []
+  for (let i = 0; i < Math.min(n, copy.length); i++) {
+    const idx = rand(0, copy.length - 1)
+    out.push(copy.splice(idx, 1)[0])
+  }
+  return out
 }
 
 // ── QBO / Clio OAuth URLs (client_id goes in frontend — it's not a secret) ───
@@ -688,10 +733,9 @@ export default function AdminPanel() {
     setDemoGenerating(true)
     setDemoProgress('Creating demo matters…')
     try {
-      // 1. Pick a fixed org for the demo data — use the current user's org
       const orgId = profile.org_id
 
-      // 2. Insert 20 matters
+      // ── 1. Matters ──────────────────────────────────────────────────────
       const matterRows = DEMO_MATTERS.map(name => ({
         org_id: orgId,
         name:   `${DEMO_PREFIX} ${name}`,
@@ -701,8 +745,93 @@ export default function AdminPanel() {
         .from('la_matters').insert(matterRows).select('id')
       if (mErr) throw mErr
 
+      // ── 2. Parties (2–4 per matter, with responsible date ranges) ───────
+      setDemoProgress('Creating parties…')
+      const partyRows = []
+      // Track per-matter config for later use (parties list, date range)
+      const matterMeta = matters.map(m => {
+        const baseYear   = rand(2010, 2018)
+        const partyCount = rand(2, 4)
+        const shares     = randShares(partyCount)
+        const partyNames = pickN(DEMO_PARTY_NAMES, partyCount)
+        const parties    = partyNames.map((name, i) => {
+          // Stagger start dates slightly; end dates vary so some overlap, some sequential
+          const startYear = baseYear + rand(0, 1)
+          const startMon  = rand(0, 11)
+          const endYear   = startYear + rand(2, 7)
+          const endMon    = rand(0, 11)
+          return {
+            matter_id:          m.id,
+            org_id:             orgId,
+            name:               `${DEMO_PREFIX} ${name}`,
+            share_percentage:   shares[i],
+            responsible_start:  isoDate(startYear, startMon),
+            responsible_end:    isoDate(endYear,   endMon),
+            _baseYear: baseYear,  // temp field — stripped before insert
+          }
+        })
+        return { matterId: m.id, baseYear, parties }
+      })
+      // Build flat rows, strip temp fields
+      matterMeta.forEach(mm => mm.parties.forEach(p => {
+        const { _baseYear, ...row } = p
+        partyRows.push(row)
+      }))
+      const { data: parties, error: pErr } = await supabase
+        .from('la_parties').insert(partyRows).select('id, matter_id, responsible_start, responsible_end')
+      if (pErr) throw pErr
+
+      // ── 3. Demo insurers (org-level) ────────────────────────────────────
+      setDemoProgress('Creating demo insurers…')
+      const insurerInserts = DEMO_INSURERS.map(ins => ({
+        org_id: orgId,
+        name:   `${DEMO_PREFIX} ${ins.name}`,
+        policy_number: null,
+      }))
+      const { data: insurers, error: insErr } = await supabase
+        .from('la_insurers').insert(insurerInserts).select('id, name')
+      if (insErr) throw insErr
+
+      // ── 4. Insurer policy periods (2–3 insurers per party) ──────────────
+      setDemoProgress('Assigning insurer policy periods…')
+      const policyRows = []
+      let ppIdx = 0
+
+      for (const party of parties) {
+        // Pick 2–3 insurers randomly for this party
+        const ins2use  = pickN(insurers, rand(2, 3))
+        const pStart   = new Date(party.responsible_start)
+        const pEnd     = new Date(party.responsible_end)
+        const spanYrs  = Math.max(1, Math.round((pEnd - pStart) / (365.25 * 86400000)))
+
+        // Divide responsible period into overlapping policy windows
+        ins2use.forEach((ins, i) => {
+          const demoIns = DEMO_INSURERS.find(d => `${DEMO_PREFIX} ${d.name}` === ins.name) || { policyPrefix: 'POL' }
+          // Policy windows: first covers early period, last covers later, middle overlaps both
+          const winStart = new Date(pStart)
+          winStart.setFullYear(winStart.getFullYear() + Math.max(0, i * Math.floor(spanYrs / ins2use.length) - 1))
+          const winEnd = new Date(winStart)
+          winEnd.setFullYear(winEnd.getFullYear() + rand(2, 4))
+
+          const seqNum = String(1000 + ppIdx++).slice(1) // 4-digit zero-padded
+          policyRows.push({
+            insurer_id:    ins.id,
+            party_id:      party.id,
+            matter_id:     party.matter_id,
+            org_id:        orgId,
+            policy_start:  winStart.toISOString().split('T')[0],
+            policy_end:    winEnd.toISOString().split('T')[0],
+            policy_limit:  randAmount(500000, 5000000),
+            claim_number:  `${demoIns.policyPrefix}-${new Date().getFullYear()}-${seqNum}`,
+          })
+        })
+      }
+      const { error: ppErr } = await supabase
+        .from('la_insurer_policy_periods').insert(policyRows)
+      if (ppErr) throw ppErr
+
+      // ── 5. Invoices ─────────────────────────────────────────────────────
       setDemoProgress('Creating invoices…')
-      // 3. One invoice per matter
       const invoiceRows = matters.map(m => ({
         matter_id:    m.id,
         org_id:       orgId,
@@ -712,36 +841,41 @@ export default function AdminPanel() {
         .from('la_invoices').insert(invoiceRows).select('id, matter_id')
       if (iErr) throw iErr
 
+      // ── 6. Apportionments ───────────────────────────────────────────────
       setDemoProgress('Creating apportionments…')
-      // 4. One apportionment per invoice
       const appRows = invoices.map(inv => ({
         invoice_id:         inv.id,
         matter_id:          inv.matter_id,
         org_id:             orgId,
-        calculation_method: ['equal_shares','weighted_billing','custom'][rand(0,2)],
+        calculation_method: ['equal_shares','weighted_billing','time_on_risk'][rand(0,2)],
       }))
       const { data: apportionments, error: aErr } = await supabase
         .from('la_apportionments').insert(appRows).select('id')
       if (aErr) throw aErr
 
-      setDemoProgress('Creating 300 insurer apportionments…')
-      // 5. 15 insurer apportionments per apportionment = 300 total
+      // ── 7. Insurer apportionments (financial KPI data) ───────────────────
+      setDemoProgress('Creating insurer obligation records…')
       const insurerAppRows = []
       for (const app of apportionments) {
-        for (let i = 0; i < 15; i++) {
+        // Build a realistic set: 2–5 obligations per apportionment
+        const count = rand(2, 5)
+        const shares = randShares(count)
+        const totalAmt = randAmount(20000, 300000)
+        shares.forEach((pct, i) => {
           const status = randStatus()
-          const amount = randAmount(1000, 80000)
+          const amount = parseFloat((totalAmt * pct / 100).toFixed(2))
           insurerAppRows.push({
             apportionment_id: app.id,
-            percentage:       parseFloat((100 / 15).toFixed(4)),
+            insurer_id:       insurers[rand(0, insurers.length - 1)].id,
+            percentage:       pct,
             amount,
-            amount_paid:      status === 'paid' ? amount : status === 'pending' ? 0 : randAmount(0, amount / 2),
-            payment_status:   status,
+            amount_paid:  status === 'paid'    ? amount
+                        : status === 'pending' ? 0
+                        : randAmount(0, amount / 2),
+            payment_status: status,
           })
-        }
+        })
       }
-
-      // Insert in batches of 100 to stay under payload limits
       for (let i = 0; i < insurerAppRows.length; i += 100) {
         const { error: iaErr } = await supabase
           .from('la_insurer_apportionments')
@@ -749,10 +883,17 @@ export default function AdminPanel() {
         if (iaErr) throw iaErr
       }
 
-      const paid    = insurerAppRows.filter(r => r.payment_status === 'paid').length
-      const pending = insurerAppRows.filter(r => r.payment_status === 'pending').length
+      const paid     = insurerAppRows.filter(r => r.payment_status === 'paid').length
+      const pending  = insurerAppRows.filter(r => r.payment_status === 'pending').length
       const demanded = insurerAppRows.filter(r => r.payment_status === 'demanded').length
-      setDemoStats({ matters: matters.length, apportionments: apportionments.length, total: insurerAppRows.length, paid, pending, demanded })
+      setDemoStats({
+        matters:       matters.length,
+        parties:       parties.length,
+        policyPeriods: policyRows.length,
+        apportionments: apportionments.length,
+        total:   insurerAppRows.length,
+        paid, pending, demanded,
+      })
       setDemoProgress('')
       toast.success('Demo data generated!')
       qc.invalidateQueries()
@@ -765,7 +906,7 @@ export default function AdminPanel() {
   }
 
   const clearDemoData = async () => {
-    if (!confirm('Delete all [DEMO] matters and their related data? This cannot be undone.')) return
+    if (!confirm('Delete all [DEMO] matters, parties, insurers, and related data? This cannot be undone.')) return
     setDemoClearing(true)
     setDemoProgress('Finding demo matters…')
     try {
@@ -777,9 +918,9 @@ export default function AdminPanel() {
       if (!demoMatters?.length) { toast.success('No demo data found.'); return }
 
       const mIds = demoMatters.map(m => m.id)
-      setDemoProgress('Removing apportionments…')
 
-      // Delete in cascade order: insurer_apportionments → apportionments → invoices → matters
+      // ── Cascade: insurer_apportionments → apportionments ────────────────
+      setDemoProgress('Removing apportionments…')
       const { data: apps } = await supabase
         .from('la_apportionments').select('id').in('matter_id', mIds)
       if (apps?.length) {
@@ -787,8 +928,22 @@ export default function AdminPanel() {
         await supabase.from('la_insurer_apportionments').delete().in('apportionment_id', aIds)
         await supabase.from('la_apportionments').delete().in('id', aIds)
       }
+
+      // ── Cascade: policy_periods → parties ───────────────────────────────
+      setDemoProgress('Removing parties and policy periods…')
+      await supabase.from('la_insurer_policy_periods').delete().in('matter_id', mIds)
+      await supabase.from('la_parties').delete().in('matter_id', mIds)
+
+      // ── Invoices & matters ───────────────────────────────────────────────
       await supabase.from('la_invoices').delete().in('matter_id', mIds)
       await supabase.from('la_matters').delete().in('id', mIds)
+
+      // ── Demo insurers (org-level, prefixed [DEMO]) ───────────────────────
+      setDemoProgress('Removing demo insurers…')
+      await supabase.from('la_insurers')
+        .delete()
+        .ilike('name', `${DEMO_PREFIX}%`)
+        .eq('org_id', profile.org_id)
 
       setDemoStats(null)
       setDemoProgress('')
@@ -1804,13 +1959,13 @@ export default function AdminPanel() {
               <p className="font-medium text-slate-700 mb-2">What gets created:</p>
               <div className="grid grid-cols-2 gap-x-8 gap-y-1">
                 <span>✦ 20 demo matters (legal cases)</span>
-                <span>✦ 20 invoices (one per matter)</span>
-                <span>✦ 20 apportionment runs</span>
-                <span>✦ 300 insurer obligations (15 per run)</span>
-                <span>✦ Mixed payment statuses</span>
-                <span>✦ Randomized amounts $1K–$80K each</span>
+                <span>✦ 2–4 parties per matter with service dates</span>
+                <span>✦ 12 demo insurers (org-level)</span>
+                <span>✦ 2–3 insurer policy periods per party</span>
+                <span>✦ 20 invoices + apportionment runs</span>
+                <span>✦ Mixed payment statuses &amp; amounts</span>
               </div>
-              <p className="text-xs text-slate-400 mt-2">All demo records are tagged <code className="bg-slate-200 px-1 rounded">[DEMO]</code> and can be cleared at any time.</p>
+              <p className="text-xs text-slate-400 mt-2">All demo records are tagged <code className="bg-slate-200 px-1 rounded">[DEMO]</code> and can be cleared at any time. Matters are fully configured — open any one and click <strong>Run Apportionment</strong>.</p>
             </div>
 
             {demoProgress && (
@@ -1821,14 +1976,16 @@ export default function AdminPanel() {
             )}
 
             {demoStats && (
-              <div className="grid grid-cols-3 gap-3 mb-5">
+              <div className="grid grid-cols-4 gap-3 mb-5">
                 {[
-                  { label: 'Matters',    value: demoStats.matters },
+                  { label: 'Matters',        value: demoStats.matters },
+                  { label: 'Parties',        value: demoStats.parties },
+                  { label: 'Policy Periods', value: demoStats.policyPeriods },
                   { label: 'Apportionments', value: demoStats.apportionments },
-                  { label: 'Obligations', value: demoStats.total },
-                  { label: 'Paid',       value: demoStats.paid,     color: 'text-green-600' },
-                  { label: 'Pending',    value: demoStats.pending,  color: 'text-amber-600' },
-                  { label: 'Demanded',   value: demoStats.demanded, color: 'text-red-500'   },
+                  { label: 'Obligations',    value: demoStats.total },
+                  { label: 'Paid',           value: demoStats.paid,     color: 'text-green-600' },
+                  { label: 'Pending',        value: demoStats.pending,  color: 'text-amber-600' },
+                  { label: 'Demanded',       value: demoStats.demanded, color: 'text-red-500'   },
                 ].map(s => (
                   <div key={s.label} className="bg-slate-50 rounded-lg p-3 text-center">
                     <p className={`text-xl font-bold ${s.color ?? 'text-slate-900'}`}>{s.value}</p>
