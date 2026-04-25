@@ -411,19 +411,22 @@ export default function InvoiceDetail() {
 
           {aiOpen && (
             <div className="rounded-xl border border-violet-200 overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 bg-violet-50 border-b border-violet-100">
+              <div
+                className="flex items-center justify-between px-4 py-3 bg-violet-50 border-b border-violet-100 cursor-pointer hover:bg-violet-100 transition-colors"
+                onClick={() => setAiOpen(false)}
+              >
                 <div className="flex items-center gap-2 text-violet-700 font-semibold text-sm">
                   <Sparkles className="h-4 w-4" />
                   AI Method Advisor
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3" onClick={e => e.stopPropagation()}>
                   {aiRec && (
                     <button onClick={fetchAiRecommendation} disabled={aiLoading} className="text-xs text-violet-500 hover:text-violet-700 font-medium">
                       Re-analyze
                     </button>
                   )}
-                  <button onClick={() => setAiOpen(false)} className="text-violet-400 hover:text-violet-600">
-                    <ChevronUp className="h-4 w-4" />
+                  <button onClick={() => setAiOpen(false)} className="flex items-center gap-1 text-xs text-violet-400 hover:text-violet-600 font-medium">
+                    <ChevronUp className="h-4 w-4" /> Collapse
                   </button>
                 </div>
               </div>
