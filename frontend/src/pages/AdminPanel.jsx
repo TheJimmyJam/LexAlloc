@@ -80,6 +80,88 @@ function isoDate(year, monthOffset = 0) {
   const d = new Date(year, monthOffset, 1)
   return d.toISOString().split('T')[0]
 }
+// ── Demo line-item pools ─────────────────────────────────────────────────────
+const DEMO_TIMEKEEPERS = [
+  { name: 'J. Harrison, Esq.',   rate: 625 },
+  { name: 'M. Chen, Esq.',       rate: 575 },
+  { name: 'R. Okafor, Esq.',     rate: 550 },
+  { name: 'S. Patel, Esq.',      rate: 500 },
+  { name: 'L. Torres, Esq.',     rate: 475 },
+  { name: 'D. Kim, Esq.',        rate: 450 },
+  { name: 'A. Williams, Esq.',   rate: 425 },
+  { name: 'P. Novak, Esq.',      rate: 395 },
+  { name: 'T. Reeves (Para.)',   rate: 195 },
+  { name: 'C. Nguyen (Para.)',   rate: 175 },
+]
+const DEMO_LINE_DESCS = [
+  ['Review and analyze coverage demand letter; correspondence with client re: response strategy',        'fees',    1.8],
+  ['Draft reservation of rights letter; legal research re: policy exclusions',                           'fees',    2.5],
+  ['Conference call with client and co-counsel re: litigation strategy and coverage position',           'fees',    1.2],
+  ['Review deposition transcript of plaintiff expert witness; prepare summary memorandum',               'fees',    3.4],
+  ['Research and draft motion for summary judgment on coverage issues',                                  'fees',    5.5],
+  ['Review and analyze discovery requests; draft responses and objections',                              'fees',    2.8],
+  ['Attend mediation session; preparation and follow-up correspondence',                                 'fees',    4.0],
+  ['Review additional insured endorsements; analyze trigger of coverage issues',                         'fees',    1.6],
+  ['Draft and review joint defense agreement; coordinate with co-insurers',                              'fees',    1.9],
+  ['Research pollution exclusion applicability; prepare legal analysis memorandum',                      'fees',    3.2],
+  ['Attend hearing on motion to compel; prepare oral argument outline',                                  'fees',    2.3],
+  ['Review damage expert report; conference with client re: exposure analysis',                          'fees',    1.7],
+  ['Draft demand letter response and coverage position letter',                                          'fees',    2.1],
+  ['Prepare trial exhibits and witness binder; coordinate with trial team',                              'fees',    4.8],
+  ['Review settlement agreement and release; advise client re: allocation terms',                        'fees',    1.5],
+  ['Telephone conference with opposing counsel re: discovery disputes',                                  'fees',    0.6],
+  ['Review and respond to coverage interrogatories',                                                     'fees',    2.4],
+  ['Legal research re: late notice defense; prepare analysis for client',                                'fees',    2.9],
+  ['Document review and privilege log preparation',                                                      'fees',    3.8],
+  ['Draft motion to bifurcate coverage and bad faith claims',                                            'fees',    3.0],
+  ['Court filing fees',                                                                                  'costs',   null],
+  ['Deposition transcript — Dr. Patricia Moore (expert)',                                                'costs',   null],
+  ['Westlaw legal research charges',                                                                     'costs',   null],
+  ['Process server fees — service on third-party defendants',                                            'costs',   null],
+  ['Travel expenses — client meeting and site inspection',                                               'costs',   null],
+  ['Expert consultant fees — engineering analysis',                                                      'costs',   null],
+  ['Copying and document production charges',                                                            'costs',   null],
+  ['Court reporter fees — deposition of C. Henriksen',                                                  'costs',   null],
+]
+
+// Build 4–10 realistic line items for one invoice, returning rows and total
+function buildDemoLineItems(invoiceId, orgId, matterId, baseYear) {
+  const count     = rand(4, 10)
+  const picked    = pickN(DEMO_LINE_DESCS, count)
+  const invoiceYear = baseYear + rand(1, 3)
+  const rows = []
+  let total = 0
+  picked.forEach(([desc, category, stdHours]) => {
+    const tk     = DEMO_TIMEKEEPERS[rand(0, DEMO_TIMEKEEPERS.length - 1)]
+    const month  = rand(0, 11)
+    const day    = rand(1, 28)
+    const dos    = `${invoiceYear}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    let hours = null, rate = null, amount = 0
+    if (category === 'fees') {
+      hours  = parseFloat(((stdHours || 1) + (Math.random() - 0.3)).toFixed(1))
+      if (hours < 0.3) hours = 0.3
+      rate   = tk.rate
+      amount = parseFloat((hours * rate).toFixed(2))
+    } else {
+      amount = randAmount(250, 3500)
+    }
+    total += amount
+    rows.push({
+      invoice_id:      invoiceId,
+      org_id:          orgId,
+      matter_id:       matterId,
+      date_of_service: dos,
+      description:     desc,
+      timekeeper:      category === 'fees' ? tk.name : null,
+      hours:           hours,
+      rate:            rate,
+      amount:          amount,
+      category:        category,
+    })
+  })
+  return { rows, total: parseFloat(total.toFixed(2)) }
+}
+
 // Pick n unique items at random from array (no repeat)
 function pickN(arr, n) {
   const copy = [...arr]
@@ -830,16 +912,45 @@ export default function AdminPanel() {
         .from('la_insurer_policy_periods').insert(policyRows)
       if (ppErr) throw ppErr
 
-      // ── 5. Invoices ─────────────────────────────────────────────────────
-      setDemoProgress('Creating invoices…')
-      const invoiceRows = matters.map(m => ({
-        matter_id:    m.id,
-        org_id:       orgId,
-        total_amount: randAmount(50000, 500000),
-      }))
+      // ── 5. Invoices + line items ─────────────────────────────────────────
+      setDemoProgress('Creating invoices and line items…')
+      // Each matter gets 1–3 invoices; invoices have 4–10 real line items each
+      const invoiceRows = []
+      matters.forEach(m => {
+        const meta = matterMeta.find(mm => mm.matterId === m.id)
+        const invoiceCount = rand(1, 3)
+        for (let iv = 0; iv < invoiceCount; iv++) {
+          invoiceRows.push({ matter_id: m.id, org_id: orgId, _baseYear: meta?.baseYear || 2015 })
+        }
+      })
+      // Insert invoices first (without _baseYear — strip it)
       const { data: invoices, error: iErr } = await supabase
-        .from('la_invoices').insert(invoiceRows).select('id, matter_id')
+        .from('la_invoices')
+        .insert(invoiceRows.map(({ _baseYear, ...r }) => ({ ...r, total_amount: 0 })))
+        .select('id, matter_id')
       if (iErr) throw iErr
+
+      // Build line items for each invoice; collect totals to back-fill
+      const allLineItemRows = []
+      const invoiceTotals   = {}
+      invoices.forEach((inv, idx) => {
+        const baseYear = invoiceRows[idx]?._baseYear || 2015
+        const { rows, total } = buildDemoLineItems(inv.id, orgId, inv.matter_id, baseYear)
+        allLineItemRows.push(...rows)
+        invoiceTotals[inv.id] = total
+      })
+      // Insert line items in batches of 100
+      for (let i = 0; i < allLineItemRows.length; i += 100) {
+        const { error: liErr } = await supabase
+          .from('la_invoice_line_items').insert(allLineItemRows.slice(i, i + 100))
+        if (liErr) throw liErr
+      }
+      // Back-fill total_amount on each invoice
+      await Promise.all(
+        invoices.map(inv =>
+          supabase.from('la_invoices').update({ total_amount: invoiceTotals[inv.id] }).eq('id', inv.id)
+        )
+      )
 
       // ── 6. Apportionments ───────────────────────────────────────────────
       setDemoProgress('Creating apportionments…')
@@ -887,11 +998,13 @@ export default function AdminPanel() {
       const pending  = insurerAppRows.filter(r => r.payment_status === 'pending').length
       const demanded = insurerAppRows.filter(r => r.payment_status === 'demanded').length
       setDemoStats({
-        matters:       matters.length,
-        parties:       parties.length,
-        policyPeriods: policyRows.length,
+        matters:        matters.length,
+        invoices:       invoices.length,
+        lineItems:      allLineItemRows.length,
+        parties:        parties.length,
+        policyPeriods:  policyRows.length,
         apportionments: apportionments.length,
-        total:   insurerAppRows.length,
+        total:          insurerAppRows.length,
         paid, pending, demanded,
       })
       setDemoProgress('')
@@ -934,7 +1047,8 @@ export default function AdminPanel() {
       await supabase.from('la_insurer_policy_periods').delete().in('matter_id', mIds)
       await supabase.from('la_parties').delete().in('matter_id', mIds)
 
-      // ── Invoices & matters ───────────────────────────────────────────────
+      // ── Invoices, line items & matters ──────────────────────────────────
+      await supabase.from('la_invoice_line_items').delete().in('matter_id', mIds)
       await supabase.from('la_invoices').delete().in('matter_id', mIds)
       await supabase.from('la_matters').delete().in('id', mIds)
 
@@ -1962,10 +2076,10 @@ export default function AdminPanel() {
                 <span>✦ 2–4 parties per matter with service dates</span>
                 <span>✦ 12 demo insurers (org-level)</span>
                 <span>✦ 2–3 insurer policy periods per party</span>
-                <span>✦ 20 invoices + apportionment runs</span>
+                <span>✦ 1–3 invoices per matter with real line items</span>
                 <span>✦ Mixed payment statuses &amp; amounts</span>
               </div>
-              <p className="text-xs text-slate-400 mt-2">All demo records are tagged <code className="bg-slate-200 px-1 rounded">[DEMO]</code> and can be cleared at any time. Matters are fully configured — open any one and click <strong>Run Apportionment</strong>.</p>
+              <p className="text-xs text-slate-400 mt-2">All demo records are tagged <code className="bg-slate-200 px-1 rounded">[DEMO]</code> and can be cleared at any time. Matters are fully configured — open any one and click <strong>Run Apportionment</strong> or ask the <strong>AI Advisor</strong>.</p>
             </div>
 
             {demoProgress && (
@@ -1979,12 +2093,12 @@ export default function AdminPanel() {
               <div className="grid grid-cols-4 gap-3 mb-5">
                 {[
                   { label: 'Matters',        value: demoStats.matters },
+                  { label: 'Invoices',       value: demoStats.invoices },
+                  { label: 'Line Items',     value: demoStats.lineItems },
                   { label: 'Parties',        value: demoStats.parties },
                   { label: 'Policy Periods', value: demoStats.policyPeriods },
                   { label: 'Apportionments', value: demoStats.apportionments },
-                  { label: 'Obligations',    value: demoStats.total },
                   { label: 'Paid',           value: demoStats.paid,     color: 'text-green-600' },
-                  { label: 'Pending',        value: demoStats.pending,  color: 'text-amber-600' },
                   { label: 'Demanded',       value: demoStats.demanded, color: 'text-red-500'   },
                 ].map(s => (
                   <div key={s.label} className="bg-slate-50 rounded-lg p-3 text-center">
