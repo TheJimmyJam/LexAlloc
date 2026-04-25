@@ -104,6 +104,23 @@ export default function Register() {
             {errors.confirmPassword && <p className="text-red-500 text-xs mt-1">{errors.confirmPassword.message}</p>}
           </div>
 
+          <div className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              id="tos"
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
+              {...register('tos', { required: 'You must accept the Terms of Service and Privacy Policy' })}
+            />
+            <label htmlFor="tos" className="text-xs text-slate-500 leading-relaxed cursor-pointer">
+              I agree to the{' '}
+              <Link to="/terms" target="_blank" className="text-brand-600 hover:text-brand-700 font-medium">Terms of Service</Link>
+              {' '}and{' '}
+              <Link to="/privacy" target="_blank" className="text-brand-600 hover:text-brand-700 font-medium">Privacy Policy</Link>.
+              I understand that LexAlloc will never sell or share my data for any purpose other than delivering its services.
+            </label>
+          </div>
+          {errors.tos && <p className="text-red-500 text-xs -mt-2">{errors.tos.message}</p>}
+
           <button type="submit" className="btn-primary w-full justify-center" disabled={isSubmitting}>
             {isSubmitting ? 'Creating account…' : 'Create Account'}
           </button>
