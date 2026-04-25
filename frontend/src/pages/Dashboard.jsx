@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { FolderOpen, FileText, DollarSign, TrendingUp, Plus, ArrowRight, ChevronRight } from 'lucide-react'
@@ -36,6 +36,8 @@ const statusColors = {
 
 export default function Dashboard() {
   const { profile } = useAuth()
+
+  if (profile?.role === 'client') return <Navigate to="/portal" replace />
 
   const { data: stats } = useQuery({
     queryKey: ['dashboard-stats', profile?.org_id],
