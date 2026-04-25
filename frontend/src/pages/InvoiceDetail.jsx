@@ -596,9 +596,15 @@ export default function InvoiceDetail() {
                         </tr>,
 
                         // Insurer rows
-                        ...allInsurers.map((ins, idx) => (
+                        ...(allInsurers.length === 0
+                          ? [<tr key={`no-ins-${pb.party_id}`} className="border-b border-slate-100">
+                              <td className="px-5 py-2.5 pl-8 text-slate-400 italic text-xs" colSpan={4}>
+                                No policy periods configured for this party
+                              </td>
+                            </tr>]
+                          : allInsurers.map((ins, idx) => (
                           <tr key={`ins-${pb.party_id}-${idx}`} className="border-b border-slate-100 hover:bg-slate-50/60">
-                            <td className="px-5 py-2.5 pl-8 text-slate-700 font-medium">{ins.insurer_name}</td>
+                            <td className="px-5 py-2.5 pl-8 text-slate-700 font-medium">{ins.insurer_name || <span className="text-slate-400 italic text-xs">Unknown insurer</span>}</td>
                             {METHODS.map(m => {
                               const methodPb = comparisonResults[m.value].party_breakdown.find(p => p.party_id === pb.party_id)
                               const methodIns = methodPb?.insurers.find(i => i.insurer_id === ins.insurer_id)
@@ -615,7 +621,7 @@ export default function InvoiceDetail() {
                               )
                             })}
                           </tr>
-                        )),
+                        ))),
 
                         // Party subtotal row
                         <tr key={`subtotal-${pb.party_id}`} className="border-b-2 border-slate-200 bg-white">
