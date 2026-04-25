@@ -77,8 +77,9 @@ export default function CreateMatterFromInvoiceModal({ onClose }) {
   const [parseError, setParseError]   = useState(null)
 
   // Step 2 state — matter fields
-  const [matterName,   setMatterName]   = useState('')
+  const [firmName,     setFirmName]     = useState('')
   const [matterNumber, setMatterNumber] = useState('')
+  const [matterName,   setMatterName]   = useState('')
   const [description,  setDescription]  = useState('')
 
   // Editable invoice fields (Step 2 right column)
@@ -133,14 +134,14 @@ export default function CreateMatterFromInvoiceModal({ onClose }) {
       setInv(result)
 
       // Pre-seed matter fields from parsed invoice data
-      if (result.matter_name && !matterName) {
-        setMatterName(result.matter_name)
-      } else if (result.billing_firm && !matterName) {
-        // Fallback: use billing firm only if no matter name found
-        setMatterName(result.billing_firm)
+      if (result.billing_firm && !firmName) {
+        setFirmName(result.billing_firm)
       }
       if (result.matter_number && !matterNumber) {
         setMatterNumber(result.matter_number)
+      }
+      if (result.matter_name && !matterName) {
+        setMatterName(result.matter_name)
       }
 
       setParseStatus('ready')
@@ -199,6 +200,7 @@ export default function CreateMatterFromInvoiceModal({ onClose }) {
           org_id:        profile.org_id,
           name:          matterName.trim(),
           matter_number: matterNumber.trim() || null,
+          firm_name:     firmName.trim()     || null,
           description:   description.trim()  || null,
           status:        'active',
           created_by:    profile.id,
@@ -372,26 +374,36 @@ export default function CreateMatterFromInvoiceModal({ onClose }) {
                 </div>
 
                 <div>
-                  <label className="form-label">Matter Name *</label>
+                  <label className="form-label">Firm Name</label>
                   <input
                     className="form-input"
-                    placeholder="Smith v. Acme Corporation"
-                    value={matterName}
-                    onChange={e => setMatterName(e.target.value)}
+                    placeholder="ABC Legal, LLP"
+                    value={firmName}
+                    onChange={e => setFirmName(e.target.value)}
                   />
-                  {!matterName.trim() && (
-                    <p className="text-xs text-slate-400 mt-1">Required</p>
-                  )}
                 </div>
 
                 <div>
                   <label className="form-label">Matter Number</label>
                   <input
                     className="form-input"
-                    placeholder="2024-001"
+                    placeholder="2025-MDN-0047"
                     value={matterNumber}
                     onChange={e => setMatterNumber(e.target.value)}
                   />
+                </div>
+
+                <div>
+                  <label className="form-label">Matter Name *</label>
+                  <input
+                    className="form-input"
+                    placeholder="Holloway v. Meridian Industries — Employment Dispute"
+                    value={matterName}
+                    onChange={e => setMatterName(e.target.value)}
+                  />
+                  {!matterName.trim() && (
+                    <p className="text-xs text-slate-400 mt-1">Required</p>
+                  )}
                 </div>
 
                 <div>
