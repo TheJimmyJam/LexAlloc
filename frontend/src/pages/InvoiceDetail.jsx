@@ -18,7 +18,7 @@ const METHODS = [
   },
   {
     value: 'equal_shares',
-    label: 'Split Evenly Across All Carriers',
+    label: 'Equal Shares',
     description: 'Splits costs evenly across all carriers for each party',
   },
   {
