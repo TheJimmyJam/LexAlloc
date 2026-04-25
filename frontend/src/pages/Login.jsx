@@ -13,7 +13,14 @@ export default function Login() {
   const onSubmit = async ({ email, password }) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) { toast.error(error.message); return }
-    navigate('/dashboard')
+
+    // Check if this account has TOTP enrolled and session needs to be stepped up
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    if (aal?.nextLevel === 'aal2' && aal?.currentLevel !== 'aal2') {
+      navigate('/2fa-challenge')
+    } else {
+      navigate('/dashboard')
+    }
   }
 
   return (

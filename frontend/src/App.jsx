@@ -1,27 +1,45 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth.jsx'
 import Layout from './components/Layout.jsx'
 import { supabaseMisconfigured } from './lib/supabase.js'
 
 // Pages
-import Landing        from './pages/Landing.jsx'
-import Login          from './pages/Login.jsx'
-import Register       from './pages/Register.jsx'
-import ForgotPassword from './pages/ForgotPassword.jsx'
-import Dashboard      from './pages/Dashboard.jsx'
-import Matters        from './pages/Matters.jsx'
-import MatterDetail   from './pages/MatterDetail.jsx'
-import InvoiceDetail  from './pages/InvoiceDetail.jsx'
-import Apportionment  from './pages/Apportionment.jsx'
-import AdminPanel        from './pages/AdminPanel.jsx'
-import Settings          from './pages/Settings.jsx'
-import ClientPortal      from './pages/ClientPortal.jsx'
-import InsurerDirectory  from './pages/InsurerDirectory.jsx'
+import Landing            from './pages/Landing.jsx'
+import Login              from './pages/Login.jsx'
+import Register           from './pages/Register.jsx'
+import ForgotPassword     from './pages/ForgotPassword.jsx'
+import Dashboard          from './pages/Dashboard.jsx'
+import Matters            from './pages/Matters.jsx'
+import MatterDetail       from './pages/MatterDetail.jsx'
+import InvoiceDetail      from './pages/InvoiceDetail.jsx'
+import Apportionment      from './pages/Apportionment.jsx'
+import AdminPanel         from './pages/AdminPanel.jsx'
+import Settings           from './pages/Settings.jsx'
+import ClientPortal       from './pages/ClientPortal.jsx'
+import InsurerDirectory   from './pages/InsurerDirectory.jsx'
+import TwoFactorChallenge from './pages/TwoFactorChallenge.jsx'
 
-function ProtectedRoute({ children, requiredRole }) {
-  const { user, profile, loading } = useAuth()
+// Requires a logged-in session (aal1 is fine) — used for /2fa-challenge itself
+function AuthenticatedRoute({ children }) {
+  const { user, loading } = useAuth()
   if (loading) return <div className="flex items-center justify-center h-screen"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"/></div>
   if (!user) return <Navigate to="/login" replace />
+  return children
+}
+
+// Full protection: requires login + 2FA verified if enrolled
+function ProtectedRoute({ children, requiredRole }) {
+  const { user, profile, loading, hasTOTP, mfaVerified } = useAuth()
+  const location = useLocation()
+
+  if (loading) return <div className="flex items-center justify-center h-screen"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"/></div>
+  if (!user) return <Navigate to="/login" replace />
+
+  // If user has TOTP enrolled but this session isn't aal2 yet, require 2FA
+  if (hasTOTP && !mfaVerified) {
+    return <Navigate to="/2fa-challenge" state={{ from: location.pathname }} replace />
+  }
+
   if (requiredRole && profile?.role !== requiredRole && profile?.role !== 'admin') {
     return <Navigate to="/dashboard" replace />
   }
@@ -69,7 +87,10 @@ export default function App() {
         <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
 
-        {/* Protected */}
+        {/* 2FA challenge — requires session but not yet aal2 */}
+        <Route path="/2fa-challenge" element={<AuthenticatedRoute><TwoFactorChallenge /></AuthenticatedRoute>} />
+
+        {/* Protected — requires session + 2FA verified (if enrolled) */}
         <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route path="/dashboard"  element={<Dashboard />} />
           <Route path="/portal"     element={<ClientPortal />} />
