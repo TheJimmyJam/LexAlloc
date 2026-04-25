@@ -17,7 +17,7 @@ const features = [
     icon: Users,
     color: 'bg-purple-500/20 text-purple-400',
     title: 'Multi-Party Apportionment',
-    desc: 'Define parties (defendants, co-insurers, indemnitors) and their allocation percentages. Every invoice dollar is tracked to its responsible party.',
+    desc: 'Define parties and their service obligation dates. Every invoice dollar is allocated pro-rata to the parties responsible for that service period.',
   },
   {
     icon: Clock,
@@ -62,7 +62,7 @@ const steps = [
   {
     num: '01',
     title: 'Create a Matter',
-    desc: 'Set up a matter with a name, number, and status. Attach parties (defendants, co-insurers) with their allocation percentages and insurers with policy periods.',
+    desc: 'Set up a matter with a name, number, and status. Attach parties with their service obligation dates and insurers with policy periods.',
   },
   {
     num: '02',
