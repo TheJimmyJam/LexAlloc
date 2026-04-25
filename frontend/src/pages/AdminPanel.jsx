@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw, CreditCard, Zap, Star, Building, ChevronRight, Loader2 } from 'lucide-react'
+import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw, CreditCard, Zap, Star, Building, ChevronRight, Loader2, Key, Copy, Eye, EyeOff, Code, Terminal } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
@@ -13,6 +13,7 @@ const TABS = [
   { key: 'orgs',         label: 'Organizations', icon: Building2  },
   { key: 'integrations', label: 'Integrations',  icon: Plug       },
   { key: 'billing',      label: 'Billing',        icon: CreditCard },
+  { key: 'api',          label: 'API',            icon: Key        },
 ]
 
 // ── QBO / Clio OAuth URLs (client_id goes in frontend — it's not a secret) ───
@@ -562,6 +563,80 @@ export default function AdminPanel() {
     } finally {
       setBillingLoading(null)
     }
+  }
+
+  // ── API Keys ──────────────────────────────────────────────────────────────
+  const [showCreateKey,    setShowCreateKey]    = useState(false)
+  const [newKeyResult,     setNewKeyResult]     = useState(null)  // { key, name }
+  const [newKeyName,       setNewKeyName]       = useState('')
+  const [newKeyScopes,     setNewKeyScopes]     = useState(['read'])
+  const [newKeyExpiry,     setNewKeyExpiry]     = useState('')
+  const [creatingKey,      setCreatingKey]      = useState(false)
+  const [copiedKey,        setCopiedKey]        = useState(false)
+
+  const { data: apiKeys = [], refetch: refetchKeys } = useQuery({
+    queryKey: ['api-keys', profile?.org_id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('la_api_keys')
+        .select('id, name, key_prefix, scopes, is_active, last_used_at, expires_at, created_by_email, created_at')
+        .eq('org_id', profile?.org_id)
+        .order('created_at', { ascending: false })
+      return data || []
+    },
+    enabled: !!profile?.org_id && tab === 'api',
+  })
+
+  const generateApiKey = async () => {
+    if (!newKeyName.trim()) { toast.error('Enter a name for this key'); return }
+    setCreatingKey(true)
+    try {
+      // Generate a cryptographically random key in the browser
+      const array  = new Uint8Array(32)
+      crypto.getRandomValues(array)
+      const rawKey = 'lx_live_' + Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('')
+
+      // Hash it using SubtleCrypto
+      const encoder   = new TextEncoder()
+      const keyBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(rawKey))
+      const hashHex   = Array.from(new Uint8Array(keyBuffer)).map(b => b.toString(16).padStart(2, '0')).join('')
+
+      const { error } = await supabase.from('la_api_keys').insert({
+        org_id:          profile.org_id,
+        name:            newKeyName.trim(),
+        key_hash:        hashHex,
+        key_prefix:      rawKey.slice(0, 16),
+        scopes:          newKeyScopes,
+        expires_at:      newKeyExpiry || null,
+        created_by_email: profile.email,
+      })
+      if (error) throw error
+
+      setNewKeyResult({ key: rawKey, name: newKeyName.trim() })
+      setNewKeyName('')
+      setNewKeyScopes(['read'])
+      setNewKeyExpiry('')
+      setShowCreateKey(false)
+      refetchKeys()
+    } catch (err) {
+      toast.error(err.message || 'Failed to create API key')
+    } finally {
+      setCreatingKey(false)
+    }
+  }
+
+  const revokeApiKey = async (keyId, keyName) => {
+    if (!confirm(`Revoke "${keyName}"? Any integrations using this key will stop working immediately.`)) return
+    const { error } = await supabase.from('la_api_keys').update({ is_active: false }).eq('id', keyId)
+    if (error) { toast.error(error.message); return }
+    toast.success(`"${keyName}" revoked`)
+    refetchKeys()
+  }
+
+  const copyToClipboard = async (text) => {
+    await navigator.clipboard.writeText(text)
+    setCopiedKey(true)
+    setTimeout(() => setCopiedKey(false), 2000)
   }
 
   const disconnectProvider = async (provider) => {
@@ -1316,6 +1391,243 @@ export default function AdminPanel() {
           </div>
         )
       })()}
+
+      {/* ── API Tab ── */}
+      {tab === 'api' && (
+        <div className="max-w-3xl space-y-6">
+          <div className="flex items-start justify-between flex-wrap gap-4">
+            <div>
+              <h2 className="font-semibold text-slate-900">API Keys</h2>
+              <p className="text-sm text-slate-500 mt-0.5">
+                Authenticate programmatic access to LexAlloc data. Keys are shown once — store them securely.
+              </p>
+            </div>
+            <button onClick={() => setShowCreateKey(true)} className="btn-primary flex items-center gap-2 text-sm">
+              <Plus className="h-4 w-4" /> New API Key
+            </button>
+          </div>
+
+          {/* Key list */}
+          {apiKeys.length === 0 ? (
+            <div className="card p-10 text-center text-slate-400">
+              <Key className="h-8 w-8 mx-auto mb-2 text-slate-300" />
+              <p>No API keys yet.</p>
+              <p className="text-xs mt-1">Create a key to start pushing invoices or pulling apportionment results programmatically.</p>
+            </div>
+          ) : (
+            <div className="card overflow-hidden divide-y divide-slate-100">
+              {apiKeys.map(k => (
+                <div key={k.id} className={`flex items-center gap-4 px-5 py-4 ${!k.is_active ? 'opacity-50' : ''}`}>
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${k.is_active ? 'bg-brand-100' : 'bg-slate-100'}`}>
+                    <Key className={`h-4 w-4 ${k.is_active ? 'text-brand-600' : 'text-slate-400'}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-medium text-slate-900 text-sm">{k.name}</p>
+                      {!k.is_active && <span className="badge bg-red-100 text-red-600 text-xs">Revoked</span>}
+                      {k.expires_at && new Date(k.expires_at) < new Date() && (
+                        <span className="badge bg-amber-100 text-amber-700 text-xs">Expired</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5 font-mono">{k.key_prefix}••••••••••••••••</p>
+                    <div className="flex items-center gap-3 mt-1 flex-wrap">
+                      {(k.scopes || []).map(s => (
+                        <span key={s} className="badge bg-slate-100 text-slate-600 text-xs">{s}</span>
+                      ))}
+                      <span className="text-xs text-slate-400">
+                        Created {format(new Date(k.created_at), 'MMM d, yyyy')} by {k.created_by_email}
+                      </span>
+                      {k.last_used_at && (
+                        <span className="text-xs text-slate-400">
+                          Last used {format(new Date(k.last_used_at), 'MMM d, yyyy')}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {k.is_active && (
+                    <button
+                      onClick={() => revokeApiKey(k.id, k.name)}
+                      className="text-xs text-red-500 hover:text-red-700 font-medium flex-shrink-0"
+                    >
+                      Revoke
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* API Reference */}
+          <details className="card p-5 text-sm">
+            <summary className="cursor-pointer font-medium text-slate-700 flex items-center gap-2 select-none">
+              <Code className="h-4 w-4 text-slate-400" />
+              API Reference
+            </summary>
+            <div className="mt-5 space-y-5 text-slate-600">
+              <div>
+                <p className="font-semibold text-slate-800 mb-1">Authentication</p>
+                <pre className="bg-slate-900 text-green-400 rounded-lg p-3 text-xs overflow-x-auto font-mono">{`Authorization: Bearer lx_live_your_key_here`}</pre>
+              </div>
+              <div>
+                <p className="font-semibold text-slate-800 mb-2">Base URL</p>
+                <pre className="bg-slate-900 text-green-400 rounded-lg p-3 text-xs overflow-x-auto font-mono">{`${import.meta.env.VITE_API_URL || 'https://your-railway-app.up.railway.app'}/v1`}</pre>
+              </div>
+              <div>
+                <p className="font-semibold text-slate-800 mb-2">Endpoints</p>
+                <div className="space-y-2">
+                  {[
+                    { method: 'GET',  path: '/v1/',                              desc: 'API info + available endpoints',           scope: 'any'           },
+                    { method: 'GET',  path: '/v1/matters',                       desc: 'List matters (supports ?page, ?search)',   scope: 'read'          },
+                    { method: 'GET',  path: '/v1/matters/:id',                   desc: 'Matter detail with parties + insurers',    scope: 'read'          },
+                    { method: 'GET',  path: '/v1/matters/:id/parties',           desc: 'Parties on a matter',                      scope: 'read'          },
+                    { method: 'GET',  path: '/v1/matters/:id/invoices',          desc: 'Invoices on a matter',                     scope: 'read'          },
+                    { method: 'POST', path: '/v1/matters/:id/invoices',          desc: 'Push a new invoice programmatically',      scope: 'write:invoices'},
+                    { method: 'GET',  path: '/v1/matters/:id/apportionments',    desc: 'List apportionments on a matter',          scope: 'read'          },
+                    { method: 'GET',  path: '/v1/apportionments/:id',            desc: 'Full apportionment result with all breakdowns', scope: 'read'     },
+                  ].map(e => (
+                    <div key={e.path} className="flex items-start gap-3 p-2 rounded-lg hover:bg-slate-50">
+                      <span className={`badge text-xs font-mono flex-shrink-0 mt-0.5 ${e.method === 'GET' ? 'bg-sky-100 text-sky-700' : 'bg-green-100 text-green-700'}`}>{e.method}</span>
+                      <code className="text-xs text-slate-700 font-mono flex-1">{e.path}</code>
+                      <span className="text-xs text-slate-500 flex-1">{e.desc}</span>
+                      <span className="badge bg-slate-100 text-slate-500 text-xs flex-shrink-0">{e.scope}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="font-semibold text-slate-800 mb-1">Scopes</p>
+                <div className="space-y-1 text-xs">
+                  {[
+                    { scope: 'read',           desc: 'Read matters, parties, insurers, invoices, apportionments' },
+                    { scope: 'write:invoices', desc: 'Push new invoices to a matter via POST' },
+                    { scope: 'write',          desc: 'All write access including invoices' },
+                  ].map(s => (
+                    <div key={s.scope} className="flex gap-3">
+                      <code className="font-mono text-brand-700 bg-brand-50 px-1.5 rounded w-32 flex-shrink-0">{s.scope}</code>
+                      <span className="text-slate-500">{s.desc}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="font-semibold text-slate-800 mb-1">Rate limits</p>
+                <p className="text-xs text-slate-500">600 requests per 10 minutes per API key. Rate limit headers are returned with every response.</p>
+              </div>
+              <div>
+                <p className="font-semibold text-slate-800 mb-2">Example — pull apportionment result</p>
+                <pre className="bg-slate-900 text-green-400 rounded-lg p-3 text-xs overflow-x-auto font-mono whitespace-pre">{`curl -H "Authorization: Bearer lx_live_..." \\
+  "${import.meta.env.VITE_API_URL || 'https://your-app.railway.app'}/v1/apportionments/YOUR_ID"`}</pre>
+              </div>
+            </div>
+          </details>
+        </div>
+      )}
+
+      {/* Create API Key Modal */}
+      {showCreateKey && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between p-6 border-b border-slate-200">
+              <h2 className="font-semibold text-lg flex items-center gap-2"><Key className="h-4 w-4 text-brand-600" /> New API Key</h2>
+              <button onClick={() => setShowCreateKey(false)}><X className="h-5 w-5 text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="form-label">Key Name *</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. DMS Integration, Reporting Dashboard"
+                  value={newKeyName}
+                  onChange={e => setNewKeyName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="form-label">Scopes</label>
+                <div className="space-y-2">
+                  {[
+                    { value: 'read',           label: 'Read',           desc: 'Read matters, apportionments, invoices' },
+                    { value: 'write:invoices', label: 'Write: Invoices',desc: 'Push invoices programmatically' },
+                    { value: 'write',          label: 'Write (all)',    desc: 'All write access' },
+                  ].map(s => (
+                    <label key={s.value} className="flex items-start gap-3 cursor-pointer p-2 rounded-lg hover:bg-slate-50">
+                      <input
+                        type="checkbox"
+                        checked={newKeyScopes.includes(s.value)}
+                        onChange={e => setNewKeyScopes(prev =>
+                          e.target.checked ? [...prev, s.value] : prev.filter(x => x !== s.value)
+                        )}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <p className="text-sm font-medium text-slate-800">{s.label}</p>
+                        <p className="text-xs text-slate-500">{s.desc}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="form-label">Expiry Date <span className="text-slate-400 font-normal">(optional)</span></label>
+                <input type="date" className="form-input" value={newKeyExpiry} onChange={e => setNewKeyExpiry(e.target.value)} />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 p-6 border-t border-slate-200">
+              <button onClick={() => setShowCreateKey(false)} className="btn-secondary text-sm">Cancel</button>
+              <button
+                onClick={generateApiKey}
+                disabled={creatingKey || !newKeyName.trim() || newKeyScopes.length === 0}
+                className="btn-primary text-sm flex items-center gap-2"
+              >
+                {creatingKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Key className="h-4 w-4" />}
+                Generate Key
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Show-once key reveal modal */}
+      {newKeyResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+            <div className="flex items-center justify-between p-6 border-b border-slate-200">
+              <h2 className="font-semibold text-lg flex items-center gap-2 text-green-700">
+                <CheckCircle2 className="h-5 w-5" /> API Key Created
+              </h2>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 flex gap-3">
+                <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5 text-amber-600" />
+                <p><strong>Copy this key now.</strong> It won't be shown again. Store it in a secrets manager or environment variable.</p>
+              </div>
+              <div>
+                <label className="form-label">{newKeyResult.name}</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={newKeyResult.key}
+                    className="form-input font-mono text-xs flex-1 bg-slate-50"
+                    onFocus={e => e.target.select()}
+                  />
+                  <button
+                    onClick={() => copyToClipboard(newKeyResult.key)}
+                    className={`btn-secondary px-3 flex items-center gap-1.5 text-sm ${copiedKey ? 'text-green-700 border-green-300' : ''}`}
+                  >
+                    {copiedKey ? <CheckCircle2 className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    {copiedKey ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end p-6 border-t border-slate-200">
+              <button onClick={() => setNewKeyResult(null)} className="btn-primary text-sm">Done — I've saved the key</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modals */}
       {showInvite && (
