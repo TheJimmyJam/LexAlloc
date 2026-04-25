@@ -501,7 +501,8 @@ function FileVineConnectionCard({ orgId }) {
 
 export default function AdminPanel() {
   const { profile, refetchProfile } = useAuth()
-  const [tab, setTab] = useState('users')
+  const [tab, setTab]             = useState('users')
+  const [userRoleTab, setUserRoleTab] = useState('user')
 
   // Handle OAuth redirect back (?connected=quickbooks / ?error=xxx)
   useEffect(() => {
@@ -938,26 +939,66 @@ export default function AdminPanel() {
               <Plus className="h-4 w-4" /> Invite User
             </button>
           </div>
-          <div className="card overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Name</th>
-                  <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Email</th>
-                  {isPlatformAdmin && (
-                    <th className="hidden md:table-cell text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Organization</th>
-                  )}
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Role</th>
-                  <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Insurer (clients)</th>
-                  {isPlatformAdmin && (
-                    <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">DB Admin</th>
-                  )}
-                  <th className="hidden md:table-cell text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Joined</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {users.map(u => (
+
+          {/* Role sub-tabs */}
+          {(() => {
+            const roleTabs = [
+              { key: 'user',   label: 'Users',   count: users.filter(u => u.role === 'user').length   },
+              { key: 'admin',  label: 'Admins',  count: users.filter(u => u.role === 'admin').length  },
+              { key: 'client', label: 'Clients', count: users.filter(u => u.role === 'client').length },
+            ]
+            const filteredUsers = users.filter(u => u.role === userRoleTab)
+            const isClientTab   = userRoleTab === 'client'
+
+            return (
+              <>
+                <div className="flex gap-1 mb-4 bg-slate-100 p-1 rounded-xl w-fit">
+                  {roleTabs.map(({ key, label, count }) => (
+                    <button
+                      key={key}
+                      onClick={() => setUserRoleTab(key)}
+                      className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                        userRoleTab === key
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      {label}
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                        userRoleTab === key ? 'bg-brand-100 text-brand-700' : 'bg-slate-200 text-slate-500'
+                      }`}>{count}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="card overflow-x-auto">
+                  {filteredUsers.length === 0 ? (
+                    <div className="py-12 text-center text-slate-400">
+                      <Users className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">No {userRoleTab}s yet</p>
+                    </div>
+                  ) : (
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50">
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Name</th>
+                        <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Email</th>
+                        {isPlatformAdmin && (
+                          <th className="hidden md:table-cell text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Organization</th>
+                        )}
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Role</th>
+                        {isClientTab && (
+                          <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Insurer</th>
+                        )}
+                        {isPlatformAdmin && (
+                          <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">DB Admin</th>
+                        )}
+                        <th className="hidden md:table-cell text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Joined</th>
+                        <th className="px-4 py-3" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredUsers.map(u => (
                   <tr key={u.id} className="hover:bg-slate-50">
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2">
@@ -997,8 +1038,8 @@ export default function AdminPanel() {
                         <option value="user">User</option>
                       </select>
                     </td>
-                    <td className="hidden sm:table-cell px-4 py-4">
-                      {u.role === 'client' ? (
+                    {isClientTab && (
+                      <td className="hidden sm:table-cell px-4 py-4">
                         <select
                           value={
                             u.id in pendingInsurers
@@ -1013,10 +1054,8 @@ export default function AdminPanel() {
                             <option key={ins.id} value={ins.id}>{ins.name}</option>
                           ))}
                         </select>
-                      ) : (
-                        <span className="text-xs text-slate-300">—</span>
-                      )}
-                    </td>
+                      </td>
+                    )}
                     {isPlatformAdmin && (
                       <td className="px-4 py-4 text-center">
                         <button
@@ -1045,10 +1084,14 @@ export default function AdminPanel() {
                       </button>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      ))}
+                    </tbody>
+                  </table>
+                  )}
+                </div>
+              </>
+            )
+          })()}
         </div>
       )}
 
