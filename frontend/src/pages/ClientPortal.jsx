@@ -6,7 +6,7 @@ import { formatCurrency } from '../lib/calculations.js'
 import {
   DollarSign, FileText, TrendingUp, AlertCircle, CheckCircle,
   Clock, Shield, CreditCard, X, ChevronDown, ChevronRight,
-  Calendar, Hash, AlertTriangle, Loader2
+  Calendar, Hash, AlertTriangle, Loader2, ChevronUp, Receipt
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -48,9 +48,106 @@ function StatCard({ icon: Icon, label, value, gradient, sub }) {
   )
 }
 
+// ── Expanded line items ───────────────────────────────────────────────────────
+function ExpandedLineItems({ invoiceId, invoice }) {
+  const { data: lineItems = [], isLoading } = useQuery({
+    queryKey: ['line-items', invoiceId],
+    enabled:  !!invoiceId,
+    queryFn:  async () => {
+      const { data, error } = await supabase
+        .from('la_invoice_line_items')
+        .select('id, date_of_service, description, timekeeper, hours, rate, amount, category')
+        .eq('invoice_id', invoiceId)
+        .order('date_of_service', { ascending: true })
+      if (error) throw error
+      return data || []
+    },
+  })
+
+  const fees    = lineItems.filter(l => l.category === 'fees')
+  const costs   = lineItems.filter(l => l.category !== 'fees' && l.category != null && l.category !== 'fees')
+  const feeTotal  = fees.reduce((s, l)  => s + Number(l.amount || 0), 0)
+  const costTotal = lineItems.filter(l => l.category !== 'fees').reduce((s, l) => s + Number(l.amount || 0), 0)
+
+  return (
+    <div className="bg-slate-50 border-t border-slate-100 px-5 py-5">
+      {/* Invoice meta strip */}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 mb-4 text-xs text-slate-500">
+        <span className="flex items-center gap-1.5 font-semibold text-slate-700">
+          <Receipt className="h-3.5 w-3.5 text-brand-500" />
+          {invoice?.invoice_number || 'Invoice'}
+        </span>
+        {invoice?.billing_firm && <span>Billing firm: <strong className="text-slate-700">{invoice.billing_firm}</strong></span>}
+        {invoice?.invoice_date  && <span>Issued: <strong className="text-slate-700">{format(parseISO(invoice.invoice_date), 'MMM d, yyyy')}</strong></span>}
+        {invoice?.total_amount  && <span>Invoice total: <strong className="text-slate-700">{formatCurrency(Number(invoice.total_amount))}</strong></span>}
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 py-4 text-slate-400 text-sm">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading charges…
+        </div>
+      ) : lineItems.length === 0 ? (
+        <p className="text-sm text-slate-400 py-2">No line items on file for this invoice.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50">
+                {['Date', 'Description', 'Timekeeper', 'Category', 'Hours', 'Rate', 'Amount'].map(h => (
+                  <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-2.5 whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {lineItems.map(li => (
+                <tr key={li.id} className="hover:bg-slate-50 transition-colors">
+                  <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap">
+                    {li.date_of_service ? format(parseISO(li.date_of_service), 'MM/dd/yy') : '—'}
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-800 max-w-xs">
+                    <span className="line-clamp-2">{li.description || '—'}</span>
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">{li.timekeeper || '—'}</td>
+                  <td className="px-4 py-2.5">
+                    {li.category ? (
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
+                        li.category === 'fees' ? 'bg-violet-50 text-violet-700' : 'bg-amber-50 text-amber-700'
+                      }`}>{li.category}</span>
+                    ) : '—'}
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-slate-600 whitespace-nowrap">
+                    {li.hours != null ? Number(li.hours).toFixed(2) : '—'}
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-slate-600 whitespace-nowrap">
+                    {li.rate != null ? formatCurrency(Number(li.rate)) : '—'}
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-semibold text-slate-900 whitespace-nowrap">
+                    {formatCurrency(Number(li.amount || 0))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-slate-200 bg-slate-50">
+                <td colSpan={6} className="px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  Total ({lineItems.length} line item{lineItems.length !== 1 ? 's' : ''})
+                </td>
+                <td className="px-4 py-2.5 text-right font-bold text-slate-900">
+                  {formatCurrency(lineItems.reduce((s, l) => s + Number(l.amount || 0), 0))}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Matter card ───────────────────────────────────────────────────────────────
 function MatterCard({ matter, rows, insurerName, onPay, payingId }) {
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded]       = useState(true)
+  const [expandedRowId, setExpandedRowId] = useState(null)
   const mOwed        = rows.reduce((s, r) => s + (r.amount      || 0), 0)
   const mPaid        = rows.reduce((s, r) => s + (r.amount_paid || 0), 0)
   const mOutstanding = mOwed - mPaid
@@ -119,65 +216,86 @@ function MatterCard({ matter, rows, insurerName, onPay, payingId }) {
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-slate-100">
                 {rows.map(row => {
-                  const payable = row.payment_status !== 'paid' && (row.amount || 0) > (row.amount_paid || 0)
+                  const payable    = row.payment_status !== 'paid' && (row.amount || 0) > (row.amount_paid || 0)
+                  const isExpanded = expandedRowId === row.id
                   return (
-                    <tr key={row.id} className={`hover:bg-slate-50 transition-colors ${row.payment_status === 'paid' ? 'opacity-75' : ''}`}>
-                      <td className="px-5 py-4">
-                        <p className="text-sm font-semibold text-slate-800">{row.invoice?.invoice_number || '—'}</p>
-                        {row.invoice?.invoice_date && (
-                          <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            {format(parseISO(row.invoice.invoice_date), 'MMM d, yyyy')}
-                          </p>
-                        )}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-slate-600 whitespace-nowrap">
-                        {row.invoice?.service_start && row.invoice?.service_end
-                          ? `${format(parseISO(row.invoice.service_start), 'MM/dd/yy')} – ${format(parseISO(row.invoice.service_end), 'MM/dd/yy')}`
-                          : '—'}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-slate-600 whitespace-nowrap">
-                        {row.policy_period?.policy_start && row.policy_period?.policy_end
-                          ? `${format(parseISO(row.policy_period.policy_start), 'MM/dd/yy')} – ${format(parseISO(row.policy_period.policy_end), 'MM/dd/yy')}`
-                          : '—'}
-                      </td>
-                      <td className="px-4 py-4 text-sm font-mono text-slate-500">
-                        {row.policy_period?.claim_number || '—'}
-                      </td>
-                      <td className="px-4 py-4 text-right">
-                        <span className="text-sm font-bold text-slate-900">{formatCurrency(row.amount)}</span>
-                      </td>
-                      <td className="px-4 py-4 text-right">
-                        <span className={`text-sm font-bold ${row.amount_paid > 0 ? 'text-green-600' : 'text-slate-300'}`}>
-                          {row.amount_paid > 0 ? formatCurrency(row.amount_paid) : '—'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <StatusBadge status={row.payment_status} />
-                        {row.payment_date && (
-                          <p className="text-xs text-slate-400 mt-1">{format(parseISO(row.payment_date), 'MM/dd/yyyy')}</p>
-                        )}
-                      </td>
-                      <td className="px-4 py-4 text-right">
-                        {payable ? (
-                          <button
-                            onClick={() => onPay(row)}
-                            disabled={payingId === row.id}
-                            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-brand-600 hover:bg-brand-500 disabled:opacity-60 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shadow-sm"
-                          >
-                            {payingId === row.id
-                              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Processing…</>
-                              : <><CreditCard className="h-3.5 w-3.5" /> Pay Now</>}
-                          </button>
-                        ) : row.payment_status === 'paid' ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium">
-                            <CheckCircle className="h-3.5 w-3.5" /> Paid
+                    <>
+                      <tr
+                        key={row.id}
+                        onClick={() => setExpandedRowId(isExpanded ? null : row.id)}
+                        className={`cursor-pointer transition-colors select-none ${isExpanded ? 'bg-brand-50/60' : 'hover:bg-slate-50'} ${row.payment_status === 'paid' ? 'opacity-75' : ''}`}
+                      >
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-2">
+                            {isExpanded
+                              ? <ChevronUp   className="h-3.5 w-3.5 text-brand-500 flex-shrink-0" />
+                              : <ChevronRight className="h-3.5 w-3.5 text-slate-300 flex-shrink-0" />}
+                            <div>
+                              <p className="text-sm font-semibold text-slate-800">{row.invoice?.invoice_number || '—'}</p>
+                              {row.invoice?.invoice_date && (
+                                <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {format(parseISO(row.invoice.invoice_date), 'MMM d, yyyy')}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-600 whitespace-nowrap">
+                          {row.invoice?.service_start && row.invoice?.service_end
+                            ? `${format(parseISO(row.invoice.service_start), 'MM/dd/yy')} – ${format(parseISO(row.invoice.service_end), 'MM/dd/yy')}`
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-600 whitespace-nowrap">
+                          {row.policy_period?.policy_start && row.policy_period?.policy_end
+                            ? `${format(parseISO(row.policy_period.policy_start), 'MM/dd/yy')} – ${format(parseISO(row.policy_period.policy_end), 'MM/dd/yy')}`
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-4 text-sm font-mono text-slate-500">
+                          {row.policy_period?.claim_number || '—'}
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          <span className="text-sm font-bold text-slate-900">{formatCurrency(row.amount)}</span>
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          <span className={`text-sm font-bold ${row.amount_paid > 0 ? 'text-green-600' : 'text-slate-300'}`}>
+                            {row.amount_paid > 0 ? formatCurrency(row.amount_paid) : '—'}
                           </span>
-                        ) : null}
-                      </td>
-                    </tr>
+                        </td>
+                        <td className="px-4 py-4">
+                          <StatusBadge status={row.payment_status} />
+                          {row.payment_date && (
+                            <p className="text-xs text-slate-400 mt-1">{format(parseISO(row.payment_date), 'MM/dd/yyyy')}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-4 text-right" onClick={e => e.stopPropagation()}>
+                          {payable ? (
+                            <button
+                              onClick={() => onPay(row)}
+                              disabled={payingId === row.id}
+                              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-brand-600 hover:bg-brand-500 disabled:opacity-60 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shadow-sm"
+                            >
+                              {payingId === row.id
+                                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Processing…</>
+                                : <><CreditCard className="h-3.5 w-3.5" /> Pay Now</>}
+                            </button>
+                          ) : row.payment_status === 'paid' ? (
+                            <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium">
+                              <CheckCircle className="h-3.5 w-3.5" /> Paid
+                            </span>
+                          ) : null}
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr key={`${row.id}-expanded`}>
+                          <td colSpan={8} className="p-0 border-b border-brand-100">
+                            <ExpandedLineItems invoiceId={row.invoice?.id} invoice={row.invoice} />
+                          </td>
+                        </tr>
+                      )}
+                    </>
                   )
                 })}
               </tbody>
@@ -313,7 +431,7 @@ export default function ClientPortal() {
       const apptIds = [...new Set(iaRows.map(r => r.apportionment_id).filter(Boolean))]
       const { data: appts } = await supabase
         .from('la_apportionments')
-        .select(`id, matters:la_matters(id, name, matter_number), invoices:la_invoices(invoice_number, invoice_date, service_start, service_end, total_amount)`)
+        .select(`id, matters:la_matters(id, name, matter_number), invoices:la_invoices(id, invoice_number, invoice_date, service_start, service_end, total_amount, billing_firm)`)
         .in('id', apptIds)
 
       const apptMap = {}
