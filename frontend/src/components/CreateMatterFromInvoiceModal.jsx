@@ -265,7 +265,7 @@ export default function CreateMatterFromInvoiceModal({ onClose }) {
 
       toast.success('Matter created with invoice!')
       onClose()
-      navigate(`/matters/${newMatter.id}`)
+      navigate(`/matters/${newMatter.id}?promptParties=1`)
     } catch (err) {
       toast.error(err.message || 'Failed to create matter')
     } finally {

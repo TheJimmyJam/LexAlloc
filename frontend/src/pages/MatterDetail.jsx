@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
@@ -887,6 +887,82 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
   )
 }
 
+
+// ── Request Adjuster Info Modal ───────────────────────────────────────────────
+function RequestAdjusterInfoModal({ matter, onClose }) {
+  const { profile } = useAuth()
+  const [emails, setEmails] = useState('')
+  const [sending, setSending] = useState(false)
+
+  const handleSend = async () => {
+    const list = emails.split(/[,\n]+/).map(e => e.trim()).filter(Boolean)
+    if (list.length === 0) { toast.error('Enter at least one email address'); return }
+    setSending(true)
+    try {
+      const { error } = await supabase.functions.invoke('send-notification', {
+        body: {
+          type:     'party_info_request',
+          org_id:   profile.org_id,
+          matter_id: matter.id,
+          details: {
+            matter_name:   matter.name,
+            matter_number: matter.matter_number || null,
+            to_emails:     list,
+          },
+        },
+      })
+      if (error) throw error
+      toast.success(`Info request sent to ${list.length} recipient${list.length > 1 ? 's' : ''}`)
+      onClose()
+    } catch (err) {
+      toast.error(err.message || 'Failed to send')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-start justify-between p-6 border-b border-slate-200">
+          <div>
+            <h2 className="font-semibold text-lg text-slate-900">Request Info from Adjuster</h2>
+            <p className="text-sm text-slate-400 mt-0.5">Send an email asking for coverage details</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 mt-1"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="rounded-lg bg-blue-50 border border-blue-100 p-3 text-sm text-blue-700">
+            The email will ask recipients to provide:
+            <ul className="mt-1.5 space-y-0.5 list-disc list-inside text-blue-600">
+              <li>Carrier name</li>
+              <li>Dates of service they are responsible for</li>
+              <li>Coverage period (policy start &amp; end)</li>
+              <li>Policy limits</li>
+            </ul>
+          </div>
+          <div>
+            <label className="form-label">Adjuster / Carrier Emails</label>
+            <textarea
+              className="form-input h-24 resize-none"
+              placeholder={"adjuster@carrier.com\nadjuster2@carrier.com"}
+              value={emails}
+              onChange={e => setEmails(e.target.value)}
+            />
+            <p className="text-xs text-slate-400 mt-1">One email per line, or comma-separated</p>
+          </div>
+        </div>
+        <div className="flex gap-3 p-6 pt-0">
+          <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
+          <button onClick={handleSend} disabled={sending} className="btn-primary flex-1 justify-center">
+            {sending ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending…</> : <><Send className="h-4 w-4" /> Send Request</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function MatterDetail() {
   const { matterId } = useParams()
@@ -905,6 +981,17 @@ export default function MatterDetail() {
   const [editingInsurer, setEditingInsurer] = useState(null)
   const [showUploadInvoice, setShowUploadInvoice] = useState(false)
   const [showUseTemplate, setShowUseTemplate] = useState(false)
+  const [showAdjusterModal, setShowAdjusterModal] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Auto-open Add Party modal when navigated from invoice creation
+  useEffect(() => {
+    if (searchParams.get('promptParties') === '1') {
+      setTab('parties')
+      setShowAddParty(true)
+      setSearchParams({}, { replace: true })
+    }
+  }, [])
 
   const { data: matter, isLoading } = useQuery({
     queryKey: ['matter', matterId],
@@ -1665,11 +1752,17 @@ export default function MatterDetail() {
           <div className="card overflow-hidden">
             {parties.length === 0 ? (
               <div className="p-10 text-center text-slate-400">
-                <Users className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-                <p>No parties added yet.</p>
-                <button onClick={() => setShowAddParty(true)} className="btn-primary mt-4">
-                  <Plus className="h-4 w-4" /> Add First Party
-                </button>
+                <Users className="h-8 w-8 mx-auto mb-3 text-slate-300" />
+                <p className="font-medium text-slate-600 mb-1">No parties added yet</p>
+                <p className="text-sm text-slate-400 mb-5 max-w-sm mx-auto">Add parties manually, or request coverage information directly from adjusters — they'll receive an email asking for carrier name, policy limits, coverage period, and dates of service.</p>
+                <div className="flex items-center justify-center gap-3 flex-wrap">
+                  <button onClick={() => setShowAddParty(true)} className="btn-primary">
+                    <Plus className="h-4 w-4" /> Add Party
+                  </button>
+                  <button onClick={() => setShowAdjusterModal(true)} className="btn-secondary">
+                    <Mail className="h-4 w-4" /> Request Info from Adjuster
+                  </button>
+                </div>
               </div>
             ) : (
               <table className="w-full">

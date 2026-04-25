@@ -138,6 +138,34 @@ function buildPaymentStatusUpdated(matterName: string, d: any, matterId: string)
   }
 }
 
+
+function buildPartyInfoRequest(matterName: string, d: any, matterId: string) {
+  const url = `${FRONTEND_URL}/matters/${matterId}`
+  const body = `
+    <p style="margin:0 0 16px;font-size:15px;color:#334155;line-height:1.7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+      You have been contacted regarding matter <strong>${matterName}</strong>${d.matter_number ? ` (${d.matter_number})` : ''}.
+      Please reply to this email or contact us with the following information so we can process the claim apportionment:
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:20px;border-collapse:collapse;border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;">
+      <tr style="background:#f8fafc;">
+        <td style="padding:10px 16px;font-size:13px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;width:45%;">Information Needed</td>
+        <td style="padding:10px 16px;font-size:13px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;">Details</td>
+      </tr>
+      <tr><td style="padding:10px 16px;font-size:13px;color:#64748b;border-bottom:1px solid #f1f5f9;">Carrier Name</td><td style="padding:10px 16px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9;">Please provide your carrier name</td></tr>
+      <tr><td style="padding:10px 16px;font-size:13px;color:#64748b;border-bottom:1px solid #f1f5f9;">Dates of Service Responsible For</td><td style="padding:10px 16px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9;">Start date and end date</td></tr>
+      <tr><td style="padding:10px 16px;font-size:13px;color:#64748b;border-bottom:1px solid #f1f5f9;">Coverage Period</td><td style="padding:10px 16px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9;">Policy start and end dates</td></tr>
+      <tr><td style="padding:10px 16px;font-size:13px;color:#64748b;">Policy Limits</td><td style="padding:10px 16px;font-size:13px;color:#334155;">Per-occurrence and aggregate limits</td></tr>
+    </table>
+    <p style="margin:0 0 20px;font-size:13px;color:#64748b;line-height:1.6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+      Please reply with this information at your earliest convenience. If you have questions, respond directly to this email.
+    </p>`
+  return {
+    subject: `Coverage Information Request — ${matterName}`,
+    html: layout({ title: 'Coverage Information Request', badgeText: 'Action Required', badgeColor: '#0ea5e9', body }),
+    toEmails: d.to_emails as string[],
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', {
@@ -162,6 +190,15 @@ Deno.serve(async (req: Request) => {
       case 'apportionment_run':       email = buildApportionmentRun(matterName, details, matter_id);       break
       case 'demand_letter_generated': email = buildDemandLetterGenerated(matterName, details, matter_id);  break
       case 'payment_status_updated':  email = buildPaymentStatusUpdated(matterName, details, matter_id);   break
+      case 'party_info_request': {
+        const result = buildPartyInfoRequest(matterName, details, matter_id)
+        if (!result.toEmails?.length)
+          return new Response(JSON.stringify({ error: 'to_emails is required for party_info_request' }), { status: 400 })
+        await sendEmail(result.toEmails, result.subject, result.html)
+        return new Response(JSON.stringify({ sent: result.toEmails.length }), {
+          status: 200, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        })
+      }
       default:
         return new Response(JSON.stringify({ error: `Unknown type: ${type}` }), { status: 400 })
     }
