@@ -22,31 +22,42 @@ export default function Financials() {
     queryFn: async () => {
       const [
         invoicesRes,
-        apportionmentsRes,
+        obligationsRes,
         mattersRes,
         clientsRes,
         apportRunsRes,
-        allApportionmentsRes,
         orgsRes,
       ] = await Promise.all([
-        supabase.from('la_invoices').select('total_amount, status'),
-        supabase.from('la_insurer_apportionments').select('amount_owed, amount_paid, payment_status'),
+        // Invoices: source of truth for billed amounts
+        supabase.from('la_invoices').select('total_amount'),
+        // Insurer obligations: source of truth for all payment activity (Stripe updates these)
+        supabase.from('la_insurer_apportionments').select('amount, amount_paid, payment_status'),
         supabase.from('la_matters').select('id', { count: 'exact', head: true }),
         supabase.from('la_profiles').select('id', { count: 'exact', head: true }).eq('role', 'client'),
         supabase.from('la_apportionments').select('id', { count: 'exact', head: true }),
-        supabase.from('la_insurer_apportionments').select('amount_owed, payment_status'),
         supabase.from('la_organizations').select('id', { count: 'exact', head: true }),
       ])
 
-      const invoices    = invoicesRes.data    || []
-      const obligations = apportionmentsRes.data || []
-      const allObligs   = allApportionmentsRes.data || []
+      const invoices  = invoicesRes.data    || []
+      const obligs    = obligationsRes.data || []
 
-      const totalBilled      = invoices.reduce((s, r) => s + Number(r.total_amount || 0), 0)
-      const totalReceived    = obligations.filter(r => r.payment_status === 'paid').reduce((s, r) => s + Number(r.amount_paid || 0), 0)
-      const totalOwed        = allObligs.reduce((s, r) => s + Number(r.amount_owed || 0), 0)
-      const totalOutstanding = allObligs.filter(r => r.payment_status !== 'paid').reduce((s, r) => s + Number(r.amount_owed || 0), 0)
-      const collectRate      = totalOwed > 0 ? (totalReceived / totalOwed) * 100 : 0
+      // Total billed = sum of all invoice amounts
+      const totalBilled = invoices.reduce((s, r) => s + Number(r.total_amount || 0), 0)
+
+      // Total received = sum of amount_paid on paid + partially_paid obligations (Stripe-confirmed)
+      const totalReceived = obligs
+        .filter(r => r.payment_status === 'paid' || r.payment_status === 'partially_paid')
+        .reduce((s, r) => s + Number(r.amount_paid || 0), 0)
+
+      // Total owed = sum of all obligation amounts (what was apportioned)
+      const totalOwed = obligs.reduce((s, r) => s + Number(r.amount || 0), 0)
+
+      // Total outstanding = unpaid/pending/demanded obligations
+      const totalOutstanding = obligs
+        .filter(r => r.payment_status !== 'paid')
+        .reduce((s, r) => s + Number(r.amount || 0), 0)
+
+      const collectRate = totalOwed > 0 ? (totalReceived / totalOwed) * 100 : 0
 
       return {
         totalBilled,
