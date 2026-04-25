@@ -123,6 +123,11 @@ export default function Layout() {
           >
             <LogOut className="h-3 w-3" /> Sign out
           </button>
+          <div className="flex justify-center gap-3 mt-2">
+            <Link to="/privacy" className="text-slate-600 hover:text-slate-400 text-xs transition-colors">Privacy</Link>
+            <span className="text-slate-700 text-xs">·</span>
+            <Link to="/terms" className="text-slate-600 hover:text-slate-400 text-xs transition-colors">Terms</Link>
+          </div>
         </div>
       </aside>
 
