@@ -6,7 +6,7 @@ import { generateDemandLetterBlob, getDemandLetterFilename } from '../lib/genera
 import { generateApportionmentReport } from '../lib/generateApportionmentReport.js'
 import DemandLetterModal from '../components/DemandLetterModal.jsx'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2, AlertTriangle, Mail, FileDown, Bell, Clock, BookOpen, PlugZap } from 'lucide-react'
+import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2, AlertTriangle, Mail, FileDown, Bell, Clock, BookOpen, PlugZap, Lock, Unlock, Pencil } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays } from 'date-fns'
 import { useState, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
@@ -154,12 +154,189 @@ function SectionCard({ title, icon: Icon, children, defaultOpen = true }) {
   )
 }
 
+// ── Override Modal ────────────────────────────────────────────────────────────
+function OverrideModal({ ia, partyName, invoiceTotal, matterId, onClose, onSaved }) {
+  const { profile } = useAuth()
+  const [pct,    setPct]    = useState(ia.override_pct != null ? String(ia.override_pct) : '')
+  const [reason, setReason] = useState(ia.override_reason || '')
+  const [saving, setSaving] = useState(false)
+
+  const pctNum        = parseFloat(pct)
+  const validPct      = !isNaN(pctNum) && pctNum >= 0 && pctNum <= 100
+  const effectiveAmt  = validPct ? (pctNum / 100) * invoiceTotal : null
+  const hasOverride   = ia.override_pct != null
+
+  const save = async () => {
+    if (!validPct) { toast.error('Enter a percentage between 0 and 100'); return }
+    setSaving(true)
+    try {
+      const { error } = await supabase
+        .from('la_insurer_apportionments')
+        .update({
+          override_pct:    pctNum,
+          override_reason: reason.trim() || null,
+          override_set_by: profile?.email,
+          override_set_at: new Date().toISOString(),
+        })
+        .eq('id', ia.id)
+      if (error) throw error
+      logAudit({
+        profile, matterId,
+        action: 'insurer.override_set',
+        entityType: 'insurer_apportionment',
+        entityId: ia.id,
+        entityName: ia.insurers?.name,
+        metadata: {
+          calculated_pct: ia.percentage,
+          override_pct:   pctNum,
+          reason:         reason.trim() || null,
+          party:          partyName,
+        },
+      })
+      toast.success('Override saved')
+      onSaved()
+      onClose()
+    } catch {
+      toast.error('Failed to save override')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const clear = async () => {
+    setSaving(true)
+    try {
+      const { error } = await supabase
+        .from('la_insurer_apportionments')
+        .update({ override_pct: null, override_reason: null, override_set_by: null, override_set_at: null })
+        .eq('id', ia.id)
+      if (error) throw error
+      logAudit({
+        profile, matterId,
+        action: 'insurer.override_cleared',
+        entityType: 'insurer_apportionment',
+        entityId: ia.id,
+        entityName: ia.insurers?.name,
+        metadata: { cleared_override_pct: ia.override_pct, party: partyName },
+      })
+      toast.success('Override cleared — reverting to calculated percentage')
+      onSaved()
+      onClose()
+    } catch {
+      toast.error('Failed to clear override')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between p-6 border-b border-slate-200">
+          <div>
+            <h2 className="font-semibold text-lg flex items-center gap-2">
+              <Lock className="h-4 w-4 text-amber-500" />
+              Custom Percentage Override
+            </h2>
+            <p className="text-sm text-slate-500 mt-0.5">{ia.insurers?.name} · {partyName}</p>
+          </div>
+          <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          {/* Calculated vs agreed comparison */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-slate-50 rounded-xl p-3 text-center">
+              <p className="text-xs text-slate-500 mb-1">Calculated</p>
+              <p className="text-xl font-bold text-slate-700">{ia.percentage?.toFixed(2)}%</p>
+              <p className="text-xs text-slate-400 mt-0.5">{formatCurrency(ia.amount)}</p>
+            </div>
+            <div className={`rounded-xl p-3 text-center border-2 ${validPct ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+              <p className="text-xs text-slate-500 mb-1">Agreed / Override</p>
+              <p className={`text-xl font-bold ${validPct ? 'text-amber-700' : 'text-slate-300'}`}>
+                {validPct ? `${pctNum.toFixed(2)}%` : '—'}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {effectiveAmt != null ? formatCurrency(effectiveAmt) : '—'}
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <label className="form-label">Agreed Percentage *</label>
+            <div className="relative">
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={pct}
+                onChange={e => setPct(e.target.value)}
+                placeholder="e.g. 22.00"
+                className="form-input pr-8"
+                autoFocus
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">%</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="form-label">Reason / Audit Note</label>
+            <textarea
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              placeholder="e.g. Agreed with carrier at policy inception per coverage counsel memo dated 3/15/25"
+              rows={3}
+              className="form-input resize-none"
+            />
+            <p className="text-xs text-slate-400 mt-1">Stored alongside the calculated value for the audit trail.</p>
+          </div>
+
+          {hasOverride && ia.override_set_by && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
+              <p className="font-medium">Override currently active</p>
+              <p className="mt-0.5">Set by {ia.override_set_by}{ia.override_set_at ? ` on ${format(new Date(ia.override_set_at), 'MMM d, yyyy')}` : ''}</p>
+              {ia.override_reason && <p className="mt-1 italic">"{ia.override_reason}"</p>}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between p-6 border-t border-slate-200 gap-3">
+          {hasOverride ? (
+            <button
+              onClick={clear}
+              disabled={saving}
+              className="btn-secondary text-sm flex items-center gap-2 text-red-600 hover:text-red-700 border-red-200 hover:border-red-300"
+            >
+              <Unlock className="h-4 w-4" />
+              Clear Override
+            </button>
+          ) : (
+            <div />
+          )}
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="btn-secondary text-sm">Cancel</button>
+            <button
+              onClick={save}
+              disabled={saving || !validPct}
+              className="btn-primary text-sm flex items-center gap-2"
+            >
+              {saving ? <><Clock className="h-4 w-4 animate-spin" /> Saving…</> : <><Lock className="h-4 w-4" /> Apply Override</>}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Apportionment() {
   const { matterId, apportionmentId } = useParams()
   const qc = useQueryClient()
   const { profile } = useAuth()
-  const [paymentModal, setPaymentModal] = useState(null)   // { ia, partyName }
-  const [letterModal,  setLetterModal]  = useState(null)   // { apport, invoice, pa, ia, orgName }
+  const [paymentModal,   setPaymentModal]   = useState(null)   // { ia, partyName }
+  const [letterModal,    setLetterModal]    = useState(null)   // { apport, invoice, pa, ia, orgName }
+  const [overrideModal,  setOverrideModal]  = useState(null)   // { ia, partyName }
   const [generatingAll, setGeneratingAll] = useState(false)
   const [sendingReminder, setSendingReminder] = useState(new Set()) // set of ia.ids
 
@@ -179,6 +356,7 @@ export default function Apportionment() {
               id, days_on_risk, total_days, percentage, amount,
               payment_status, amount_paid, payment_date, demanded_at, payment_notes,
               insurer_policy_period_id,
+              override_pct, override_reason, override_set_by, override_set_at,
               insurers:la_insurers(name, policy_number),
               insurer_policy_periods:la_insurer_policy_periods(policy_start, policy_end, policy_limit, deductible, claim_number, claims_rep_name, claims_rep_email, billing_address)
             )
@@ -714,14 +892,30 @@ export default function Apportionment() {
                             <td className="py-3 text-right text-slate-600">{ia.days_on_risk} / {ia.total_days}</td>
                           )}
                           <td className="py-3 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <div className="w-14 bg-slate-100 rounded-full h-1.5 print:hidden">
-                                <div className="bg-brand-600 h-1.5 rounded-full" style={{ width: `${Math.min(ia.percentage, 100)}%` }} />
+                            {ia.override_pct != null ? (
+                              <div className="flex flex-col items-end gap-1">
+                                <div className="flex items-center gap-1.5">
+                                  <Lock className="h-3 w-3 text-amber-500 print:hidden" />
+                                  <span className="font-bold text-amber-700">{formatPercent(ia.override_pct)}</span>
+                                </div>
+                                <span className="text-xs text-slate-400 line-through">{formatPercent(ia.percentage)}</span>
+                                <span className="text-xs font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded print:hidden">agreed</span>
                               </div>
-                              <span className="font-bold text-brand-700">{formatPercent(ia.percentage)}</span>
-                            </div>
+                            ) : (
+                              <div className="flex items-center justify-end gap-2">
+                                <div className="w-14 bg-slate-100 rounded-full h-1.5 print:hidden">
+                                  <div className="bg-brand-600 h-1.5 rounded-full" style={{ width: `${Math.min(ia.percentage, 100)}%` }} />
+                                </div>
+                                <span className="font-bold text-brand-700">{formatPercent(ia.percentage)}</span>
+                              </div>
+                            )}
                           </td>
-                          <td className="py-3 text-right font-bold text-slate-900">{formatCurrency(ia.amount)}</td>
+                          <td className="py-3 text-right font-bold text-slate-900">
+                            {ia.override_pct != null
+                              ? formatCurrency((ia.override_pct / 100) * (apport?.invoices?.total_amount || 0))
+                              : formatCurrency(ia.amount)
+                            }
+                          </td>
                           <td className="py-3 text-right">
                             {pp?.policy_limit ? (() => {
                               const limit      = Number(pp.policy_limit)
@@ -777,6 +971,17 @@ export default function Apportionment() {
                           <td className="py-3 text-center print:hidden">
                             <div className="flex flex-col items-center gap-1.5">
                               <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => setOverrideModal({ ia, partyName: pa.parties?.name })}
+                                  title={ia.override_pct != null ? `Override active: ${ia.override_pct?.toFixed(2)}% agreed — click to edit` : 'Set custom percentage override'}
+                                  className={`p-1.5 rounded-lg transition-colors ${
+                                    ia.override_pct != null
+                                      ? 'text-amber-500 hover:text-amber-700 hover:bg-amber-50'
+                                      : 'text-slate-300 hover:text-slate-500 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {ia.override_pct != null ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
+                                </button>
                                 <button
                                   onClick={() => openLetterModal(pa, ia)}
                                   title="Generate demand letter"
@@ -1027,6 +1232,18 @@ export default function Apportionment() {
           data={letterModal}
           onClose={() => setLetterModal(null)}
           onDemanded={() => qc.invalidateQueries({ queryKey: ['apportionment', apportionmentId] })}
+        />
+      )}
+
+      {/* Override modal */}
+      {overrideModal && (
+        <OverrideModal
+          ia={overrideModal.ia}
+          partyName={overrideModal.partyName}
+          invoiceTotal={apport?.invoices?.total_amount || 0}
+          matterId={matterId}
+          onClose={() => setOverrideModal(null)}
+          onSaved={() => qc.invalidateQueries({ queryKey: ['apportionment', apportionmentId] })}
         />
       )}
     </div>
