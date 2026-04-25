@@ -295,7 +295,7 @@ export default function Apportionment() {
         .select('insurer_policy_period_id, amount')
         .in('apportionment_id', apptIds)
 
-      const map: Record<string, number> = {}
+      const map = {}
       for (const r of iaRows ?? []) {
         if (r.insurer_policy_period_id) {
           map[r.insurer_policy_period_id] = (map[r.insurer_policy_period_id] || 0) + (Number(r.amount) || 0)
@@ -320,7 +320,7 @@ export default function Apportionment() {
   })
 
   const alertedThresholds = useMemo(() => {
-    const map: Record<string, Set<number>> = {}
+    const map = {}
     for (const a of limitAlerts) {
       if (!map[a.policy_period_id]) map[a.policy_period_id] = new Set()
       map[a.policy_period_id].add(a.threshold)

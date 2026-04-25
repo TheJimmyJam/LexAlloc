@@ -64,7 +64,7 @@ export default function TwoFactorChallenge() {
       await refreshMfaLevel()
       toast.success('Verified!')
       // Redirect to where user was headed, or dashboard
-      const from = (location.state as any)?.from ?? '/dashboard'
+      const from = location.state?.from ?? '/dashboard'
       navigate(from, { replace: true })
     } finally {
       setVerifying(false)

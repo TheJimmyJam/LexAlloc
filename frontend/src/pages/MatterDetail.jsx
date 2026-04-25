@@ -928,7 +928,7 @@ export default function MatterDetail() {
 
   // Map: policy_period_id → Set of alerted thresholds
   const alertedThresholds = useMemo(() => {
-    const map: Record<string, Set<number>> = {}
+    const map = {}
     for (const a of limitAlerts) {
       if (!map[a.policy_period_id]) map[a.policy_period_id] = new Set()
       map[a.policy_period_id].add(a.threshold)
@@ -966,7 +966,7 @@ export default function MatterDetail() {
         toast.success('All limits checked — no new thresholds crossed')
       }
       refetchLimitAlerts()
-    } catch (err: any) {
+    } catch (err) {
       toast.error('Check failed: ' + (err.message || 'Unknown error'))
     } finally {
       setCheckingLimits(false)
@@ -1132,10 +1132,10 @@ export default function MatterDetail() {
 
   // Cumulative obligated amount keyed by policy_period_id (more precise — each period has its own limit)
   const obligatedByPeriodId = useMemo(() => {
-    const map: Record<string, number> = {}
-    ;(financialRows || []).forEach((appt: any) => {
-      ;(appt.party_apportionments || []).forEach((pa: any) => {
-        ;(pa.insurer_apportionments || []).forEach((ia: any) => {
+    const map = {}
+    ;(financialRows || []).forEach((appt) => {
+      ;(appt.party_apportionments || []).forEach((pa) => {
+        ;(pa.insurer_apportionments || []).forEach((ia) => {
           const key = ia.insurer_policy_period_id
           if (key) map[key] = (map[key] || 0) + (Number(ia.amount) || 0)
         })
