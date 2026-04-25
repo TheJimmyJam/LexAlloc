@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw, CreditCard, Zap, Star, Building, ChevronRight, Loader2, Key, Copy, Eye, EyeOff, Code, Terminal } from 'lucide-react'
+import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw, CreditCard, Zap, Star, Building, ChevronRight, Loader2, Key, Copy, Eye, EyeOff, Code, Terminal, Palette, Globe, Image } from 'lucide-react'
+import { applyPalette } from '../context/BrandingContext.jsx'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
@@ -14,6 +15,7 @@ const TABS = [
   { key: 'integrations', label: 'Integrations',  icon: Plug       },
   { key: 'billing',      label: 'Billing',        icon: CreditCard },
   { key: 'api',          label: 'API',            icon: Key        },
+  { key: 'branding',     label: 'Branding',       icon: Palette    },
 ]
 
 // ── QBO / Clio OAuth URLs (client_id goes in frontend — it's not a secret) ───
@@ -637,6 +639,64 @@ export default function AdminPanel() {
     await navigator.clipboard.writeText(text)
     setCopiedKey(true)
     setTimeout(() => setCopiedKey(false), 2000)
+  }
+
+  // ── Branding ──────────────────────────────────────────────────────────────
+  const [brandForm, setBrandForm] = useState({
+    brand_name:          '',
+    brand_logo_url:      '',
+    brand_favicon_url:   '',
+    brand_primary_color: '',
+    brand_support_email: '',
+    custom_domain:       '',
+  })
+  const [savingBrand, setSavingBrand] = useState(false)
+  const [colorPreviewErr, setColorPreviewErr] = useState(false)
+
+  useQuery({
+    queryKey: ['org-branding', profile?.org_id],
+    enabled:  !!profile?.org_id && tab === 'branding',
+    queryFn:  async () => {
+      const { data } = await supabase
+        .from('la_organizations')
+        .select('brand_name,brand_logo_url,brand_favicon_url,brand_primary_color,brand_support_email,custom_domain')
+        .eq('id', profile.org_id)
+        .single()
+      if (data) {
+        setBrandForm({
+          brand_name:          data.brand_name          || '',
+          brand_logo_url:      data.brand_logo_url      || '',
+          brand_favicon_url:   data.brand_favicon_url   || '',
+          brand_primary_color: data.brand_primary_color || '',
+          brand_support_email: data.brand_support_email || '',
+          custom_domain:       data.custom_domain       || '',
+        })
+      }
+      return data
+    },
+  })
+
+  const saveBranding = async () => {
+    setSavingBrand(true)
+    const patch = {
+      brand_name:          brandForm.brand_name          || null,
+      brand_logo_url:      brandForm.brand_logo_url      || null,
+      brand_favicon_url:   brandForm.brand_favicon_url   || null,
+      brand_primary_color: /^#[0-9a-fA-F]{6}$/.test(brandForm.brand_primary_color)
+                             ? brandForm.brand_primary_color : null,
+      brand_support_email: brandForm.brand_support_email || null,
+      custom_domain:       brandForm.custom_domain       || null,
+    }
+    const { error } = await supabase
+      .from('la_organizations')
+      .update(patch)
+      .eq('id', profile.org_id)
+    setSavingBrand(false)
+    if (error) { toast.error(error.message); return }
+    // Apply color live so the admin can see the effect immediately
+    if (patch.brand_primary_color) applyPalette(patch.brand_primary_color)
+    toast.success('Branding saved')
+    qc.invalidateQueries({ queryKey: ['org-branding', profile.org_id] })
   }
 
   const disconnectProvider = async (provider) => {
@@ -1518,6 +1578,187 @@ export default function AdminPanel() {
                 <pre className="bg-slate-900 text-green-400 rounded-lg p-3 text-xs overflow-x-auto font-mono whitespace-pre">{`curl -H "Authorization: Bearer lx_live_..." \\
   "${import.meta.env.VITE_API_URL || 'https://your-app.railway.app'}/v1/apportionments/YOUR_ID"`}</pre>
               </div>
+            </div>
+          </details>
+        </div>
+      )}
+
+      {/* ── Branding Tab ── */}
+      {tab === 'branding' && (
+        <div className="max-w-2xl space-y-6">
+          <div>
+            <h2 className="font-semibold text-slate-900">White-Label Branding</h2>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Customize how LexAlloc looks for your organization. Changes apply immediately after saving.
+              On a custom domain, the login page picks up your branding before users sign in.
+            </p>
+          </div>
+
+          <div className="card p-6 space-y-5">
+            {/* Brand name */}
+            <div>
+              <label className="form-label">Brand / App Name</label>
+              <input
+                className="form-input"
+                placeholder="BigLaw Apportionment"
+                value={brandForm.brand_name}
+                onChange={e => setBrandForm(f => ({ ...f, brand_name: e.target.value }))}
+              />
+              <p className="text-xs text-slate-400 mt-1">Replaces "LexAlloc" in the sidebar and login page.</p>
+            </div>
+
+            {/* Logo URL */}
+            <div>
+              <label className="form-label">Logo URL</label>
+              <input
+                className="form-input"
+                placeholder="https://cdn.yourfirm.com/logo.svg"
+                value={brandForm.brand_logo_url}
+                onChange={e => setBrandForm(f => ({ ...f, brand_logo_url: e.target.value }))}
+              />
+              {brandForm.brand_logo_url && (
+                <div className="mt-2 p-3 bg-slate-900 rounded-lg inline-block">
+                  <img
+                    src={brandForm.brand_logo_url}
+                    alt="Logo preview"
+                    className="h-12 w-auto max-w-xs"
+                    onError={e => { e.target.style.display = 'none' }}
+                    onLoad={e  => { e.target.style.display = 'block' }}
+                  />
+                </div>
+              )}
+              <p className="text-xs text-slate-400 mt-1">Shown in the sidebar and on the login page. SVG or PNG recommended.</p>
+            </div>
+
+            {/* Favicon URL */}
+            <div>
+              <label className="form-label">Favicon URL</label>
+              <input
+                className="form-input"
+                placeholder="https://cdn.yourfirm.com/favicon.ico"
+                value={brandForm.brand_favicon_url}
+                onChange={e => setBrandForm(f => ({ ...f, brand_favicon_url: e.target.value }))}
+              />
+              <p className="text-xs text-slate-400 mt-1">Browser tab icon. 32×32 or 64×64 PNG/ICO works best.</p>
+            </div>
+
+            {/* Primary color */}
+            <div>
+              <label className="form-label">Brand Color</label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  className="h-10 w-16 rounded cursor-pointer border border-slate-200 p-0.5"
+                  value={/^#[0-9a-fA-F]{6}$/.test(brandForm.brand_primary_color) ? brandForm.brand_primary_color : '#4f46e5'}
+                  onChange={e => {
+                    setBrandForm(f => ({ ...f, brand_primary_color: e.target.value }))
+                    setColorPreviewErr(false)
+                  }}
+                />
+                <input
+                  className="form-input font-mono flex-1"
+                  placeholder="#4f46e5"
+                  value={brandForm.brand_primary_color}
+                  onChange={e => {
+                    const v = e.target.value
+                    setBrandForm(f => ({ ...f, brand_primary_color: v }))
+                    setColorPreviewErr(false)
+                    if (/^#[0-9a-fA-F]{6}$/.test(v)) applyPalette(v)
+                  }}
+                />
+                {brandForm.brand_primary_color && (
+                  <div
+                    className="w-10 h-10 rounded-lg border border-slate-200 flex-shrink-0"
+                    style={{ backgroundColor: /^#[0-9a-fA-F]{6}$/.test(brandForm.brand_primary_color) ? brandForm.brand_primary_color : 'transparent' }}
+                  />
+                )}
+              </div>
+              <p className="text-xs text-slate-400 mt-1">6-digit hex, e.g. <code>#1e40af</code>. Updates buttons and accents across the app.</p>
+              {colorPreviewErr && <p className="text-xs text-red-500 mt-1">Enter a valid hex color (#rrggbb)</p>}
+            </div>
+
+            {/* Support email */}
+            <div>
+              <label className="form-label">Support Email</label>
+              <input
+                type="email"
+                className="form-input"
+                placeholder="support@yourfirm.com"
+                value={brandForm.brand_support_email}
+                onChange={e => setBrandForm(f => ({ ...f, brand_support_email: e.target.value }))}
+              />
+              <p className="text-xs text-slate-400 mt-1">Shown on the login page so users know who to contact.</p>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100">
+              <button
+                onClick={saveBranding}
+                disabled={savingBrand}
+                className="btn-primary flex items-center gap-2"
+              >
+                {savingBrand ? <Loader2 className="h-4 w-4 animate-spin" /> : <Palette className="h-4 w-4" />}
+                {savingBrand ? 'Saving…' : 'Save Branding'}
+              </button>
+            </div>
+          </div>
+
+          {/* Custom domain section */}
+          <div className="card p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Globe className="h-4 w-4 text-slate-400" />
+              <h3 className="font-semibold text-slate-900">Custom Domain</h3>
+              <span className="badge bg-purple-100 text-purple-700 text-xs">Enterprise</span>
+            </div>
+            <p className="text-sm text-slate-500">
+              Run LexAlloc under your own domain (e.g. <code className="bg-slate-100 px-1 rounded text-slate-700">apportionment.biglaw.com</code>).
+              Your branding will load on the login page before users authenticate.
+            </p>
+
+            <div>
+              <label className="form-label">Custom Domain</label>
+              <input
+                className="form-input font-mono"
+                placeholder="apportionment.yourfirm.com"
+                value={brandForm.custom_domain}
+                onChange={e => setBrandForm(f => ({ ...f, custom_domain: e.target.value.toLowerCase().trim() }))}
+              />
+            </div>
+
+            <div className="pt-2 border-t border-slate-100">
+              <button
+                onClick={saveBranding}
+                disabled={savingBrand}
+                className="btn-primary flex items-center gap-2"
+              >
+                {savingBrand ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
+                {savingBrand ? 'Saving…' : 'Save Domain'}
+              </button>
+            </div>
+          </div>
+
+          {/* DNS setup guide */}
+          <details className="card p-5 text-sm">
+            <summary className="cursor-pointer font-medium text-slate-700 flex items-center gap-2 select-none">
+              <Settings2 className="h-4 w-4 text-slate-400" />
+              DNS setup instructions
+            </summary>
+            <div className="mt-4 space-y-4 text-slate-600">
+              <p>
+                To point your custom domain to LexAlloc, add a <strong>CNAME</strong> record in your DNS provider:
+              </p>
+              <div className="bg-slate-900 text-green-400 rounded-lg p-4 font-mono text-xs space-y-1">
+                <p><span className="text-slate-400">Type:</span>  CNAME</p>
+                <p><span className="text-slate-400">Name:</span>  apportionment <span className="text-slate-500">(or your subdomain)</span></p>
+                <p><span className="text-slate-400">Value:</span> {window.location.hostname.includes('netlify') ? window.location.hostname : 'your-site.netlify.app'}</p>
+                <p><span className="text-slate-400">TTL:</span>   3600</p>
+              </div>
+              <p className="text-xs text-slate-400">
+                After DNS propagates (up to 48 hours), add the domain in your Netlify site settings under <strong>Domain management → Add custom domain</strong>.
+                Netlify will provision an SSL certificate automatically.
+              </p>
+              <p className="text-xs text-slate-400">
+                Once the domain is live, enter it above and save. LexAlloc will detect the hostname and apply your branding on the login page.
+              </p>
             </div>
           </details>
         </div>
