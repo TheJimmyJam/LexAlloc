@@ -10,11 +10,215 @@ import {
   Users, Shield, Calculator, ChevronRight, Edit2, Check, TrendingUp, AlertTriangle,
   Paperclip, Download, ExternalLink, LayoutTemplate, Copy
 } from 'lucide-react'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, differenceInCalendarDays, addDays, startOfYear, addYears } from 'date-fns'
 import toast from 'react-hot-toast'
 import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
 import DocumentUploadModal, { DOC_TYPES } from '../components/DocumentUploadModal.jsx'
 import { UseTemplateModal } from './Matters.jsx'
+
+// ── Policy Timeline ───────────────────────────────────────────────────────────
+const TIMELINE_COLORS = [
+  { bar: '#6366f1', bg: 'bg-indigo-500',  light: '#eef2ff', border: '#a5b4fc', text: 'text-indigo-700' },
+  { bar: '#0ea5e9', bg: 'bg-sky-500',     light: '#f0f9ff', border: '#7dd3fc', text: 'text-sky-700'    },
+  { bar: '#10b981', bg: 'bg-emerald-500', light: '#ecfdf5', border: '#6ee7b7', text: 'text-emerald-700'},
+  { bar: '#f59e0b', bg: 'bg-amber-500',   light: '#fffbeb', border: '#fcd34d', text: 'text-amber-700'  },
+  { bar: '#f43f5e', bg: 'bg-rose-500',    light: '#fff1f2', border: '#fda4af', text: 'text-rose-700'   },
+  { bar: '#a855f7', bg: 'bg-purple-500',  light: '#faf5ff', border: '#d8b4fe', text: 'text-purple-700' },
+]
+
+function PolicyTimeline({ insurerPeriods, invoices, parties }) {
+  const [hoveredId, setHoveredId] = useState(null)
+
+  // Skip rows missing dates (template periods with no dates)
+  const rows = insurerPeriods.filter(pp => pp.policy_start && pp.policy_end)
+  if (rows.length === 0) return null
+
+  // Build party → color index map
+  const partyColorMap = {}
+  ;(parties || []).forEach((p, i) => { partyColorMap[p.id] = TIMELINE_COLORS[i % TIMELINE_COLORS.length] })
+
+  // Invoice service windows (deduplicated, sorted)
+  const serviceWindows = invoices
+    .filter(inv => inv.service_start)
+    .map(inv => ({
+      label: inv.invoice_number ? `#${inv.invoice_number}` : 'Invoice',
+      start: parseISO(inv.service_start),
+      end:   parseISO(inv.service_end || inv.service_start),
+    }))
+    .sort((a, b) => a.start - b.start)
+
+  // Overall date range
+  const allStarts = rows.map(pp => parseISO(pp.policy_start))
+  const allEnds   = rows.map(pp => parseISO(pp.policy_end))
+  serviceWindows.forEach(w => { allStarts.push(w.start); allEnds.push(w.end) })
+  const today = new Date()
+  allEnds.push(today)
+
+  const rangeMin = new Date(Math.min(...allStarts))
+  const rangeMax = new Date(Math.max(...allEnds))
+  // Add a small buffer on each side
+  const bufferDays  = Math.max(30, differenceInCalendarDays(rangeMax, rangeMin) * 0.03)
+  const chartStart  = addDays(rangeMin, -bufferDays)
+  const chartEnd    = addDays(rangeMax,  bufferDays)
+  const totalDays   = differenceInCalendarDays(chartEnd, chartStart) || 1
+
+  const toPct = (date) => (differenceInCalendarDays(date, chartStart) / totalDays) * 100
+
+  // Year tick marks
+  const ticks = []
+  let tick = startOfYear(addYears(chartStart, 1))
+  while (tick < chartEnd) {
+    ticks.push(tick)
+    tick = addYears(tick, 1)
+  }
+
+  const todayPct  = Math.min(Math.max(toPct(today), 0), 100)
+  const LABEL_W   = 160  // px, fixed label column
+
+  return (
+    <div className="card p-5 mb-6">
+      <div className="flex items-start justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h3 className="font-semibold text-slate-900">Policy Timeline</h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Policy periods per carrier — shaded bands show invoice service windows
+          </p>
+        </div>
+        {/* Party color legend */}
+        <div className="flex flex-wrap gap-3">
+          {(parties || []).filter(p => rows.some(pp => pp.party_id === p.id)).map((p, i) => {
+            const color = TIMELINE_COLORS[i % TIMELINE_COLORS.length]
+            return (
+              <div key={p.id} className="flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: color.bar }} />
+                <span className="text-xs text-slate-600">{p.name}</span>
+              </div>
+            )
+          })}
+          {serviceWindows.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-sm flex-shrink-0 bg-amber-300/60 border border-amber-400" />
+              <span className="text-xs text-slate-600">Service period</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Chart area */}
+      <div className="overflow-x-auto">
+        <div style={{ minWidth: 600 }}>
+          {/* Row area */}
+          <div className="flex flex-col gap-2">
+            {rows.map((pp) => {
+              const color    = partyColorMap[pp.party_id] || TIMELINE_COLORS[0]
+              const start    = parseISO(pp.policy_start)
+              const end      = parseISO(pp.policy_end)
+              const leftPct  = Math.max(toPct(start), 0)
+              const rightPct = Math.min(toPct(end), 100)
+              const widthPct = Math.max(rightPct - leftPct, 0.3)
+
+              // Is this period triggered by any invoice service window?
+              const triggered = serviceWindows.some(w => start <= w.end && end >= w.start)
+              const isHovered = hoveredId === pp.id
+
+              return (
+                <div key={pp.id} className="flex items-center gap-3">
+                  {/* Label */}
+                  <div style={{ width: LABEL_W, minWidth: LABEL_W }} className="text-right pr-2 flex-shrink-0">
+                    <p className="text-xs font-medium text-slate-700 truncate">{pp.insurers?.name}</p>
+                    <p className="text-xs text-slate-400 truncate">{pp.parties?.name}</p>
+                  </div>
+
+                  {/* Bar track */}
+                  <div className="flex-1 relative h-9 rounded-lg bg-slate-100 overflow-visible">
+                    {/* Invoice service window overlays */}
+                    {serviceWindows.map((w, wi) => {
+                      const wLeft  = Math.max(toPct(w.start), 0)
+                      const wRight = Math.min(toPct(w.end), 100)
+                      const wWidth = Math.max(wRight - wLeft, 0.2)
+                      return (
+                        <div
+                          key={wi}
+                          className="absolute inset-y-0 rounded pointer-events-none"
+                          style={{ left: `${wLeft}%`, width: `${wWidth}%`, backgroundColor: 'rgba(251,191,36,0.18)', borderLeft: '1.5px solid rgba(217,119,6,0.4)', borderRight: '1.5px solid rgba(217,119,6,0.4)' }}
+                          title={`${w.label} service period`}
+                        />
+                      )
+                    })}
+
+                    {/* Policy bar */}
+                    <div
+                      className="absolute inset-y-1 rounded cursor-pointer transition-all"
+                      style={{
+                        left:            `${leftPct}%`,
+                        width:           `${widthPct}%`,
+                        backgroundColor: isHovered ? color.bar : color.bar + 'cc',
+                        boxShadow:       isHovered ? `0 0 0 2px white, 0 0 0 3px ${color.bar}` : undefined,
+                      }}
+                      onMouseEnter={() => setHoveredId(pp.id)}
+                      onMouseLeave={() => setHoveredId(null)}
+                      title={`${pp.insurers?.name}\n${format(start, 'MM/dd/yyyy')} – ${format(end, 'MM/dd/yyyy')}\n${differenceInCalendarDays(end, start)} days`}
+                    >
+                      {/* Triggered badge */}
+                      {triggered && widthPct > 8 && (
+                        <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-white text-xs font-semibold opacity-80">
+                          ✓
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Today line */}
+                    {todayPct > 0 && todayPct < 100 && (
+                      <div
+                        className="absolute inset-y-0 w-px bg-red-400 pointer-events-none z-10"
+                        style={{ left: `${todayPct}%` }}
+                      />
+                    )}
+                  </div>
+
+                  {/* Duration label */}
+                  <div style={{ width: 80, minWidth: 80 }} className="text-xs text-slate-400 flex-shrink-0">
+                    {differenceInCalendarDays(end, start)}d
+                    {triggered && <span className="ml-1 text-green-600 font-semibold">triggered</span>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* X-axis */}
+          <div className="flex items-start mt-2" style={{ paddingLeft: LABEL_W + 12 }}>
+            <div className="flex-1 relative h-5">
+              {/* Start / end labels */}
+              <span className="absolute left-0 text-xs text-slate-400">{format(chartStart, 'MM/yyyy')}</span>
+              <span className="absolute right-0 text-xs text-slate-400 text-right">{format(chartEnd, 'MM/yyyy')}</span>
+              {/* Year ticks */}
+              {ticks.map((t, i) => (
+                <span
+                  key={i}
+                  className="absolute text-xs text-slate-400 -translate-x-1/2"
+                  style={{ left: `${toPct(t)}%` }}
+                >
+                  {format(t, 'yyyy')}
+                </span>
+              ))}
+              {/* Today label */}
+              {todayPct > 5 && todayPct < 95 && (
+                <span
+                  className="absolute text-xs text-red-400 font-medium -translate-x-1/2"
+                  style={{ left: `${todayPct}%`, top: 0 }}
+                >
+                  today
+                </span>
+              )}
+            </div>
+            <div style={{ width: 80 }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 const ALL_TABS = [
@@ -1243,6 +1447,8 @@ export default function MatterDetail() {
               <Plus className="h-4 w-4" /> Add Insurer
             </button>
           </div>
+
+          <PolicyTimeline insurerPeriods={insurerPeriods} invoices={invoices} parties={parties} />
           {parties.length === 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4 text-amber-700 text-sm">
               Add parties first before adding insurers.
