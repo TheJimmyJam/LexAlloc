@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, CheckCircle2, Lock } from 'lucide-react'
+import { Eye, EyeOff, CheckCircle2, Lock, AlertCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useBranding } from '../context/BrandingContext.jsx'
 import toast from 'react-hot-toast'
@@ -18,6 +18,7 @@ export default function SetPassword() {
   const [submitting,  setSubmitting]  = useState(false)
   const [done,        setDone]        = useState(false)
   const [sessionReady, setSessionReady] = useState(false)
+  const [linkExpired,  setLinkExpired]  = useState(false)
 
   // Supabase embeds the invite tokens in the URL hash.
   // The JS client picks them up automatically via onAuthStateChange.
@@ -33,7 +34,19 @@ export default function SetPassword() {
       if (session) setSessionReady(true)
     })
 
-    return () => subscription.unsubscribe()
+    // If no session after 6 seconds, the link is expired or already used
+    const timeout = setTimeout(() => {
+      setLinkExpired(prev => {
+        // Only expire if session still not ready
+        if (!sessionReady) return true
+        return prev
+      })
+    }, 6000)
+
+    return () => {
+      subscription.unsubscribe()
+      clearTimeout(timeout)
+    }
   }, [])
 
   const handleSubmit = async (e) => {
@@ -60,6 +73,30 @@ export default function SetPassword() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  if (linkExpired && !sessionReady) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-brand-900 to-slate-900 flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          <div className="bg-white rounded-2xl p-8 shadow-2xl text-center space-y-4">
+            <div className="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center mx-auto">
+              <AlertCircle className="h-7 w-7 text-amber-600" />
+            </div>
+            <h2 className="text-xl font-semibold text-slate-900">Invitation link expired</h2>
+            <p className="text-slate-500 text-sm">
+              This invite link has already been used or has expired. Please ask your administrator to send a new invitation.
+            </p>
+            <button
+              onClick={() => navigate('/login')}
+              className="btn-primary w-full justify-center mt-2"
+            >
+              Back to Sign In
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (done) {
