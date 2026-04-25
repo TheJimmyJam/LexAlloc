@@ -374,21 +374,21 @@ export default function Matters() {
       </div>
 
       {/* Search + Filter (matters only) */}
-      <div className="flex items-center gap-3 mb-6 flex-wrap">
-        <div className="relative">
+      <div className="flex flex-wrap items-center gap-3 mb-6">
+        <div className="relative flex-1 min-w-0">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
           <input
-            className="form-input pl-9 w-64"
+            className="form-input pl-9 w-full"
             placeholder={view === 'templates' ? 'Search templates…' : 'Search matters…'}
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
         </div>
         {view === 'matters' && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <Filter className="h-4 w-4 text-slate-400" />
             <select
-              className="form-input py-2 text-sm w-36"
+              className="form-input py-2 text-sm"
               value={statusFilter}
               onChange={e => setStatusFilter(e.target.value)}
             >
@@ -438,12 +438,13 @@ export default function Matters() {
           </div>
         ) : view === 'templates' ? (
           /* ── Templates Table ── */
+          <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-100 bg-violet-50">
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Template Name</th>
-                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Parties</th>
-                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Created</th>
+                <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Parties</th>
+                <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Created</th>
                 <th />
               </tr>
             </thead>
@@ -463,8 +464,8 @@ export default function Matters() {
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-4 text-sm text-slate-500">{t.la_parties?.[0]?.count ?? 0}</td>
-                  <td className="px-4 py-4 text-sm text-slate-400">{format(parseISO(t.created_at), 'MMM d, yyyy')}</td>
+                  <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-500">{t.la_parties?.[0]?.count ?? 0}</td>
+                  <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-400">{format(parseISO(t.created_at), 'MMM d, yyyy')}</td>
                   <td className="px-4 py-4" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center gap-2 justify-end">
                       <button
@@ -488,17 +489,19 @@ export default function Matters() {
               ))}
             </tbody>
           </table>
+          </div>
         ) : (
           /* ── Matters Table ── */
+          <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Matter</th>
-                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Number</th>
-                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Parties</th>
-                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Invoices</th>
+                <th className="hidden md:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Number</th>
+                <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Parties</th>
+                <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Invoices</th>
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Status</th>
-                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Created</th>
+                <th className="hidden md:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Created</th>
                 <th />
               </tr>
             </thead>
@@ -513,9 +516,9 @@ export default function Matters() {
                     <p className="font-medium text-slate-800">{m.name}</p>
                     {m.description && <p className="text-xs text-slate-400 mt-0.5 truncate max-w-xs">{m.description}</p>}
                   </td>
-                  <td className="px-4 py-4 text-sm text-slate-500">{m.matter_number || '—'}</td>
-                  <td className="px-4 py-4 text-sm text-slate-500">{m.la_parties?.[0]?.count ?? 0}</td>
-                  <td className="px-4 py-4 text-sm text-slate-500">{m.la_invoices?.[0]?.count ?? 0}</td>
+                  <td className="hidden md:table-cell px-4 py-4 text-sm text-slate-500">{m.matter_number || '—'}</td>
+                  <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-500">{m.la_parties?.[0]?.count ?? 0}</td>
+                  <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-500">{m.la_invoices?.[0]?.count ?? 0}</td>
                   <td className="px-4 py-4" onClick={e => e.stopPropagation()}>
                     <select
                       value={m.status}
@@ -527,12 +530,12 @@ export default function Matters() {
                       <option value="closed">closed</option>
                     </select>
                   </td>
-                  <td className="px-4 py-4 text-sm text-slate-400">{format(parseISO(m.created_at), 'MMM d, yyyy')}</td>
+                  <td className="hidden md:table-cell px-4 py-4 text-sm text-slate-400">{format(parseISO(m.created_at), 'MMM d, yyyy')}</td>
                   <td className="px-4 py-4" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center gap-2 justify-end">
                       <button
                         onClick={() => setUploadMatterId(m.id)}
-                        className="flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-800 bg-brand-50 hover:bg-brand-100 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+                        className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-800 bg-brand-50 hover:bg-brand-100 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap"
                         title="Upload invoice for this matter"
                       >
                         <Upload className="h-3.5 w-3.5" />
@@ -545,6 +548,7 @@ export default function Matters() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
