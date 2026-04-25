@@ -217,6 +217,8 @@ export default function Landing() {
           <img src="/logo-icon.png" alt="LexAlloc" className="rounded-full" style={{ width: '36px', height: '36px', objectFit: 'cover' }} />
           <p className="text-slate-500 text-sm">© {new Date().getFullYear()} LexAlloc. Built for legal professionals.</p>
           <div className="flex items-center gap-4 text-sm">
+            <Link to="/privacy" className="text-slate-400 hover:text-white transition-colors">Privacy Policy</Link>
+            <Link to="/terms" className="text-slate-400 hover:text-white transition-colors">Terms</Link>
             <Link to="/login" className="text-slate-400 hover:text-white transition-colors">Log In</Link>
             <Link to="/register" className="text-slate-400 hover:text-white transition-colors">Sign Up</Link>
           </div>
