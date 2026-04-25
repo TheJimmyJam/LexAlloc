@@ -10,7 +10,7 @@ import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users,
 import { format, parseISO, differenceInCalendarDays } from 'date-fns'
 import { useState, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
-import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
+// recharts removed — replaced by custom SankeyDiagram
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
 import { logAudit } from '../lib/audit.js'
@@ -330,6 +330,140 @@ function OverrideModal({ ia, partyName, invoiceTotal, matterId, onClose, onSaved
   )
 }
 
+// ── Sankey Flow Diagram ───────────────────────────────────────────────────────
+function SankeyDiagram({ partyApps, totalAmount }) {
+  const W = 720, H = 390, nodeW = 18, vGap = 10, padY = 44, padBottom = 20
+  const usableH = H - padY - padBottom
+
+  // Build a stable carrier → color map (first-seen order)
+  const carrierColors = useMemo(() => {
+    const map = {}
+    let ci = 0
+    partyApps.forEach(pa =>
+      (pa.insurer_apportionments || []).forEach(ia => {
+        const n = ia.insurers?.name
+        if (n && !map[n]) map[n] = COLORS[ci++ % COLORS.length]
+      })
+    )
+    return map
+  }, [partyApps])
+
+  const total = totalAmount || 1
+  const c0x = 20, c1x = 240, c2x = 480
+
+  // Invoice node — full usable height
+  const inv = { x: c0x, y: padY, h: usableH }
+
+  // Party nodes — heights proportional to amount, with gaps between
+  const partyGaps = Math.max(0, partyApps.length - 1) * vGap
+  const partyScale = (usableH - partyGaps) / total
+  const partyNodes = []
+  let pCur = padY
+  partyApps.forEach((pa, i) => {
+    const h = Math.max(6, pa.amount * partyScale)
+    partyNodes.push({ x: c1x, y: pCur, h, color: COLORS[i % COLORS.length], pa })
+    pCur += h + vGap
+  })
+
+  // Insurer nodes — flat list, heights proportional to amount
+  const flatIns = partyApps.flatMap((pa, pi) =>
+    (pa.insurer_apportionments || []).map(ia => ({ ia, pi, pa }))
+  )
+  const insGaps = Math.max(0, flatIns.length - 1) * vGap
+  const insScale = flatIns.length ? (usableH - insGaps) / total : 1
+  const insNodes = []
+  let iCur = padY
+  flatIns.forEach(({ ia, pi }) => {
+    const h = Math.max(6, ia.amount * insScale)
+    insNodes.push({
+      x: c2x, y: iCur, h,
+      color: carrierColors[ia.insurers?.name] || COLORS[pi % COLORS.length],
+      ia, pi,
+    })
+    iCur += h + vGap
+  })
+
+  // Links: Invoice → Party (source height tracks invoice node; target = party node)
+  const ipLinks = []
+  let invCur = padY
+  partyNodes.forEach((pn) => {
+    const sh = inv.h * (pn.pa.amount / total)
+    ipLinks.push({ sx: c0x + nodeW, sy: invCur, sh, tx: c1x, ty: pn.y, th: pn.h, color: pn.color })
+    invCur += sh
+  })
+
+  // Links: Party → Insurer (source height tracks party node; target = insurer node)
+  const piLinks = []
+  let insIdx = 0
+  partyNodes.forEach((pn) => {
+    let pOut = pn.y
+    ;(pn.pa.insurer_apportionments || []).forEach(ia => {
+      const iNode = insNodes[insIdx]
+      if (!iNode) return
+      const sh = pn.h * (ia.amount / (pn.pa.amount || 1))
+      piLinks.push({ sx: c1x + nodeW, sy: pOut, sh, tx: c2x, ty: iNode.y, th: iNode.h, color: iNode.color })
+      pOut += sh
+      insIdx++
+    })
+  })
+
+  // Bezier band path between two rectangular endpoints
+  const band = ({ sx, sy, sh, tx, ty, th }) => {
+    const mx = (sx + tx) / 2
+    return `M${sx},${sy} C${mx},${sy} ${mx},${ty} ${tx},${ty} L${tx},${ty + th} C${mx},${ty + th} ${mx},${sy + sh} ${sx},${sy + sh} Z`
+  }
+
+  const trunc = (s, n = 24) => !s ? '' : s.length > n ? s.slice(0, n - 1) + '…' : s
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}>
+      {/* Column headers */}
+      <text x={c0x + nodeW / 2} y={padY - 16} textAnchor="middle" fontSize={9} fill="#94a3b8" fontWeight="600" letterSpacing="0.06em">INVOICE</text>
+      <text x={c1x + nodeW / 2} y={padY - 16} textAnchor="middle" fontSize={9} fill="#94a3b8" fontWeight="600" letterSpacing="0.06em">PARTIES</text>
+      <text x={c2x + nodeW / 2} y={padY - 16} textAnchor="middle" fontSize={9} fill="#94a3b8" fontWeight="600" letterSpacing="0.06em">CARRIERS</text>
+
+      {/* Flow bands (drawn behind nodes) */}
+      {ipLinks.map((l, i) => <path key={`ip${i}`} d={band(l)} fill={l.color} opacity={0.22} />)}
+      {piLinks.map((l, i) => <path key={`pi${i}`} d={band(l)} fill={l.color} opacity={0.22} />)}
+
+      {/* Invoice node */}
+      <rect x={inv.x} y={inv.y} width={nodeW} height={inv.h} rx={4} fill="#6366f1" />
+      <text x={inv.x + nodeW + 9} y={inv.y + inv.h / 2 - 8} fontSize={11} fill="#1e293b" fontWeight="700" dominantBaseline="middle">Invoice Total</text>
+      <text x={inv.x + nodeW + 9} y={inv.y + inv.h / 2 + 8} fontSize={10} fill="#64748b" dominantBaseline="middle">{formatCurrency(total)}</text>
+
+      {/* Party nodes */}
+      {partyNodes.map((n, i) => (
+        <g key={i}>
+          <rect x={n.x} y={n.y} width={nodeW} height={n.h} rx={3} fill={n.color} />
+          {n.h >= 24 ? (
+            <>
+              <text x={n.x + nodeW + 9} y={n.y + n.h / 2 - 7} fontSize={10} fill="#1e293b" fontWeight="600" dominantBaseline="middle">{trunc(n.pa.parties?.name)}</text>
+              <text x={n.x + nodeW + 9} y={n.y + n.h / 2 + 7} fontSize={9} fill="#64748b" dominantBaseline="middle">{formatCurrency(n.pa.amount)} · {(n.pa.percentage || 0).toFixed(1)}%</text>
+            </>
+          ) : (
+            <text x={n.x + nodeW + 9} y={n.y + n.h / 2} fontSize={10} fill="#1e293b" fontWeight="600" dominantBaseline="middle">{trunc(n.pa.parties?.name)}</text>
+          )}
+        </g>
+      ))}
+
+      {/* Insurer nodes */}
+      {insNodes.map((n, i) => (
+        <g key={i}>
+          <rect x={n.x} y={n.y} width={nodeW} height={n.h} rx={3} fill={n.color} />
+          {n.h >= 24 ? (
+            <>
+              <text x={n.x + nodeW + 9} y={n.y + n.h / 2 - 7} fontSize={10} fill="#1e293b" fontWeight="600" dominantBaseline="middle">{trunc(n.ia.insurers?.name)}</text>
+              <text x={n.x + nodeW + 9} y={n.y + n.h / 2 + 7} fontSize={9} fill="#64748b" dominantBaseline="middle">{formatCurrency(n.ia.amount)}</text>
+            </>
+          ) : (
+            <text x={n.x + nodeW + 9} y={n.y + n.h / 2} fontSize={10} fill="#1e293b" fontWeight="600" dominantBaseline="middle">{trunc(n.ia.insurers?.name)}</text>
+          )}
+        </g>
+      ))}
+    </svg>
+  )
+}
+
 export default function Apportionment() {
   const { matterId, apportionmentId } = useParams()
   const qc = useQueryClient()
@@ -592,20 +726,6 @@ export default function Apportionment() {
   const allocationLabel = isTOR ? 'TOR %' : isEqual ? 'Equal Split' : 'Limit Share %'
   const sectionSuffix   = isTOR ? 'Time-on-Risk Breakdown' : isEqual ? 'Split Evenly — All Carriers Breakdown' : 'Limits-Proportional Breakdown'
 
-  // Chart data
-  const pieData = partyApps.map((pa, i) => ({
-    name:  pa.parties?.name || 'Unknown',
-    value: pa.amount,
-    color: COLORS[i % COLORS.length],
-  }))
-
-  const allInsurers = partyApps.flatMap(pa =>
-    (pa.insurer_apportionments || []).map(ia => ({
-      name:   `${pa.parties?.name} / ${ia.insurers?.name}`,
-      amount: ia.amount,
-    }))
-  )
-
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto print:p-0 print:max-w-none">
 
@@ -721,33 +841,13 @@ export default function Apportionment() {
         </div>
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 print:hidden">
-        <div className="card p-5">
-          <h3 className="font-semibold text-slate-900 mb-4">Party Apportionment</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={90}
-                dataKey="value" nameKey="name" paddingAngle={2}>
-                {pieData.map((d, i) => <Cell key={i} fill={d.color} />)}
-              </Pie>
-              <Tooltip formatter={(v) => formatCurrency(v)} />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
+      {/* Sankey Flow Diagram */}
+      <div className="card p-5 mb-6">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-semibold text-slate-900">Allocation Flow</h3>
         </div>
-        <div className="card p-5">
-          <h3 className="font-semibold text-slate-900 mb-4">Insurer Obligations</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={allInsurers} margin={{ left: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-              <YAxis tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} tick={{ fontSize: 10 }} />
-              <Tooltip formatter={(v) => formatCurrency(v)} />
-              <Bar dataKey="amount" fill="#4f46e5" radius={[4,4,0,0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        <p className="text-xs text-slate-400 mb-4">Invoice total → parties → carriers</p>
+        <SankeyDiagram partyApps={partyApps} totalAmount={invoice.total_amount} />
       </div>
 
       <div className="space-y-6">
