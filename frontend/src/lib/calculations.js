@@ -14,7 +14,10 @@ export function calcTimeOnRisk(exposureStart, exposureEnd, policyPeriods) {
 
   const results = policyPeriods.map((pp) => {
     const pStart = typeof pp.policy_start === 'string' ? parseISO(pp.policy_start) : pp.policy_start
-    const pEnd   = typeof pp.policy_end   === 'string' ? parseISO(pp.policy_end)   : pp.policy_end
+    // null/empty policy_end = policy still in effect; treat as covering through exposure end
+    const pEnd = pp.policy_end
+      ? (typeof pp.policy_end === 'string' ? parseISO(pp.policy_end) : pp.policy_end)
+      : exposureEnd
 
     // Overlap window
     const overlapStart = max([exposureStart, pStart])
