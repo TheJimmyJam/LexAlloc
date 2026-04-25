@@ -86,9 +86,10 @@ Deno.serve(async (req: Request) => {
       }],
       payment_method_types: ['card', 'us_bank_account'],
       metadata: {
-        obligation_id: obligation_id,
-        matter_id:     matterId,
-        insurer_name:  insurerName,
+        obligation_id:  obligation_id,
+        matter_id:      matterId,
+        matter_name:    matterName,
+        insurer_name:   insurerName,
         invoice_number: invoiceNumber,
       },
       success_url: `${FRONTEND_URL}/portal?payment=success&session_id={CHECKOUT_SESSION_ID}`,
