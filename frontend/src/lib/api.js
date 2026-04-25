@@ -42,6 +42,19 @@ export const api = {
       body: JSON.stringify({ email, role, org_id: orgId }),
     }),
 
+  // ── Billing ────────────────────────────────────────────────────────────────
+  getSubscription: () =>
+    request('/api/billing/subscription'),
+
+  createCheckoutSession: ({ plan, seats, interval }) =>
+    request('/api/billing/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ plan, seats, interval }),
+    }),
+
+  createPortalSession: () =>
+    request('/api/billing/portal', { method: 'POST' }),
+
   // Fire a typed notification event via Supabase Edge Function.
   // type: 'invoice_parsed' | 'apportionment_run' | 'demand_letter_generated' | 'payment_status_updated'
   sendEvent: async (type, orgId, matterId, details = {}) => {
