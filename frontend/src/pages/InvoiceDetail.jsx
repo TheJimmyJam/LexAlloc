@@ -5,7 +5,7 @@ import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { formatCurrency, apportionInvoice } from '../lib/calculations.js'
 import { ArrowLeft, Calculator, FileText, ExternalLink, Loader2, GitCompare, ChevronDown, ChevronUp, CheckCircle2, AlertCircle } from 'lucide-react'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, differenceInCalendarDays } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
 import { logAudit } from '../lib/audit.js'
@@ -142,24 +142,11 @@ export default function InvoiceDetail() {
     }
   }
 
-  // ── Date-overlap helper ───────────────────────────────────────────────────────
-  // Returns true if a party's responsible date range overlaps the invoice service period.
-  // A party with no dates set is always included.
-  const partyActiveForInvoice = (party, inv) => {
-    if (!party.responsible_start && !party.responsible_end) return true
-    if (!inv?.service_start) return true
-    const invoiceStart = new Date(inv.service_start)
-    const invoiceEnd   = new Date(inv.service_end || inv.service_start)
-    const pStart = party.responsible_start ? new Date(party.responsible_start) : null
-    const pEnd   = party.responsible_end   ? new Date(party.responsible_end)   : null
-    // Overlap: party start <= invoice end  AND  party end >= invoice start
-    if (pStart && pStart > invoiceEnd)   return false
-    if (pEnd   && pEnd   < invoiceStart) return false
-    return true
-  }
-
-  // Build parties+policies structure — filtered to parties active for this invoice's
-  // service period, with responsibility split equally among included parties.
+  // Build parties+policies structure.
+  // Party-level share = pro-rata days each party's "Dates of Service Responsible"
+  // overlaps the invoice service period. Shares are normalized to 100% across all
+  // included parties. Insurer-level allocation uses the selected calcMethod.
+  // A party with no responsible dates is treated as covering the full service period.
   const { partiesWithPolicies, excludedParties } = useMemo(() => {
     const allPolicies = (p) => insurerPeriods
       .filter(pp => pp.party_id === p.id)
@@ -171,17 +158,33 @@ export default function InvoiceDetail() {
         policy_limit: pp.policy_limit,
       }))
 
-    const included = parties.filter(p =>  partyActiveForInvoice(p, invoice))
-    const excluded = parties.filter(p => !partyActiveForInvoice(p, invoice))
+    if (!invoice?.service_start) return { partiesWithPolicies: [], excludedParties: [] }
 
-    // Equal shares among active parties
-    const equalShare = included.length > 0
-      ? parseFloat((100 / included.length).toFixed(4))
-      : 0
+    const invoiceStart     = parseISO(invoice.service_start)
+    const invoiceEnd       = invoice.service_end ? parseISO(invoice.service_end) : invoiceStart
+    const totalServiceDays = Math.max(1, differenceInCalendarDays(invoiceEnd, invoiceStart))
+
+    // Returns how many days of this party's responsible range fall inside the invoice period.
+    // No dates = responsible for the entire service period.
+    const calcOverlapDays = (party) => {
+      if (!party.responsible_start && !party.responsible_end) return totalServiceDays
+      const pStart = party.responsible_start ? parseISO(party.responsible_start) : invoiceStart
+      const pEnd   = party.responsible_end   ? parseISO(party.responsible_end)   : invoiceEnd
+      const oStart = pStart > invoiceStart ? pStart : invoiceStart
+      const oEnd   = pEnd   < invoiceEnd   ? pEnd   : invoiceEnd
+      return Math.max(0, differenceInCalendarDays(oEnd, oStart))
+    }
+
+    const withDays = parties.map(p => ({ ...p, _overlapDays: calcOverlapDays(p) }))
+    const included = withDays.filter(p => p._overlapDays > 0)
+    const excluded = withDays.filter(p => p._overlapDays === 0)
+
+    // Normalize so all included party shares sum to 100%
+    const totalOverlapDays = included.reduce((s, p) => s + p._overlapDays, 0) || 1
 
     const partiesWithPolicies = included.map(p => ({
       ...p,
-      share_percentage: equalShare,
+      share_percentage: parseFloat(((p._overlapDays / totalOverlapDays) * 100).toFixed(4)),
       policy_periods: allPolicies(p),
     }))
 
@@ -237,8 +240,8 @@ export default function InvoiceDetail() {
                 <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
                 <span>
                   <strong>{excludedParties.map(p => p.name).join(', ')}</strong>
-                  {' '}excluded — service period outside their responsible dates.
-                  Shares normalized among {partiesWithPolicies.length} included {partiesWithPolicies.length === 1 ? 'party' : 'parties'}.
+                  {' '}excluded — 0 days overlap with invoice service period.
+                  Pro-rata shares split among {partiesWithPolicies.length} active {partiesWithPolicies.length === 1 ? 'party' : 'parties'}.
                 </span>
               </div>
             )}
@@ -503,6 +506,9 @@ export default function InvoiceDetail() {
               <div key={p.id} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
                 <span className="font-medium text-slate-800 text-sm">{p.name}</span>
                 <span className="text-brand-600 font-semibold text-sm">{p.share_percentage.toFixed(2)}%</span>
+                {p._overlapDays != null && (
+                  <span className="text-slate-400 text-xs">{p._overlapDays}d on risk</span>
+                )}
                 <span className="text-slate-400 text-xs">→ {formatCurrency((p.share_percentage / 100) * invoice.total_amount)}</span>
               </div>
             ))}
