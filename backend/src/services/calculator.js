@@ -12,14 +12,22 @@ export function calcTimeOnRisk(invoice, parties) {
   const partyBreakdown = parties.map(party => {
     const partyAmount = (party.share_percentage / 100) * invoice.total_amount
 
+    // Clip exposure to party's responsible dates so insurer TOR is measured
+    // against the period the party is actually liable, not the full invoice period.
+    const pRespStart    = party.responsible_start ? parseISO(party.responsible_start) : serviceStart
+    const pRespEnd      = party.responsible_end   ? parseISO(party.responsible_end)   : serviceEnd
+    const exposureStart = pRespStart > serviceStart ? pRespStart : serviceStart
+    const exposureEnd   = pRespEnd   < serviceEnd   ? pRespEnd   : serviceEnd
+    const exposureDays  = Math.max(1, differenceInCalendarDays(exposureEnd, exposureStart))
+
     const insurers = (party.policy_periods || []).map(pp => {
       const pStart     = parseISO(pp.policy_start)
-      // null/empty policy_end = policy still in effect; treat as covering through service end
-      const pEnd       = pp.policy_end ? parseISO(pp.policy_end) : serviceEnd
-      const overlapStart = max([serviceStart, pStart])
-      const overlapEnd   = min([serviceEnd,   pEnd])
+      // null/empty policy_end = policy still in effect; treat as covering through exposure end
+      const pEnd       = pp.policy_end ? parseISO(pp.policy_end) : exposureEnd
+      const overlapStart = max([exposureStart, pStart])
+      const overlapEnd   = min([exposureEnd,   pEnd])
       const daysOnRisk   = Math.max(0, differenceInCalendarDays(overlapEnd, overlapStart))
-      const pct          = (daysOnRisk / totalDays) * 100
+      const pct          = (daysOnRisk / exposureDays) * 100
 
       return {
         insurer_id:          pp.insurer_id,
@@ -27,7 +35,7 @@ export function calcTimeOnRisk(invoice, parties) {
         policy_start:        pp.policy_start,
         policy_end:          pp.policy_end,
         days_on_risk:        daysOnRisk,
-        total_exposure_days: totalDays,
+        total_exposure_days: exposureDays,
         percentage:          pct,
         amount:              (pct / 100) * partyAmount,
       }
