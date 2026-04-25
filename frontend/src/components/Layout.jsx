@@ -2,13 +2,14 @@ import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import {
   LayoutDashboard, FolderOpen, Settings, LogOut,
-  Shield, Menu, X, UserCircle, ShieldCheck, Database
+  Shield, Menu, X, UserCircle, ShieldCheck, Database, BookOpen
 } from 'lucide-react'
 import { useState } from 'react'
 
 const staffNavItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/matters',   icon: FolderOpen,      label: 'Matters' },
+  { to: '/insurers',  icon: BookOpen,        label: 'Insurers' },
   { to: '/settings',  icon: Settings,        label: 'Settings' },
 ]
 

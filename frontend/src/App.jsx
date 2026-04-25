@@ -13,9 +13,10 @@ import Matters        from './pages/Matters.jsx'
 import MatterDetail   from './pages/MatterDetail.jsx'
 import InvoiceDetail  from './pages/InvoiceDetail.jsx'
 import Apportionment  from './pages/Apportionment.jsx'
-import AdminPanel     from './pages/AdminPanel.jsx'
-import Settings       from './pages/Settings.jsx'
-import ClientPortal   from './pages/ClientPortal.jsx'
+import AdminPanel        from './pages/AdminPanel.jsx'
+import Settings          from './pages/Settings.jsx'
+import ClientPortal      from './pages/ClientPortal.jsx'
+import InsurerDirectory  from './pages/InsurerDirectory.jsx'
 
 function ProtectedRoute({ children, requiredRole }) {
   const { user, profile, loading } = useAuth()
@@ -76,6 +77,7 @@ export default function App() {
           <Route path="/matters/:matterId" element={<MatterDetail />} />
           <Route path="/matters/:matterId/invoices/:invoiceId" element={<InvoiceDetail />} />
           <Route path="/matters/:matterId/apportionments/:apportionmentId" element={<Apportionment />} />
+          <Route path="/insurers"   element={<InsurerDirectory />} />
           <Route path="/settings"   element={<Settings />} />
           <Route path="/admin"      element={<ProtectedRoute requiredRole="admin"><AdminPanel /></ProtectedRoute>} />
         </Route>
