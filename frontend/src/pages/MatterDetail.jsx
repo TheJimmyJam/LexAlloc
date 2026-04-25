@@ -15,6 +15,7 @@ import toast from 'react-hot-toast'
 import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
 import DocumentUploadModal, { DOC_TYPES } from '../components/DocumentUploadModal.jsx'
 import { UseTemplateModal } from './Matters.jsx'
+import { generateMatterSummaryReport } from '../lib/generateMatterSummaryReport.js'
 
 // ── Policy Timeline ───────────────────────────────────────────────────────────
 const TIMELINE_COLORS = [
@@ -1003,6 +1004,15 @@ export default function MatterDetail() {
               ? <span className="badge bg-violet-100 text-violet-700 text-sm px-3 py-1">Template</span>
               : <span className={`badge ${statusColors[matter.status] || 'bg-slate-100 text-slate-500'} text-sm px-3 py-1`}>{matter.status}</span>
             }
+            {!isTemplate && (
+              <button
+                onClick={() => generateMatterSummaryReport({ matter, parties, insurerPeriods, invoices, financialRows })}
+                className="btn-secondary text-sm"
+                title="Export Matter Summary PDF"
+              >
+                <Download className="h-4 w-4" /> Export PDF
+              </button>
+            )}
             <button
               onClick={() => setShowEditMatter(true)}
               className="btn-secondary text-sm"
