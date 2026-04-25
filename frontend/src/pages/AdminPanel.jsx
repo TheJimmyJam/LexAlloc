@@ -302,6 +302,147 @@ function AssignUserModal({ org, allUsers, onClose, onAssigned }) {
   )
 }
 
+// ── FileVine connection card (API key auth, no OAuth) ─────────────────────────
+function FileVineConnectionCard({ orgId }) {
+  const qc = useQueryClient()
+  const { profile } = useAuth()
+  const [showForm, setShowForm] = useState(false)
+
+  const { data: conn } = useQuery({
+    queryKey: ['filevine-conn', orgId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('la_pm_connections')
+        .select('*')
+        .eq('org_id', orgId)
+        .eq('provider', 'filevine')
+        .eq('is_active', true)
+        .single()
+      return data ?? null
+    },
+    enabled: !!orgId,
+  })
+
+  const { register, handleSubmit, formState: { isSubmitting } } = useForm({
+    defaultValues: conn?.credentials ?? {},
+  })
+
+  const onSubmit = async (values) => {
+    const credentials = {
+      api_key:    values.api_key,
+      fv_org_id:  values.fv_org_id,
+      fv_user_id: values.fv_user_id,
+    }
+    const { error } = await supabase
+      .from('la_pm_connections')
+      .upsert({
+        org_id:      orgId,
+        provider:    'filevine',
+        credentials,
+        is_active:   true,
+        connected_at: new Date().toISOString(),
+        connected_by: profile?.id,
+      }, { onConflict: 'org_id,provider' })
+    if (error) { toast.error(error.message); return }
+    toast.success('FileVine connected!')
+    setShowForm(false)
+    qc.invalidateQueries({ queryKey: ['filevine-conn', orgId] })
+    qc.invalidateQueries({ queryKey: ['pms-providers'] })
+  }
+
+  const disconnect = async () => {
+    if (!confirm('Disconnect FileVine? Matter import will stop working.')) return
+    await supabase.from('la_pm_connections').update({ is_active: false }).eq('org_id', orgId).eq('provider', 'filevine')
+    toast.success('FileVine disconnected')
+    qc.invalidateQueries({ queryKey: ['filevine-conn', orgId] })
+    qc.invalidateQueries({ queryKey: ['pms-providers'] })
+  }
+
+  return (
+    <div className={`card p-5 border ${conn ? 'border-emerald-200' : 'border-slate-200'}`}>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-emerald-50">
+            <Plug className="h-5 w-5 text-emerald-700" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <p className="font-semibold text-slate-900">FileVine</p>
+              {conn ? (
+                <span className="flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
+                  <CheckCircle2 className="h-3 w-3" /> Connected
+                </span>
+              ) : (
+                <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Not connected</span>
+              )}
+            </div>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Import matters (cases) directly from FileVine into LexAlloc.
+            </p>
+            {conn && (
+              <p className="text-xs text-slate-400 mt-1">
+                Connected {format(parseISO(conn.connected_at), 'MMM d, yyyy')}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <a href="https://support.filevine.com/hc/en-us/articles/360047817153" target="_blank" rel="noopener noreferrer"
+            className="btn-secondary text-xs py-1.5 px-3">
+            <ExternalLink className="h-3.5 w-3.5" /> Docs
+          </a>
+          {conn ? (
+            <>
+              <button onClick={() => setShowForm(!showForm)} className="btn-secondary text-xs py-1.5 px-3">
+                <Settings2 className="h-3.5 w-3.5" /> Edit
+              </button>
+              <button onClick={disconnect} className="btn-secondary text-xs py-1.5 px-3 text-red-600 border-red-200 hover:bg-red-50">
+                Disconnect
+              </button>
+            </>
+          ) : (
+            <button onClick={() => setShowForm(!showForm)} className="btn-primary text-xs py-1.5 px-3">
+              <Plug className="h-3.5 w-3.5" /> Connect
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Credentials form */}
+      {(showForm || (!conn)) && showForm && (
+        <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-3 border-t border-slate-100 pt-4">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">API Credentials</p>
+          <div>
+            <label className="form-label">API Key *</label>
+            <input className="form-input text-sm font-mono" placeholder="fv_live_…"
+              {...register('api_key', { required: true })} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="form-label">FileVine Org ID *</label>
+              <input className="form-input text-sm" placeholder="12345"
+                {...register('fv_org_id', { required: true })} />
+            </div>
+            <div>
+              <label className="form-label">FileVine User ID *</label>
+              <input className="form-input text-sm" placeholder="67890"
+                {...register('fv_user_id', { required: true })} />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button type="submit" className="btn-primary text-sm" disabled={isSubmitting}>
+              {isSubmitting ? 'Saving…' : conn ? 'Update' : 'Connect FileVine'}
+            </button>
+            <button type="button" onClick={() => setShowForm(false)} className="btn-secondary text-sm">
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  )
+}
+
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 export default function AdminPanel() {
@@ -840,6 +981,9 @@ export default function AdminPanel() {
             </div>
           ))}
 
+          {/* ── FileVine (API key — no OAuth) ── */}
+          <FileVineConnectionCard orgId={profile?.org_id} />
+
           {/* Setup guide */}
           <details className="card p-5 cursor-pointer">
             <summary className="font-medium text-slate-700 flex items-center gap-2 select-none">
@@ -865,6 +1009,16 @@ export default function AdminPanel() {
                   <li>Add the same callback URL as redirect URI</li>
                   <li>Copy Client ID → Netlify: <code className="font-mono bg-slate-100 px-1 rounded">VITE_CLIO_CLIENT_ID</code></li>
                   <li>Copy both to Supabase: <code className="font-mono bg-slate-100 px-1 rounded">CLIO_CLIENT_ID</code>, <code className="font-mono bg-slate-100 px-1 rounded">CLIO_CLIENT_SECRET</code>, <code className="font-mono bg-slate-100 px-1 rounded">CLIO_REDIRECT_URI</code></li>
+                  <li>Once connected, use Clio for <strong>both</strong> payment push and matter import — same token.</li>
+                </ol>
+              </div>
+              <div>
+                <p className="font-semibold text-slate-800 mb-1">FileVine</p>
+                <ol className="list-decimal ml-4 space-y-1">
+                  <li>In FileVine: Settings → API Keys → generate a new key</li>
+                  <li>Note your <strong>Org ID</strong> (visible in your FileVine URL: <code className="font-mono bg-slate-100 px-1 rounded">app.filevine.io/org/&#123;orgId&#125;</code>)</li>
+                  <li>Note your <strong>User ID</strong> (FileVine API → Whoami, or your profile URL)</li>
+                  <li>Enter all three directly in the FileVine card above — no OAuth required</li>
                 </ol>
               </div>
             </div>

@@ -4,10 +4,11 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { useForm } from 'react-hook-form'
-import { Plus, Search, FolderOpen, X, ChevronRight, Filter, Upload, Copy, LayoutTemplate, Trash2 } from 'lucide-react'
+import { Plus, Search, FolderOpen, X, ChevronRight, Filter, Upload, Copy, LayoutTemplate, Trash2, Download } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
+import ImportMatterModal from '../components/ImportMatterModal.jsx'
 
 // ── Create / New Template Modal ───────────────────────────────────────────────
 function CreateMatterModal({ isTemplate = false, onClose }) {
@@ -231,8 +232,25 @@ export default function Matters() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
+  const [showImport, setShowImport] = useState(false)
   const [uploadMatterId, setUploadMatterId] = useState(null)
   const [useTemplate, setUseTemplate] = useState(null) // template object
+
+  // Which PMS providers are connected (Clio via accounting, FileVine via pm_connections)
+  const { data: availablePmsProviders = [] } = useQuery({
+    queryKey: ['pms-providers', profile?.org_id],
+    queryFn: async () => {
+      const [{ data: acct }, { data: pm }] = await Promise.all([
+        supabase.from('la_accounting_connections').select('provider').eq('org_id', profile.org_id).eq('is_active', true),
+        supabase.from('la_pm_connections').select('provider').eq('org_id', profile.org_id).eq('is_active', true),
+      ])
+      const providers = []
+      if ((acct ?? []).some(c => c.provider === 'clio'))      providers.push('clio')
+      if ((pm   ?? []).some(c => c.provider === 'filevine'))  providers.push('filevine')
+      return providers
+    },
+    enabled: !!profile?.org_id,
+  })
 
   const { data: allMatters = [], isLoading } = useQuery({
     queryKey: ['matters', profile?.org_id],
@@ -294,10 +312,17 @@ export default function Matters() {
             {templates.length > 0 && ` · ${templates.length} template${templates.length !== 1 ? 's' : ''}`}
           </p>
         </div>
-        <button onClick={() => setShowModal(true)} className="btn-primary">
-          <Plus className="h-4 w-4" />
-          {view === 'templates' ? 'New Template' : 'New Matter'}
-        </button>
+        <div className="flex items-center gap-2">
+          {view === 'matters' && availablePmsProviders.length > 0 && (
+            <button onClick={() => setShowImport(true)} className="btn-secondary">
+              <Download className="h-4 w-4" /> Import
+            </button>
+          )}
+          <button onClick={() => setShowModal(true)} className="btn-primary">
+            <Plus className="h-4 w-4" />
+            {view === 'templates' ? 'New Template' : 'New Matter'}
+          </button>
+        </div>
       </div>
 
       {/* View toggle */}
@@ -519,6 +544,12 @@ export default function Matters() {
         <UseTemplateModal
           template={useTemplate}
           onClose={() => setUseTemplate(null)}
+        />
+      )}
+      {showImport && (
+        <ImportMatterModal
+          availableProviders={availablePmsProviders}
+          onClose={() => setShowImport(false)}
         />
       )}
     </div>
