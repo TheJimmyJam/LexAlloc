@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { formatCurrency, apportionInvoice } from '../lib/calculations.js'
-import { ArrowLeft, Calculator, FileText, ExternalLink, Loader2, GitCompare, ChevronDown, ChevronUp, CheckCircle2, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Calculator, FileText, ExternalLink, Loader2, GitCompare, ChevronDown, ChevronUp, CheckCircle2, AlertCircle, AlertTriangle } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
@@ -76,9 +76,26 @@ export default function InvoiceDetail() {
     }
   })
 
-  const handleRunApportionment = async () => {
+  const [showDupeApportWarning, setShowDupeApportWarning] = useState(false)
+
+  const handleRunApportionment = async (force = false) => {
     if (parties.length === 0) { toast.error('Add parties before running apportionment.'); return }
     if (!invoice?.service_start) { toast.error('Invoice is missing a service period start date.'); return }
+
+    // ── Dupe check: same invoice + method already apportioned ───────────────
+    if (!force) {
+      const { data: existing } = await supabase
+        .from('la_apportionments')
+        .select('id, calculation_method, calculated_at')
+        .eq('invoice_id', invoiceId)
+        .eq('calculation_method', calcMethod)
+        .limit(1)
+      if (existing?.length) {
+        setShowDupeApportWarning(true)
+        return
+      }
+    }
+    setShowDupeApportWarning(false)
 
     setCalculating(true)
     try {
@@ -253,6 +270,27 @@ export default function InvoiceDetail() {
           </div>
         </div>
       </div>
+
+      {/* Dupe apportionment warning */}
+      {showDupeApportWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900">Apportionment Already Exists</h3>
+                <p className="text-sm text-slate-500 mt-1">An apportionment using this method has already been calculated for this invoice. Running again will create a duplicate record.</p>
+              </div>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setShowDupeApportWarning(false)} className="btn-secondary flex-1 justify-center">Cancel</button>
+              <button onClick={() => handleRunApportionment(true)} className="btn-primary flex-1 justify-center bg-amber-600 hover:bg-amber-700 border-amber-600">Run Anyway</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Invoice Meta */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

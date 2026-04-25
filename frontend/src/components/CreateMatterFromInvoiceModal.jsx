@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   X, Upload, Loader2, FileText, ArrowRight, ArrowLeft,
-  CheckCircle, AlertCircle, FolderOpen, Plus, Trash2,
+  CheckCircle, AlertCircle, AlertTriangle, FolderOpen, Plus, Trash2,
   RefreshCcw, Save,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
@@ -87,6 +87,7 @@ export default function CreateMatterFromInvoiceModal({ onClose }) {
   const setInvField = (field, val) => setInv(p => ({ ...p, [field]: val }))
 
   const [saving, setSaving] = useState(false)
+  const [dupeWarning, setDupeWarning] = useState(null)  // { type, matches } | null
 
   // ── File processing ───────────────────────────────────────────────────────
   const processFile = async (f) => {
@@ -189,8 +190,49 @@ export default function CreateMatterFromInvoiceModal({ onClose }) {
   })
 
   // ── Create matter + invoice ───────────────────────────────────────────────
-  const handleCreate = async () => {
+  const handleCreate = async (force = false) => {
     if (!matterName.trim()) { toast.error('Matter name is required'); return }
+
+    if (!force) {
+      // ── Dupe checks ──────────────────────────────────────────────────────
+      const warnings = []
+
+      // 1. Duplicate matter (same matter_number or exact name in this org)
+      if (matterNumber.trim()) {
+        const { data: dupeMatter } = await supabase
+          .from('la_matters')
+          .select('id, name, matter_number')
+          .eq('org_id', profile.org_id)
+          .eq('matter_number', matterNumber.trim())
+          .limit(1)
+        if (dupeMatter?.length) warnings.push({ type: 'matter_number', match: dupeMatter[0] })
+      }
+      if (!warnings.length && matterName.trim()) {
+        const { data: dupeName } = await supabase
+          .from('la_matters')
+          .select('id, name, matter_number')
+          .eq('org_id', profile.org_id)
+          .ilike('name', matterName.trim())
+          .limit(1)
+        if (dupeName?.length) warnings.push({ type: 'matter_name', match: dupeName[0] })
+      }
+
+      // 2. Duplicate invoice (same invoice_number + billing_firm in this org)
+      if (inv?.invoice_number && inv?.billing_firm) {
+        const { data: dupeInv } = await supabase
+          .from('la_invoices')
+          .select('id, invoice_number, billing_firm, la_matters(name)')
+          .eq('org_id', profile.org_id)
+          .eq('invoice_number', inv.invoice_number)
+          .eq('billing_firm', inv.billing_firm)
+          .limit(1)
+        if (dupeInv?.length) warnings.push({ type: 'invoice', match: dupeInv[0] })
+      }
+
+      if (warnings.length) { setDupeWarning(warnings); return }
+    }
+
+    setDupeWarning(null)
     setSaving(true)
     try {
       // 1. Create matter
@@ -537,6 +579,36 @@ export default function CreateMatterFromInvoiceModal({ onClose }) {
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Dupe warning modal */}
+        {dupeWarning && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                  <AlertCircle className="h-5 w-5 text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-900">Possible Duplicate Detected</h3>
+                  <p className="text-sm text-slate-500 mt-0.5">We found existing records that may match. Review before continuing.</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {dupeWarning.map((w, i) => (
+                  <div key={i} className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-sm">
+                    {w.type === 'matter_number' && <><span className="font-medium text-amber-800">Matter #{w.match.matter_number}</span><span className="text-amber-700"> already exists: "{w.match.name}"</span></>}
+                    {w.type === 'matter_name'   && <><span className="font-medium text-amber-800">Matter name</span><span className="text-amber-700"> "{w.match.name}" already exists</span></>}
+                    {w.type === 'invoice'       && <><span className="font-medium text-amber-800">Invoice #{w.match.invoice_number}</span><span className="text-amber-700"> from {w.match.billing_firm} already exists{w.match.la_matters?.name ? ` on matter "${w.match.la_matters.name}"` : ''}</span></>}
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button onClick={() => setDupeWarning(null)} className="btn-secondary flex-1 justify-center">Go Back</button>
+                <button onClick={() => handleCreate(true)} className="btn-primary flex-1 justify-center bg-amber-600 hover:bg-amber-700 border-amber-600">Create Anyway</button>
               </div>
             </div>
           </div>

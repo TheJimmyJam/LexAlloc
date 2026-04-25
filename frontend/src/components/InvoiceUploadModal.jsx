@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import {
   X, Upload, Loader2, CheckCircle, AlertCircle, FileText,
-  Trash2, ChevronDown, ChevronUp, Save, RefreshCw, Plus, RefreshCcw
+  Trash2, ChevronDown, ChevronUp, Save, RefreshCw, Plus, RefreshCcw, AlertTriangle
 } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
@@ -26,6 +26,7 @@ async function runWithConcurrency(tasks, limit) {
 function StatusBadge({ status }) {
   const map = {
     queued:    { label: 'Queued',    cls: 'bg-slate-100 text-slate-500' },
+    dupe:      { label: 'Duplicate',  cls: 'bg-amber-100 text-amber-700' },
     uploading: { label: 'Uploading', cls: 'bg-blue-100 text-blue-600',  spin: true },
     parsing:   { label: 'Parsing',   cls: 'bg-violet-100 text-violet-600', spin: true },
     ready:     { label: 'Ready',     cls: 'bg-amber-100 text-amber-700' },
@@ -120,10 +121,28 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
   })
 
   // ── Save a single item ────────────────────────────────────────────────────
-  const saveItem = async (item) => {
+  const saveItem = async (item, force = false) => {
     const { id, parsed, fileUrl } = item
     update(id, { status: 'saving' })
     try {
+      // ── Dupe check ──────────────────────────────────────────────────────
+      if (!force && parsed.invoice_number && parsed.billing_firm) {
+        const { data: existing } = await supabase
+          .from('la_invoices')
+          .select('id, invoice_number, billing_firm, la_matters(name)')
+          .eq('org_id', profile.org_id)
+          .eq('invoice_number', parsed.invoice_number)
+          .eq('billing_firm', parsed.billing_firm)
+          .limit(1)
+        if (existing?.length) {
+          update(id, {
+            status: 'dupe',
+            dupeMatch: existing[0],
+          })
+          return
+        }
+      }
+
       const { data: invoice, error: invErr } = await supabase.from('la_invoices').insert({
         matter_id:      matterId,
         org_id:         profile.org_id,
@@ -166,7 +185,7 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
   // ── Save all ready items ──────────────────────────────────────────────────
   const saveAll = async () => {
     const ready = queue.filter(i => i.status === 'ready')
-    await Promise.all(ready.map(saveItem))
+    await Promise.all(ready.map(item => saveItem(item)))
     const saved = queue.filter(i => i.status === 'saved').length + ready.length
     toast.success(`${ready.length} invoice${ready.length !== 1 ? 's' : ''} saved!`)
   }
@@ -289,10 +308,25 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
                       <p className="text-xs text-red-500 max-w-xs truncate">{item.error}</p>
                     )}
 
+                    {item.status === 'dupe' && item.dupeMatch && (
+                      <p className="text-xs text-amber-700 max-w-xs truncate">
+                        Duplicate of Invoice #{item.dupeMatch.invoice_number}
+                        {item.dupeMatch.la_matters?.name ? ` on "${item.dupeMatch.la_matters.name}"` : ''}
+                      </p>
+                    )}
+
                     <StatusBadge status={item.status} />
 
                     {/* Actions */}
                     <div className="flex items-center gap-1 flex-shrink-0">
+                      {item.status === 'dupe' && (
+                        <button
+                          onClick={() => saveItem(item, true)}
+                          className="flex items-center gap-1 text-xs font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-lg transition-colors"
+                        >
+                          <AlertTriangle className="h-3.5 w-3.5" /> Save Anyway
+                        </button>
+                      )}
                       {item.status === 'ready' && (
                         <>
                           <button
