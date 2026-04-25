@@ -229,7 +229,6 @@ const ALL_TABS = [
   { key: 'overview',      label: 'Overview',      icon: FileText,       templateOnly: false },
   { key: 'financials',    label: 'Financials',     icon: TrendingUp,     templateOnly: false },
   { key: 'parties',       label: 'Parties',        icon: Users,          templateOnly: false },
-  { key: 'insurers',      label: 'Insurers',       icon: Shield,         templateOnly: false },
   { key: 'invoices',      label: 'Invoices',       icon: Upload,         templateOnly: false },
   { key: 'apportionments',label: 'Apportionments', icon: Calculator,     templateOnly: false },
   { key: 'documents',     label: 'Documents',      icon: Paperclip,      templateOnly: false },
