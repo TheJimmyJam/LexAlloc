@@ -11,7 +11,7 @@ import {
   Users, Shield, Calculator, ChevronRight, Edit2, Check, TrendingUp, AlertTriangle,
   Paperclip, Download, ExternalLink, LayoutTemplate, Copy, BookOpen, Search,
   Bell, RefreshCcw, Loader2, Clock, Briefcase, DollarSign, Mail, Activity,
-  MessageSquare, Flag, Phone, Pin, Send, AlertCircle
+  MessageSquare, Flag, Phone, Pin, Send, AlertCircle, Scale
 } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays, addDays, startOfYear, addYears } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -19,6 +19,7 @@ import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
 import DocumentUploadModal, { DOC_TYPES } from '../components/DocumentUploadModal.jsx'
 import { UseTemplateModal } from './Matters.jsx'
 import { generateMatterSummaryReport } from '../lib/generateMatterSummaryReport.js'
+import SettlementTab from '../components/SettlementTab.jsx'
 
 // ── Policy Timeline ───────────────────────────────────────────────────────────
 const TIMELINE_COLORS = [
@@ -231,12 +232,13 @@ const ALL_TABS = [
   { key: 'parties',       label: 'Parties',        icon: Users,          templateOnly: false },
   { key: 'invoices',      label: 'Invoices',       icon: Upload,         templateOnly: false },
   { key: 'apportionments',label: 'Apportionments', icon: Calculator,     templateOnly: false },
+  { key: 'settlement',    label: 'Settlement',     icon: Scale,          templateOnly: false },
   { key: 'documents',     label: 'Documents',      icon: Paperclip,      templateOnly: false },
   { key: 'notes',         label: 'Notes',          icon: MessageSquare,  templateOnly: false },
   { key: 'activity',      label: 'Activity',       icon: Clock,          templateOnly: false },
 ]
 // Tabs hidden when viewing a template (template has no invoices, apportionments, or financial data)
-const TEMPLATE_HIDDEN_TABS = new Set(['financials', 'invoices', 'apportionments'])
+const TEMPLATE_HIDDEN_TABS = new Set(['financials', 'invoices', 'apportionments', 'settlement'])
 
 const PAYMENT_STATUS_COLORS = {
   pending:       'bg-slate-100 text-slate-600',
@@ -2137,6 +2139,15 @@ export default function MatterDetail() {
           </div>
         )
       })()}
+
+      {/* ── Settlement Tab ── */}
+      {tab === 'settlement' && (
+        <SettlementTab
+          matter={matter}
+          insurerPeriods={insurerPeriods}
+          parties={parties}
+        />
+      )}
 
       {/* ── Documents Tab ── */}
       {tab === 'documents' && (() => {

@@ -7,7 +7,7 @@ import autoTable from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
 import {
   AlertTriangle, Clock, Layers, TrendingUp, BarChart3,
-  Download, FileSpreadsheet, FileText, ChevronDown,
+  Download, FileSpreadsheet, FileText, ChevronDown, Scale,
 } from 'lucide-react'
 import { formatCurrency } from '../lib/calculations.js'
 import {
@@ -50,6 +50,7 @@ const TABS = [
   { key: 'velocity',    label: 'Payment Velocity',        icon: Clock         },
   { key: 'categories',  label: 'Invoice Categories',      icon: Layers        },
   { key: 'aging',       label: 'Matter Aging',            icon: TrendingUp    },
+  { key: 'settlements', label: 'Settlements',             icon: Scale         },
 ]
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -756,6 +757,166 @@ function AgingReport({ data, dateLabel }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Report 5 — Settlement Comparison
+// ═══════════════════════════════════════════════════════════════════════════════
+function SettlementReport({ data }) {
+  const totals = useMemo(() => ({
+    count:     data.length,
+    demanded:  data.reduce((s, r) => s + r.totalDemanded,  0),
+    settled:   data.reduce((s, r) => s + r.totalSettled,   0),
+    reserved:  data.reduce((s, r) => s + r.totalReserve,   0),
+    savings:   data.reduce((s, r) => s + r.savings,        0),
+  }), [data])
+
+  const chartData = data.slice(0, 12).map(r => ({
+    name:     r.matterName.slice(0, 20),
+    demanded: parseFloat(r.totalDemanded.toFixed(2)),
+    settled:  parseFloat(r.totalSettled.toFixed(2)),
+  }))
+
+  const headers   = ['Matter', 'Matter #', 'Settlement Date', 'Status', 'Total Demanded', 'Total Reserved', 'Total Settled', 'Savings', '% Reduction']
+  const tableRows = data.map(r => [
+    r.matterName, r.matterNumber ?? '', r.settlementDate, r.status,
+    r.totalDemanded, r.totalReserve, r.totalSettled, r.savings,
+    r.totalDemanded > 0 ? `${Math.round((r.savings / r.totalDemanded) * 100)}%` : '—',
+  ])
+  const kpis = [
+    { label: 'Settled Matters',   value: totals.count                          },
+    { label: 'Total Demanded',    value: formatCurrency(totals.demanded)        },
+    { label: 'Total Settled',     value: formatCurrency(totals.settled)         },
+    { label: 'Total Savings',     value: formatCurrency(totals.savings)         },
+  ]
+
+  const handlePDF = () => exportPDF({
+    title:    'Settlement Comparison',
+    dateLabel: 'All time',
+    kpis,
+    columns:  headers,
+    rows:     tableRows.map(r => [r[0], r[1], r[2], r[3], formatCurrency(r[4]), formatCurrency(r[5]), formatCurrency(r[6]), formatCurrency(r[7]), r[8]]),
+    filename: `settlement-comparison-${format(new Date(), 'yyyy-MM-dd')}.pdf`,
+  })
+
+  const handleExcel = () => exportXLSX({
+    sheetName:    'Settlement Comparison',
+    headers,
+    rows:         tableRows,
+    colWidths:    [36, 14, 16, 10, 16, 16, 16, 14, 12],
+    currencyCols: [4, 5, 6, 7],
+    filename:     `settlement-comparison-${format(new Date(), 'yyyy-MM-dd')}.xlsx`,
+  })
+
+  if (!data.length) return (
+    <div className="card p-12 text-center text-slate-400">
+      <Scale className="h-8 w-8 mx-auto mb-2 text-slate-300" />
+      <p className="mb-1">No settlements recorded yet.</p>
+      <p className="text-xs">Record a settlement from the Settlement tab inside any matter.</p>
+    </div>
+  )
+
+  const savingsPct = totals.demanded > 0
+    ? Math.round((totals.savings / totals.demanded) * 100)
+    : 0
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <KpiCard label="Settled Matters"  value={totals.count}                              />
+        <KpiCard label="Total Demanded"   value={formatCurrency(totals.demanded)}           color="text-slate-700" />
+        <KpiCard label="Total Settled"    value={formatCurrency(totals.settled)}            color="text-brand-700" />
+        <KpiCard
+          label="Total Savings"
+          value={formatCurrency(totals.savings)}
+          sub={`${savingsPct}% below demand`}
+          color={totals.savings >= 0 ? 'text-green-600' : 'text-red-600'}
+        />
+      </div>
+
+      <div className="card p-5">
+        <p className="text-sm font-semibold text-slate-700 mb-4">Demanded vs. Settled by Matter (top 12)</p>
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={chartData} margin={{ top: 4, right: 16, left: 16, bottom: 60 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+            <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-35} textAnchor="end" interval={0} />
+            <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} />
+            <Tooltip formatter={v => formatCurrency(v)} />
+            <Bar dataKey="demanded" name="Demanded" fill="#94a3b8" radius={[4,4,0,0]} />
+            <Bar dataKey="settled"  name="Settled"  fill="#4f46e5" radius={[4,4,0,0]} />
+            <Legend />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="card overflow-hidden">
+        <SectionHeader title="Settlement Detail by Matter" onPDF={handlePDF} onExcel={handleExcel} />
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50 text-left">
+                {headers.map(h => (
+                  <th key={h} className="px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {data.map((r, i) => {
+                const reductionPct = r.totalDemanded > 0
+                  ? Math.round((r.savings / r.totalDemanded) * 100)
+                  : null
+                return (
+                  <tr key={i} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 font-medium text-slate-800 max-w-[200px]">
+                      <p className="truncate">{r.matterName}</p>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{r.matterNumber || '—'}</td>
+                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.settlementDate}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${r.status === 'final' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {r.status === 'final' ? 'Final' : 'Draft'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{formatCurrency(r.totalDemanded)}</td>
+                    <td className="px-4 py-3 text-amber-600 whitespace-nowrap">{formatCurrency(r.totalReserve)}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-800 whitespace-nowrap">{formatCurrency(r.totalSettled)}</td>
+                    <td className={`px-4 py-3 font-semibold whitespace-nowrap ${r.savings >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                      {r.savings >= 0 ? '' : '−'}{formatCurrency(Math.abs(r.savings))}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {reductionPct !== null ? (
+                        <div className="flex items-center gap-2">
+                          <div className="w-16 bg-slate-100 rounded-full h-1.5">
+                            <div
+                              className="h-1.5 rounded-full bg-green-500"
+                              style={{ width: `${Math.min(Math.max(reductionPct, 0), 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-xs">{reductionPct}%</span>
+                        </div>
+                      ) : '—'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-slate-200 bg-slate-50 font-semibold">
+                <td colSpan={4} className="px-4 py-3 text-slate-700">Total ({totals.count} matters)</td>
+                <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{formatCurrency(totals.demanded)}</td>
+                <td className="px-4 py-3 text-amber-600 whitespace-nowrap">{formatCurrency(totals.reserved)}</td>
+                <td className="px-4 py-3 text-slate-800 whitespace-nowrap">{formatCurrency(totals.settled)}</td>
+                <td className={`px-4 py-3 whitespace-nowrap ${totals.savings >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                  {totals.savings >= 0 ? '' : '−'}{formatCurrency(Math.abs(totals.savings))}
+                </td>
+                <td className="px-4 py-3 text-slate-600 text-xs">{savingsPct}% avg reduction</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Main Page
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function Reports() {
@@ -782,6 +943,23 @@ export default function Reports() {
         `)
       if (dateFrom) q = q.gte('created_at', dateFrom)
       const { data, error } = await q
+      if (error) throw error
+      return data || []
+    },
+  })
+
+  const { data: settlements = [], isLoading: settlementLoading } = useQuery({
+    queryKey: ['report-settlements'],
+    enabled:  tab === 'settlements',
+    queryFn:  async () => {
+      const { data, error } = await supabase
+        .from('la_settlements')
+        .select(`
+          id, settlement_date, total_amount, status,
+          matter:la_matters(id, name, matter_number),
+          allocations:la_settlement_allocations(original_demand, reserve_amount, settlement_amount)
+        `)
+        .order('settlement_date', { ascending: false })
       if (error) throw error
       return data || []
     },
@@ -874,7 +1052,25 @@ export default function Reports() {
       .sort((a, b) => b.oldestDays - a.oldestDays)
   }, [obligations])
 
-  const isLoading = obLoading || (tab === 'categories' && liLoading)
+  // Report 5 — Settlement comparison
+  const settlementComparison = useMemo(() => settlements.map(s => {
+    const allocs        = s.allocations || []
+    const totalDemanded = allocs.reduce((sum, a) => sum + Number(a.original_demand  || 0), 0)
+    const totalSettled  = allocs.reduce((sum, a) => sum + Number(a.settlement_amount || 0), 0)
+    const totalReserve  = allocs.reduce((sum, a) => sum + Number(a.reserve_amount   || 0), 0)
+    return {
+      matterName:     s.matter?.name         || 'Unknown Matter',
+      matterNumber:   s.matter?.matter_number,
+      settlementDate: s.settlement_date,
+      status:         s.status,
+      totalDemanded,
+      totalSettled:   Number(s.total_amount) || totalSettled,
+      totalReserve,
+      savings:        totalDemanded - (Number(s.total_amount) || totalSettled),
+    }
+  }), [settlements])
+
+  const isLoading = obLoading || (tab === 'categories' && liLoading) || (tab === 'settlements' && settlementLoading)
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
@@ -929,10 +1125,11 @@ export default function Reports() {
         </div>
       ) : (
         <>
-          {tab === 'outstanding' && <OutstandingReport data={outstandingByInsurer} dateLabel={DATE_PRESETS[preset].label} />}
-          {tab === 'velocity'    && <VelocityReport    data={velocityByInsurer}    dateLabel={DATE_PRESETS[preset].label} />}
-          {tab === 'categories'  && <CategoriesReport  data={categoryBreakdown}    dateLabel={DATE_PRESETS[preset].label} />}
-          {tab === 'aging'       && <AgingReport       data={matterAging}          dateLabel={DATE_PRESETS[preset].label} />}
+          {tab === 'outstanding' && <OutstandingReport    data={outstandingByInsurer}  dateLabel={DATE_PRESETS[preset].label} />}
+          {tab === 'velocity'    && <VelocityReport      data={velocityByInsurer}     dateLabel={DATE_PRESETS[preset].label} />}
+          {tab === 'categories'  && <CategoriesReport    data={categoryBreakdown}     dateLabel={DATE_PRESETS[preset].label} />}
+          {tab === 'aging'       && <AgingReport         data={matterAging}           dateLabel={DATE_PRESETS[preset].label} />}
+          {tab === 'settlements' && <SettlementReport    data={settlementComparison} />}
         </>
       )}
     </div>
