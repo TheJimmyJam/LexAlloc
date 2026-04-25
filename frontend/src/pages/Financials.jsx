@@ -66,6 +66,7 @@ export default function Financials() {
         totalOwed,
         totalOutstanding,
         collectRate,
+        revenuePipeline: totalOutstanding * 0.03,
         matterCount:    mattersRes.count    ?? 0,
         clientCount:    clientsRes.count    ?? 0,
         apportRunCount: apportRunsRes.count ?? 0,
@@ -116,6 +117,17 @@ export default function Financials() {
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">LexAlloc Revenue <span className="normal-case font-normal">(3%)</span></p>
               <p className="text-2xl font-bold text-violet-700">{fmt(stats?.lexallocRevenue)}</p>
               <p className="text-xs text-slate-400 mt-0.5">Platform fee on processed payments</p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-indigo-200 shadow-sm p-5 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-400 to-indigo-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+              <TrendingUp className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Revenue Pipeline <span className="normal-case font-normal">(3%)</span></p>
+              <p className="text-2xl font-bold text-indigo-700">{fmt(stats?.revenuePipeline)}</p>
+              <p className="text-xs text-slate-400 mt-0.5">Potential fee on outstanding obligations</p>
             </div>
           </div>
 
