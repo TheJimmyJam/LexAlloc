@@ -78,11 +78,17 @@ export default function InvoiceDetail() {
 
   const [showDupeApportWarning, setShowDupeApportWarning] = useState(false)
   const [existingApportionments, setExistingApportionments] = useState([])
+  const [showPreFlight, setShowPreFlight] = useState(false)
   const [aiRec,     setAiRec]     = useState(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiOpen,    setAiOpen]    = useState(false)
 
-  const handleRunApportionment = async (force = false) => {
+  const handleRunApportionment = async (force = false, bypassPreflight = false) => {
+    if (!bypassPreflight) {
+      const hasIssues = preFlightChecks.some(c => c.level === 'error' || c.level === 'warning')
+      if (hasIssues) { setShowPreFlight(true); return }
+    }
+    // These are fallback guards — pre-flight should catch them first
     if (parties.length === 0) { toast.error('Add parties before running apportionment.'); return }
     if (!invoice?.service_start) { toast.error('Invoice is missing a service period start date.'); return }
 
@@ -258,6 +264,66 @@ export default function InvoiceDetail() {
   }, [invoice, partiesWithPolicies])
 
 
+  // Pre-flight readiness checks — drive the confirmation modal
+  const preFlightChecks = useMemo(() => {
+    const checks = []
+
+    // 1. Service dates
+    if (!invoice?.service_start) {
+      checks.push({ id: 'dates', level: 'error', label: 'Service start date missing', detail: 'Edit the invoice to add a service start date — it\'s required to calculate time on risk.' })
+    } else {
+      const span = invoice.service_end
+        ? `${format(parseISO(invoice.service_start), 'MM/dd/yyyy')} – ${format(parseISO(invoice.service_end), 'MM/dd/yyyy')}`
+        : format(parseISO(invoice.service_start), 'MM/dd/yyyy')
+      checks.push({ id: 'dates', level: 'ok', label: 'Service dates present', detail: span })
+    }
+
+    // 2. Parties exist
+    if (parties.length === 0) {
+      checks.push({ id: 'parties', level: 'error', label: 'No parties configured', detail: 'Add parties in the Parties tab. Each party\'s time-on-risk determines their share of the invoice.' })
+    } else {
+      checks.push({ id: 'parties', level: 'ok', label: `${parties.length} ${parties.length === 1 ? 'party' : 'parties'} configured`, detail: parties.map(p => p.name).join(', ') })
+    }
+
+    // 3. Active overlap (only computable once invoice has a service_start)
+    if (invoice?.service_start && parties.length > 0) {
+      if (partiesWithPolicies.length === 0) {
+        checks.push({ id: 'overlap', level: 'error', label: 'No parties overlap the service period', detail: `All ${parties.length} ${parties.length === 1 ? 'party' : 'parties'} have responsible-date ranges outside this invoice's service period. Adjust dates in the Parties tab.` })
+      } else if (excludedParties.length > 0) {
+        checks.push({ id: 'overlap', level: 'warning', label: `${excludedParties.length} ${excludedParties.length === 1 ? 'party' : 'parties'} excluded from this invoice`, detail: `${excludedParties.map(p => p.name).join(', ')} ${excludedParties.length === 1 ? 'has' : 'have'} no overlap with the service period and will be excluded. The remaining ${partiesWithPolicies.length} ${partiesWithPolicies.length === 1 ? 'party covers' : 'parties cover'} 100% of the invoice.` })
+      } else {
+        const summary = partiesWithPolicies.map(p => `${p.name} (${p.share_percentage.toFixed(1)}%)`).join(', ')
+        checks.push({ id: 'overlap', level: 'ok', label: `${partiesWithPolicies.length} active ${partiesWithPolicies.length === 1 ? 'party' : 'parties'} cover 100% of the invoice`, detail: summary })
+      }
+    }
+
+    // 4. Insurer policy periods
+    if (partiesWithPolicies.length > 0) {
+      const noInsurer = partiesWithPolicies.filter(p => !p.policy_periods?.length)
+      if (noInsurer.length > 0) {
+        const uninsuredPct = noInsurer.reduce((s, p) => s + p.share_percentage, 0)
+        const uninsuredAmt = (uninsuredPct / 100) * (invoice?.total_amount || 0)
+        checks.push({ id: 'periods', level: 'warning', label: `${noInsurer.map(p => p.name).join(', ')} ${noInsurer.length === 1 ? 'has' : 'have'} no insurer policy periods`, detail: `${formatCurrency(uninsuredAmt)} (${uninsuredPct.toFixed(1)}% of invoice) will be uninsured. Add policy periods in the Insurers tab.` })
+      } else {
+        const total = partiesWithPolicies.reduce((s, p) => s + p.policy_periods.length, 0)
+        checks.push({ id: 'periods', level: 'ok', label: `${total} insurer policy ${total === 1 ? 'period' : 'periods'} configured`, detail: partiesWithPolicies.map(p => `${p.name}: ${p.policy_periods.length}`).join(', ') })
+      }
+    }
+
+    // 5. Policy limits (limits_proportional only)
+    if (calcMethod === 'limits_proportional' && partiesWithPolicies.length > 0) {
+      const allPeriods = partiesWithPolicies.flatMap(p => p.policy_periods || [])
+      const noLimit    = allPeriods.filter(pp => !pp.policy_limit || Number(pp.policy_limit) === 0)
+      if (noLimit.length > 0) {
+        checks.push({ id: 'limits', level: 'warning', label: `${noLimit.length} policy ${noLimit.length === 1 ? 'period' : 'periods'} ${noLimit.length === 1 ? 'has' : 'have'} no limit set`, detail: `Limits-Proportional weights allocation by each policy's limit. Periods without a limit will fall back to equal shares for that carrier.` })
+      } else if (allPeriods.length > 0) {
+        checks.push({ id: 'limits', level: 'ok', label: 'All policy limits set', detail: `Limits-Proportional can allocate accurately across all ${allPeriods.length} periods.` })
+      }
+    }
+
+    return checks
+  }, [invoice, parties, partiesWithPolicies, excludedParties, calcMethod])
+
   if (isLoading) return <div className="p-8 text-center text-slate-400">Loading invoice…</div>
   if (!invoice)  return <div className="p-8 text-center text-slate-400">Invoice not found.</div>
 
@@ -343,6 +409,85 @@ export default function InvoiceDetail() {
           </div>
         </div>
       )}
+
+      {/* Pre-flight check modal */}
+      {showPreFlight && (() => {
+        const hasErrors   = preFlightChecks.some(c => c.level === 'error')
+        const hasWarnings = preFlightChecks.some(c => c.level === 'warning')
+        const method      = METHODS.find(m => m.value === calcMethod)
+
+        const ICONS = {
+          ok:      <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />,
+          warning: <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />,
+          error:   <AlertCircle   className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />,
+        }
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+              {/* Header */}
+              <div className="flex items-start gap-3 p-6 border-b border-slate-100">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${hasErrors ? 'bg-red-100' : hasWarnings ? 'bg-amber-100' : 'bg-green-100'}`}>
+                  {hasErrors
+                    ? <AlertCircle   className="h-5 w-5 text-red-600" />
+                    : hasWarnings
+                    ? <AlertTriangle className="h-5 w-5 text-amber-600" />
+                    : <CheckCircle2  className="h-5 w-5 text-green-600" />
+                  }
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-900">Pre-Flight Check</h3>
+                  <p className="text-sm text-slate-500 mt-0.5">
+                    {hasErrors
+                      ? 'Fix the issues below before running apportionment.'
+                      : hasWarnings
+                      ? 'Review the warnings below. You can run with warnings, but results may be incomplete.'
+                      : 'Everything looks good.'
+                    }
+                  </p>
+                </div>
+              </div>
+
+              {/* Checks */}
+              <div className="p-6 space-y-3">
+                {preFlightChecks.map(c => (
+                  <div key={c.id} className="flex items-start gap-3">
+                    {ICONS[c.level]}
+                    <div>
+                      <p className={`text-sm font-medium ${c.level === 'error' ? 'text-red-700' : c.level === 'warning' ? 'text-amber-700' : 'text-slate-800'}`}>
+                        {c.label}
+                      </p>
+                      {c.detail && <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{c.detail}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Method summary */}
+              <div className="mx-6 mb-5 rounded-xl bg-slate-50 border border-slate-200 px-4 py-2.5 flex items-center justify-between text-sm">
+                <span className="text-slate-500">Method</span>
+                <span className="font-semibold text-slate-800">{method?.label}</span>
+              </div>
+
+              {/* Footer */}
+              <div className="flex gap-3 px-6 pb-6">
+                <button onClick={() => setShowPreFlight(false)} className="btn-secondary flex-1 justify-center">
+                  {hasErrors ? 'Close' : 'Cancel'}
+                </button>
+                {!hasErrors && (
+                  <button
+                    onClick={() => { setShowPreFlight(false); handleRunApportionment(false, true) }}
+                    className="btn-primary flex-1 justify-center"
+                    disabled={calculating}
+                  >
+                    {hasWarnings ? 'Run Apportionment Anyway' : 'Run Apportionment'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Invoice Meta */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

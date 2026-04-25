@@ -352,9 +352,9 @@ function EditMatterModal({ matter, onClose }) {
 }
 
 // ── Edit Party Modal ──────────────────────────────────────────────────────────
-function EditPartyModal({ party, matterId, onClose }) {
+function EditPartyModal({ party, matterId, allParties = [], onClose }) {
   const qc = useQueryClient()
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({
+  const { register, watch, handleSubmit, formState: { errors, isSubmitting } } = useForm({
     defaultValues: {
       name:               party.name,
       share_percentage:   party.share_percentage,
@@ -363,6 +363,16 @@ function EditPartyModal({ party, matterId, onClose }) {
       responsible_end:    party.responsible_end    || '',
     }
   })
+
+  const otherTotal  = allParties.filter(p => p.id !== party.id).reduce((s, p) => s + (p.share_percentage || 0), 0)
+  const watchedPct  = parseFloat(watch('share_percentage')) || 0
+  const newTotal    = parseFloat((otherTotal + watchedPct).toFixed(4))
+  const remaining   = parseFloat((100 - newTotal).toFixed(4))
+  const shareStatus = Math.abs(newTotal - 100) < 0.01
+    ? { msg: 'Shares fully allocated — all parties sum to 100%', color: 'text-green-600' }
+    : newTotal > 100
+    ? { msg: `Over-allocated by ${Math.abs(remaining).toFixed(2)}% — total across all parties would be ${newTotal.toFixed(2)}%`, color: 'text-red-600' }
+    : { msg: `${remaining.toFixed(2)}% remaining to allocate — total across all parties would be ${newTotal.toFixed(2)}%`, color: 'text-amber-600' }
 
   const onSubmit = async (values) => {
     const { error } = await supabase.from('la_parties').update({
@@ -394,10 +404,20 @@ function EditPartyModal({ party, matterId, onClose }) {
           </div>
           <div>
             <label className="form-label">Share Percentage (%)</label>
-            <input type="number" step="0.01" min="0" max="100" className="form-input"
+            <input type="number" step="0.01" min="0" max="100"
+              className={`form-input ${newTotal > 100 ? 'border-red-400 focus:ring-red-300' : ''}`}
               placeholder="50.00"
-              {...register('share_percentage', { required: 'Required', min: 0, max: 100 })} />
-            {errors.share_percentage && <p className="text-red-500 text-xs mt-1">{errors.share_percentage.message}</p>}
+              {...register('share_percentage', {
+                required: 'Share percentage is required',
+                min: { value: 0,   message: 'Share cannot be negative' },
+                max: { value: 100, message: 'Share cannot exceed 100%' },
+              })} />
+            {errors.share_percentage
+              ? <p className="text-red-500 text-xs mt-1">{errors.share_percentage.message}</p>
+              : allParties.length > 1 && watchedPct > 0 && (
+                  <p className={`text-xs mt-1 ${shareStatus.color}`}>{shareStatus.msg}</p>
+                )
+            }
           </div>
           <div className="border-t border-slate-100 pt-4">
             <label className="form-label mb-1">Dates of Service Responsible For</label>
@@ -409,7 +429,14 @@ function EditPartyModal({ party, matterId, onClose }) {
               </div>
               <div>
                 <label className="form-label text-xs">To</label>
-                <input type="date" className="form-input text-sm" {...register('responsible_end')} />
+                <input type="date" className="form-input text-sm"
+                  {...register('responsible_end', {
+                    validate: v => {
+                      const start = watch('responsible_start')
+                      return !v || !start || v >= start || 'End date must be on or after start date'
+                    }
+                  })} />
+                {errors.responsible_end && <p className="text-red-500 text-xs mt-1">{errors.responsible_end.message}</p>}
               </div>
             </div>
           </div>
@@ -495,8 +522,17 @@ function AddPartyModal({ matterId, existingParties = [], onClose }) {
                 placeholder="0.00"
                 {...register('share_percentage', { min: 0, max: 100 })} />
               {watchedPct > 0 && (
-                <p className={`text-xs mt-1 ${previewTotal > 100 ? 'text-red-600' : 'text-slate-400'}`}>
-                  Total after adding: {previewTotal}%{previewTotal > 100 ? ' — exceeds 100%' : ''}
+                <p className={`text-xs mt-1 ${
+                  Math.abs(previewTotal - 100) < 0.01 ? 'text-green-600'
+                  : previewTotal > 100 ? 'text-red-600'
+                  : 'text-amber-600'
+                }`}>
+                  {Math.abs(previewTotal - 100) < 0.01
+                    ? 'Shares fully allocated — all parties will sum to 100%'
+                    : previewTotal > 100
+                    ? `Over-allocated by ${(previewTotal - 100).toFixed(2)}% — reduce this or another party's share`
+                    : `${(100 - previewTotal).toFixed(2)}% remaining after adding — total would be ${previewTotal.toFixed(2)}%`
+                  }
                 </p>
               )}
             </div>
@@ -527,7 +563,14 @@ function AddPartyModal({ matterId, existingParties = [], onClose }) {
               </div>
               <div>
                 <label className="form-label text-xs">To</label>
-                <input type="date" className="form-input text-sm" {...register('responsible_end')} />
+                <input type="date" className={`form-input text-sm ${errors.responsible_end ? 'border-red-400' : ''}`}
+                  {...register('responsible_end', {
+                    validate: v => {
+                      const start = watch('responsible_start')
+                      return !v || !start || v >= start || 'End date must be on or after start date'
+                    }
+                  })} />
+                {errors.responsible_end && <p className="text-red-500 text-xs mt-1">{errors.responsible_end.message}</p>}
               </div>
             </div>
           </div>
@@ -578,21 +621,33 @@ function CurrencyInput({ value, onChange, onBlur, placeholder }) {
 }
 
 // ── Shared insurer policy period fields (used by Add and Edit modals) ────────
-function InsurerPolicyFields({ register, control }) {
+function InsurerPolicyFields({ register, control, errors = {}, watch }) {
+  const policyStart = watch?.('policy_start')
+
   return (
     <>
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="form-label">Policy Start *</label>
-          <input type="date" className="form-input" {...register('policy_start', { required: 'Required' })} />
+          <input type="date" className={`form-input ${errors.policy_start ? 'border-red-400 focus:ring-red-300' : ''}`}
+            {...register('policy_start', { required: 'Start date is required to calculate time on risk' })} />
+          {errors.policy_start && <p className="text-red-500 text-xs mt-1">{errors.policy_start.message}</p>}
         </div>
         <div>
           <label className="form-label">Policy End *</label>
-          <input type="date" className="form-input" {...register('policy_end', { required: 'Required' })} />
+          <input type="date" className={`form-input ${errors.policy_end ? 'border-red-400 focus:ring-red-300' : ''}`}
+            {...register('policy_end', {
+              required: 'End date is required to calculate time on risk',
+              validate: v => !policyStart || v >= policyStart || 'End date must be on or after the start date',
+            })} />
+          {errors.policy_end && <p className="text-red-500 text-xs mt-1">{errors.policy_end.message}</p>}
         </div>
       </div>
       <div>
-        <label className="form-label">Policy Limit</label>
+        <label className="form-label">
+          Policy Limit
+          <span className="ml-1.5 text-slate-400 font-normal text-xs">— required for Limits-Proportional apportionment</span>
+        </label>
         <Controller name="policy_limit" control={control} defaultValue=""
           render={({ field }) => (
             <CurrencyInput value={field.value} onChange={field.onChange} onBlur={field.onBlur} placeholder="$1,000,000" />
@@ -614,13 +669,21 @@ function InsurerPolicyFields({ register, control }) {
         </div>
         <div className="mt-4">
           <label className="form-label">Claims Rep Email</label>
-          <input type="email" className="form-input" placeholder="jsmith@travelers.com"
-            {...register('claims_rep_email')} />
+          <input type="email" className={`form-input ${errors.claims_rep_email ? 'border-red-400' : ''}`}
+            placeholder="jsmith@travelers.com"
+            {...register('claims_rep_email', {
+              pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: 'Enter a valid email address' }
+            })} />
+          {errors.claims_rep_email && <p className="text-red-500 text-xs mt-1">{errors.claims_rep_email.message}</p>}
         </div>
         <div className="mt-4">
           <label className="form-label">Insurance Portal URL</label>
-          <input type="url" className="form-input" placeholder="https://claims.travelers.com"
-            {...register('portal_url')} />
+          <input type="url" className={`form-input ${errors.portal_url ? 'border-red-400' : ''}`}
+            placeholder="https://claims.travelers.com"
+            {...register('portal_url', {
+              pattern: { value: /^https?:\/\/.+/, message: 'URL must start with http:// or https://' }
+            })} />
+          {errors.portal_url && <p className="text-red-500 text-xs mt-1">{errors.portal_url.message}</p>}
         </div>
       </div>
     </>
@@ -631,7 +694,7 @@ function InsurerPolicyFields({ register, control }) {
 function EditInsurerModal({ pp, matterId, onClose }) {
   const qc = useQueryClient()
   const { profile } = useAuth()
-  const { register, control, handleSubmit, formState: { isSubmitting } } = useForm({
+  const { register, control, watch, handleSubmit, formState: { errors, isSubmitting } } = useForm({
     defaultValues: {
       policy_start:      pp.policy_start,
       policy_end:        pp.policy_end,
@@ -671,7 +734,7 @@ function EditInsurerModal({ pp, matterId, onClose }) {
           <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
-          <InsurerPolicyFields register={register} control={control} />
+          <InsurerPolicyFields register={register} control={control} errors={errors} watch={watch} />
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
             <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
@@ -688,7 +751,7 @@ function EditInsurerModal({ pp, matterId, onClose }) {
 function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) {
   const { profile } = useAuth()
   const qc = useQueryClient()
-  const { register, control, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm({
+  const { register, control, watch, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm({
     defaultValues: { party_id: defaultPartyId || '' },
   })
   const [selectedInsurerId, setSelectedInsurerId] = useState(null) // known id from directory
@@ -779,7 +842,7 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
               {errors.party_id && <p className="text-red-500 text-xs mt-1">{errors.party_id.message}</p>}
             </div>
           )}
-          <InsurerPolicyFields register={register} control={control} />
+          <InsurerPolicyFields register={register} control={control} errors={errors} watch={watch} />
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
             <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
@@ -2505,7 +2568,7 @@ export default function MatterDetail() {
       {showEditMatter  && <EditMatterModal matter={matter} onClose={() => setShowEditMatter(false)} />}
       {showAddParty    && <AddPartyModal   matterId={matterId} existingParties={parties} onClose={() => setShowAddParty(false)} />}
       {showAdjusterModal && matter && <RequestAdjusterInfoModal matter={matter} onClose={() => setShowAdjusterModal(false)} />}
-      {editingParty    && <EditPartyModal  party={editingParty} matterId={matterId} onClose={() => setEditingParty(null)} />}
+      {editingParty    && <EditPartyModal  party={editingParty} matterId={matterId} allParties={parties} onClose={() => setEditingParty(null)} />}
       {(showAddInsurer || addInsurerForParty) && (
         <AddInsurerModal
           matterId={matterId}
