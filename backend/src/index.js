@@ -6,6 +6,7 @@ import apportRoutes     from './routes/apportionments.js'
 import notifRoutes      from './routes/notifications.js'
 import inviteRoutes     from './routes/invitations.js'
 import billingRoutes, { webhookHandler } from './routes/billing.js'
+import aiRoutes         from './routes/ai.js'
 import v1Router         from './routes/v1/index.js'
 
 const app  = express()
@@ -54,6 +55,7 @@ app.use('/api/apportionments', apportRoutes)
 app.use('/api/notifications',  notifRoutes)
 app.use('/api/invitations',    inviteRoutes)
 app.use('/api/billing',        billingRoutes)
+app.use('/api/ai',             aiRoutes)
 
 // Public REST API v1 (API key auth handled inside v1Router)
 app.use('/v1', v1Router)
