@@ -926,7 +926,7 @@ function RequestAdjusterInfoModal({ matter, onClose }) {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-start justify-between p-6 border-b border-slate-200">
           <div>
-            <h2 className="font-semibold text-lg text-slate-900">Request Info from Adjuster</h2>
+            <h2 className="font-semibold text-lg text-slate-900">Request Info from a Firm</h2>
             <p className="text-sm text-slate-400 mt-0.5">Send an email asking for coverage details</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 mt-1"><X className="h-5 w-5" /></button>
@@ -1760,7 +1760,7 @@ export default function MatterDetail() {
                     <Plus className="h-4 w-4" /> Add Party
                   </button>
                   <button onClick={() => setShowAdjusterModal(true)} className="btn-secondary">
-                    <Mail className="h-4 w-4" /> Request Info from Adjuster
+                    <Mail className="h-4 w-4" /> Request Info from a Firm
                   </button>
                 </div>
               </div>
@@ -2563,6 +2563,7 @@ export default function MatterDetail() {
       {/* Modals */}
       {showEditMatter  && <EditMatterModal matter={matter} onClose={() => setShowEditMatter(false)} />}
       {showAddParty    && <AddPartyModal   matterId={matterId} existingParties={parties} onClose={() => setShowAddParty(false)} />}
+      {showAdjusterModal && matter && <RequestAdjusterInfoModal matter={matter} onClose={() => setShowAdjusterModal(false)} />}
       {editingParty    && <EditPartyModal  party={editingParty} matterId={matterId} onClose={() => setEditingParty(null)} />}
       {(showAddInsurer || addInsurerForParty) && (
         <AddInsurerModal
