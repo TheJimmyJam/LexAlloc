@@ -19,6 +19,8 @@ import Settings           from './pages/Settings.jsx'
 import ClientPortal       from './pages/ClientPortal.jsx'
 import InsurerDirectory   from './pages/InsurerDirectory.jsx'
 import TwoFactorChallenge from './pages/TwoFactorChallenge.jsx'
+import PrivacyPolicy     from './pages/PrivacyPolicy.jsx'
+import TermsOfService    from './pages/TermsOfService.jsx'
 
 // Requires a logged-in session (aal1 is fine) — used for /2fa-challenge itself
 function AuthenticatedRoute({ children }) {
@@ -88,6 +90,8 @@ export default function App() {
         <Route path="/login"    element={<PublicRoute><Login /></PublicRoute>} />
         <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
+        <Route path="/terms"   element={<TermsOfService />} />
 
         {/* 2FA challenge — requires session but not yet aal2 */}
         <Route path="/2fa-challenge" element={<AuthenticatedRoute><TwoFactorChallenge /></AuthenticatedRoute>} />
