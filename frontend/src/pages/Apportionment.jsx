@@ -6,7 +6,7 @@ import { generateDemandLetterBlob, getDemandLetterFilename } from '../lib/genera
 import { generateApportionmentReport } from '../lib/generateApportionmentReport.js'
 import DemandLetterModal from '../components/DemandLetterModal.jsx'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2, AlertTriangle, Mail, FileDown, Bell, Clock, BookOpen, PlugZap, Lock, Unlock, Pencil } from 'lucide-react'
+import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2, AlertTriangle, Mail, FileDown, Bell, Clock, BookOpen, PlugZap, Lock, Unlock, Pencil, Sparkles, ChevronUp, Info } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays } from 'date-fns'
 import { useState, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
@@ -339,6 +339,9 @@ export default function Apportionment() {
   const [overrideModal,  setOverrideModal]  = useState(null)   // { ia, partyName }
   const [generatingAll, setGeneratingAll] = useState(false)
   const [sendingReminder, setSendingReminder] = useState(new Set()) // set of ia.ids
+  const [aiRec,          setAiRec]          = useState(null)   // recommendation result
+  const [aiLoading,      setAiLoading]      = useState(false)
+  const [aiOpen,         setAiOpen]         = useState(false)  // panel expanded
 
   const { data: apport, isLoading } = useQuery({
     queryKey: ['apportionment', apportionmentId],
@@ -524,6 +527,43 @@ export default function Apportionment() {
     }
   }
 
+  // ── AI Method Advisor ─────────────────────────────────────────────────────
+  const fetchAiRecommendation = async () => {
+    setAiLoading(true)
+    setAiOpen(true)
+    try {
+      const parties = (apport.party_apportionments || []).map(pa => ({
+        name:       pa.parties?.name || 'Unknown',
+        type:       pa.parties?.type || 'party',
+        share_pct:  pa.percentage,
+        policy_periods: (pa.insurer_apportionments || []).map(ia => ({
+          insurer_name: ia.insurers?.name,
+          start:        ia.insurer_policy_periods?.policy_start,
+          end:          ia.insurer_policy_periods?.policy_end,
+          limit_usd:    ia.insurer_policy_periods?.policy_limit,
+        })),
+      }))
+
+      const context = {
+        matter_name:    apport.matters?.name,
+        matter_number:  apport.matters?.matter_number,
+        invoice_total:  apport.invoices?.total_amount,
+        service_start:  apport.invoices?.service_start,
+        service_end:    apport.invoices?.service_end,
+        current_method: apport.calculation_method,
+        carriers_count: parties.flatMap(p => p.policy_periods).length,
+        parties,
+      }
+
+      const result = await api.recommendMethod(context)
+      setAiRec(result)
+    } catch (err) {
+      toast.error('AI analysis failed: ' + (err.message || 'Check that OPENAI_API_KEY is set on Railway'))
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
   const handlePrint = () => window.print()
 
   const handleDownloadPDF = () => {
@@ -693,6 +733,143 @@ export default function Apportionment() {
             <button onClick={handleDownloadPDF} className="btn-primary"><Download className="h-4 w-4" /> Export Report (PDF)</button>
           </div>
         </div>
+      </div>
+
+      {/* ── AI Method Advisor ── */}
+      <div className="mb-6 print:hidden">
+        {/* Collapsed trigger */}
+        {!aiOpen && (
+          <button
+            onClick={fetchAiRecommendation}
+            disabled={aiLoading}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-violet-200 bg-violet-50 hover:bg-violet-100 text-violet-700 text-sm font-medium transition-colors disabled:opacity-60"
+          >
+            <Sparkles className="h-4 w-4" />
+            {aiLoading ? 'Analyzing matter…' : 'AI Method Advisor — get a recommendation'}
+          </button>
+        )}
+
+        {/* Expanded panel */}
+        {aiOpen && (
+          <div className="card border border-violet-200 overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3.5 bg-violet-50 border-b border-violet-100">
+              <div className="flex items-center gap-2 text-violet-700 font-semibold text-sm">
+                <Sparkles className="h-4 w-4" />
+                AI Method Advisor
+              </div>
+              <div className="flex items-center gap-2">
+                {!aiRec && !aiLoading && (
+                  <button
+                    onClick={fetchAiRecommendation}
+                    className="text-xs text-violet-600 hover:text-violet-800 font-medium"
+                  >
+                    Analyze
+                  </button>
+                )}
+                {aiRec && (
+                  <button
+                    onClick={fetchAiRecommendation}
+                    disabled={aiLoading}
+                    className="text-xs text-violet-500 hover:text-violet-700 font-medium"
+                  >
+                    Re-analyze
+                  </button>
+                )}
+                <button onClick={() => setAiOpen(false)} className="text-violet-400 hover:text-violet-600">
+                  <ChevronUp className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5">
+              {aiLoading && (
+                <div className="flex items-center gap-3 text-slate-500 text-sm py-4">
+                  <Sparkles className="h-5 w-5 text-violet-400 animate-pulse" />
+                  Analyzing matter facts, policy periods, and carrier count…
+                </div>
+              )}
+
+              {!aiLoading && !aiRec && (
+                <div className="text-center py-6">
+                  <Sparkles className="h-8 w-8 text-violet-300 mx-auto mb-2" />
+                  <p className="text-slate-500 text-sm">Click Analyze to get a defensibility assessment.</p>
+                </div>
+              )}
+
+              {!aiLoading && aiRec && (() => {
+                const METHOD_META = {
+                  pro_rata_time_on_risk: { label: 'Pro-Rata Time on Risk',   color: 'bg-brand-100 text-brand-700',   border: 'border-brand-200'   },
+                  equal_shares:          { label: 'Equal Shares',            color: 'bg-blue-100 text-blue-700',     border: 'border-blue-200'    },
+                  limits_proportional:   { label: 'Limits Proportional',     color: 'bg-amber-100 text-amber-700',   border: 'border-amber-200'   },
+                }
+                const CONF_META = {
+                  high:   { label: 'High confidence',   color: 'bg-green-100 text-green-700'  },
+                  medium: { label: 'Medium confidence', color: 'bg-amber-100 text-amber-700'  },
+                  low:    { label: 'Lower confidence',  color: 'bg-slate-100 text-slate-600'  },
+                }
+                const meta      = METHOD_META[aiRec.recommended_method] || { label: aiRec.recommended_method, color: 'bg-slate-100 text-slate-600', border: 'border-slate-200' }
+                const confMeta  = CONF_META[aiRec.confidence] || CONF_META.medium
+                const isCurrent = aiRec.recommended_method === calcMethod
+
+                return (
+                  <div className="space-y-4">
+                    {/* Recommendation header */}
+                    <div className={`flex items-start justify-between gap-4 p-4 rounded-xl border ${meta.border} bg-opacity-30`} style={{ backgroundColor: 'rgba(139, 92, 246, 0.04)' }}>
+                      <div>
+                        <p className="text-xs text-slate-500 uppercase tracking-wide font-medium mb-1.5">Recommended Method</p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`badge text-sm font-semibold px-3 py-1 ${meta.color}`}>
+                            {meta.label}
+                          </span>
+                          <span className={`badge text-xs ${confMeta.color}`}>{confMeta.label}</span>
+                          {isCurrent && (
+                            <span className="badge text-xs bg-green-100 text-green-700 flex items-center gap-1">
+                              <CheckCircle2 className="h-3 w-3" /> Currently applied
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Key factors */}
+                    {aiRec.key_factors?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Key Factors</p>
+                        <div className="space-y-1">
+                          {aiRec.key_factors.map((f, i) => (
+                            <div key={i} className="flex items-start gap-2 text-sm text-slate-700">
+                              <CheckCircle2 className="h-3.5 w-3.5 text-violet-400 mt-0.5 flex-shrink-0" />
+                              {f}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Rationale */}
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Rationale</p>
+                      <p className="text-sm text-slate-700 leading-relaxed">{aiRec.rationale}</p>
+                    </div>
+
+                    {/* Caveats */}
+                    {aiRec.caveats && (
+                      <div className="flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-lg p-3 text-sm text-amber-800">
+                        <Info className="h-4 w-4 mt-0.5 flex-shrink-0 text-amber-500" />
+                        <p>{aiRec.caveats}</p>
+                      </div>
+                    )}
+
+                    {/* Disclaimer */}
+                    <p className="text-xs text-slate-400 pt-1 border-t border-slate-100">
+                      AI-assisted analysis for decision support only. Final method selection is the responsibility of counsel.
+                    </p>
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Invoice Summary Banner */}
