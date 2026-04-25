@@ -68,7 +68,44 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Use vision for all uploads (handles both text-based and scanned PDFs)
+    // Download the file and base64-encode it (chunked to avoid call stack overflow on large files)
+    const fileResp = await fetch(fileUrl)
+    if (!fileResp.ok) {
+      return new Response(
+        JSON.stringify({ error: `Failed to fetch file: ${fileResp.status}` }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+    const fileBytes = await fileResp.arrayBuffer()
+    const bytes     = new Uint8Array(fileBytes)
+    let binary      = ''
+    const chunkSize = 8192
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+    }
+    const base64Data = btoa(binary)
+
+    // Detect whether this is a PDF or an image
+    const mimeType   = fileType || fileResp.headers.get('content-type') || 'application/octet-stream'
+    const isPdf      = mimeType.includes('pdf')
+
+    // Build the file content block for OpenAI
+    const fileContentBlock = isPdf
+      ? {
+          type: 'file',
+          file: {
+            filename: 'invoice.pdf',
+            file_data: `data:application/pdf;base64,${base64Data}`,
+          },
+        }
+      : {
+          type: 'image_url',
+          image_url: {
+            url:    `data:${mimeType};base64,${base64Data}`,
+            detail: 'high',
+          },
+        }
+
     const resp = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -83,7 +120,7 @@ Deno.serve(async (req) => {
             role: 'user',
             content: [
               { type: 'text', text: 'Parse this legal invoice and return the structured JSON:' },
-              { type: 'image_url', image_url: { url: fileUrl, detail: 'high' } },
+              fileContentBlock,
             ],
           },
         ],
