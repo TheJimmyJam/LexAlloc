@@ -348,17 +348,21 @@ function EditPartyModal({ party, matterId, onClose }) {
   const qc = useQueryClient()
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({
     defaultValues: {
-      name:             party.name,
-      share_percentage: party.share_percentage,
-      notes:            party.notes || '',
+      name:               party.name,
+      share_percentage:   party.share_percentage,
+      notes:              party.notes              || '',
+      responsible_start:  party.responsible_start  || '',
+      responsible_end:    party.responsible_end    || '',
     }
   })
 
   const onSubmit = async (values) => {
     const { error } = await supabase.from('la_parties').update({
-      name:             values.name,
-      share_percentage: parseFloat(values.share_percentage),
-      notes:            values.notes,
+      name:               values.name,
+      share_percentage:   parseFloat(values.share_percentage),
+      notes:              values.notes,
+      responsible_start:  values.responsible_start || null,
+      responsible_end:    values.responsible_end   || null,
     }).eq('id', party.id)
     if (error) { toast.error(error.message); return }
     toast.success('Party updated!')
@@ -386,6 +390,20 @@ function EditPartyModal({ party, matterId, onClose }) {
               placeholder="50.00"
               {...register('share_percentage', { required: 'Required', min: 0, max: 100 })} />
             {errors.share_percentage && <p className="text-red-500 text-xs mt-1">{errors.share_percentage.message}</p>}
+          </div>
+          <div className="border-t border-slate-100 pt-4">
+            <label className="form-label mb-1">Dates of Service Responsible For</label>
+            <p className="text-xs text-slate-400 mb-3">Only invoices whose service period overlaps this range will include this party in the apportionment. Leave blank to include in all invoices.</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="form-label text-xs">From</label>
+                <input type="date" className="form-input text-sm" {...register('responsible_start')} />
+              </div>
+              <div>
+                <label className="form-label text-xs">To</label>
+                <input type="date" className="form-input text-sm" {...register('responsible_end')} />
+              </div>
+            </div>
           </div>
           <div>
             <label className="form-label">Notes</label>
@@ -417,11 +435,13 @@ function AddPartyModal({ matterId, existingParties = [], onClose }) {
 
   const onSubmit = async (values) => {
     const { data: inserted, error } = await supabase.from('la_parties').insert({
-      matter_id:        matterId,
-      org_id:           profile.org_id,
-      name:             values.name,
-      share_percentage: parseFloat(values.share_percentage) || 0,
-      notes:            values.notes,
+      matter_id:          matterId,
+      org_id:             profile.org_id,
+      name:               values.name,
+      share_percentage:   parseFloat(values.share_percentage) || 0,
+      notes:              values.notes,
+      responsible_start:  values.responsible_start || null,
+      responsible_end:    values.responsible_end   || null,
     }).select().single()
     if (error) { toast.error(error.message); return }
 
@@ -489,6 +509,20 @@ function AddPartyModal({ matterId, existingParties = [], onClose }) {
             </label>
           )}
 
+          <div className="border-t border-slate-100 pt-4">
+            <label className="form-label mb-1">Dates of Service Responsible For</label>
+            <p className="text-xs text-slate-400 mb-3">Only invoices whose service period overlaps this range will include this party in the apportionment. Leave blank to include in all invoices.</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="form-label text-xs">From</label>
+                <input type="date" className="form-input text-sm" {...register('responsible_start')} />
+              </div>
+              <div>
+                <label className="form-label text-xs">To</label>
+                <input type="date" className="form-input text-sm" {...register('responsible_end')} />
+              </div>
+            </div>
+          </div>
           <div>
             <label className="form-label">Notes</label>
             <textarea className="form-input h-20 resize-none" {...register('notes')} />
@@ -1657,7 +1691,17 @@ export default function MatterDetail() {
                           <td className="pl-3 py-4 text-slate-400">
                             <ChevronRight className={`h-4 w-4 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} />
                           </td>
-                          <td className="px-4 py-4 font-medium text-slate-800">{p.name}</td>
+                          <td className="px-4 py-4">
+                            <p className="font-medium text-slate-800">{p.name}</p>
+                            {(p.responsible_start || p.responsible_end) && (
+                              <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+                                <Clock className="h-3 w-3 flex-shrink-0" />
+                                {p.responsible_start ? format(parseISO(p.responsible_start), 'MM/dd/yyyy') : '…'}
+                                {' – '}
+                                {p.responsible_end ? format(parseISO(p.responsible_end), 'MM/dd/yyyy') : '…'}
+                              </p>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
                             {editingPct[p.id] !== undefined ? (
                               <div className="flex items-center justify-end gap-1">
