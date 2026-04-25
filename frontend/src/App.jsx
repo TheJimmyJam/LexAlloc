@@ -22,6 +22,7 @@ import TwoFactorChallenge from './pages/TwoFactorChallenge.jsx'
 import PrivacyPolicy     from './pages/PrivacyPolicy.jsx'
 import TermsOfService    from './pages/TermsOfService.jsx'
 import Financials        from './pages/Financials.jsx'
+import SetPassword       from './pages/SetPassword.jsx'
 
 // Requires a logged-in session (aal1 is fine) — used for /2fa-challenge itself
 function AuthenticatedRoute({ children }) {
@@ -91,6 +92,7 @@ export default function App() {
         <Route path="/login"    element={<PublicRoute><Login /></PublicRoute>} />
         <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/set-password"   element={<SetPassword />} />
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/terms"   element={<TermsOfService />} />
 

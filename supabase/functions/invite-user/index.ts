@@ -154,7 +154,7 @@ Deno.serve(async (req: Request) => {
     const orgName = org?.name ?? 'your organization'
 
     // Generate invite link (does NOT send Supabase's default email)
-    const redirectTo = `${FRONTEND_URL}/login`
+    const redirectTo = `${FRONTEND_URL}/set-password`
     const { data: linkData, error: linkErr } = await db.auth.admin.generateLink({
       type:    'invite',
       email,
