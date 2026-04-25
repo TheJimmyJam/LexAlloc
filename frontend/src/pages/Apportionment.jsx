@@ -767,8 +767,8 @@ export default function Apportionment() {
                 {partyApps.map((pa) => (
                   <tr key={pa.id}>
                     <td className="py-3 font-semibold text-slate-800">{pa.parties?.name}</td>
-                    <td className="py-3 text-right font-bold text-brand-700">{formatPercent(pa.percentage)}</td>
-                    <td className="py-3 text-right font-bold text-slate-900">{formatCurrency(pa.amount)}</td>
+                    <td className="py-3 text-right whitespace-nowrap font-bold text-brand-700">{formatPercent(pa.percentage)}</td>
+                    <td className="py-3 text-right whitespace-nowrap font-bold text-slate-900">{formatCurrency(pa.amount)}</td>
                     <td className="py-3 text-right text-sm text-slate-500">
                       {pa.insurer_apportionments?.length || 0} carrier{pa.insurer_apportionments?.length !== 1 ? 's' : ''}
                     </td>
@@ -1120,9 +1120,9 @@ export default function Apportionment() {
                       <td className="py-2.5 font-medium text-slate-800 text-sm">{pa.parties?.name}</td>
                       <td className="py-2.5 text-sm text-slate-600">{ia.insurers?.name}</td>
                       {isTOR && <td className="py-2.5 text-right text-sm text-slate-600">{ia.days_on_risk}</td>}
-                      <td className="py-2.5 text-right text-sm text-brand-600 font-medium">{formatPercent(ia.percentage)}</td>
-                      <td className="py-2.5 text-right text-sm text-slate-500">{formatPercent(pa.percentage)}</td>
-                      <td className="py-2.5 text-right font-bold text-slate-900">{formatCurrency(ia.amount)}</td>
+                      <td className="py-2.5 text-right whitespace-nowrap text-sm text-brand-600 font-medium">{formatPercent(ia.percentage)}</td>
+                      <td className="py-2.5 text-right whitespace-nowrap text-sm text-slate-500">{formatPercent(pa.percentage)}</td>
+                      <td className="py-2.5 text-right whitespace-nowrap font-bold text-slate-900">{formatCurrency(ia.amount)}</td>
                     </tr>
                   ))
                 )}
@@ -1130,7 +1130,7 @@ export default function Apportionment() {
               <tfoot>
                 <tr className="border-t-2 border-slate-300 bg-slate-50">
                   <td colSpan={isTOR ? 5 : 4} className="pt-3 font-bold text-slate-900">Invoice Total</td>
-                  <td className="pt-3 text-right font-bold text-brand-700 text-xl">{formatCurrency(invoice.total_amount)}</td>
+                  <td className="pt-3 text-right whitespace-nowrap font-bold text-brand-700 text-xl">{formatCurrency(invoice.total_amount)}</td>
                 </tr>
               </tfoot>
             </table>
