@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw, CreditCard, Zap, Star, Building, ChevronRight, Loader2, Key, Copy, Eye, EyeOff, Code, Terminal, Palette, Globe, Image } from 'lucide-react'
 import { applyPalette } from '../context/BrandingContext.jsx'
+import { formatCurrency } from '../lib/calculations.js'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
@@ -879,6 +880,20 @@ export default function AdminPanel() {
   const orgCount  = orgs.length
   const userCount = users.length
 
+  const { data: paymentStats } = useQuery({
+    queryKey: ['platform-payment-stats'],
+    enabled:  isPlatformAdmin,
+    queryFn:  async () => {
+      const { data, error } = await supabase
+        .from('la_insurer_apportionments')
+        .select('amount_paid')
+        .eq('payment_status', 'paid')
+      if (error) throw error
+      const total = (data || []).reduce((s, r) => s + Number(r.amount_paid || 0), 0)
+      return { total, fee: total * 0.03 }
+    },
+  })
+
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
       {/* Header */}
@@ -914,6 +929,36 @@ export default function AdminPanel() {
           </button>
         )}
       </div>
+
+      {/* ── Platform revenue KPIs (DB Admin only) ── */}
+      {isPlatformAdmin && (
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+              <CreditCard className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Total Received</p>
+              <p className="text-2xl font-bold text-slate-900">
+                {paymentStats ? formatCurrency(paymentStats.total) : '—'}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">All paid obligations platform-wide</p>
+            </div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-400 to-violet-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+              <Zap className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">LexAlloc Revenue <span className="normal-case font-normal">(3%)</span></p>
+              <p className="text-2xl font-bold text-violet-700">
+                {paymentStats ? formatCurrency(paymentStats.fee) : '—'}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">Platform fee on processed payments</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-slate-200 mb-6">
