@@ -9,13 +9,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { layout, ctaButton, infoRow, alertBox } from '../_shared/emailTemplate.ts'
 
 const SUPABASE_URL   = Deno.env.get('SUPABASE_URL')              ?? ''
-const ANON_KEY       = Deno.env.get('SUPABASE_ANON_KEY')         ?? ''
 const SERVICE_KEY    = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 const FRONTEND_URL   = Deno.env.get('FRONTEND_URL')              ?? 'https://lexalloc.netlify.app'
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')            ?? ''
 const RESEND_FROM    = Deno.env.get('RESEND_FROM_EMAIL')         ?? 'noreply@lexalloc.app'
 
-// Admin client for privileged operations (generating links, upserting profiles)
 const db = createClient(SUPABASE_URL, SERVICE_KEY)
 
 const corsHeaders = {
@@ -112,15 +110,20 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // Verify caller — use user-context client (anon key + their JWT) for auth
+    // verify_jwt: true means Supabase gateway already validated the JWT.
+    // Decode the payload to get the caller's user ID without a second API call.
     const authHeader = req.headers.get('Authorization') ?? ''
     if (!authHeader) return json({ error: 'Unauthorized' }, 401)
 
-    const userClient = createClient(SUPABASE_URL, ANON_KEY, {
-      global: { headers: { Authorization: authHeader } },
-    })
-    const { data: { user: caller }, error: authErr } = await userClient.auth.getUser()
-    if (authErr || !caller) return json({ error: 'Unauthorized' }, 401)
+    const token = authHeader.replace('Bearer ', '').trim()
+    let callerId: string
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+      callerId = payload.sub
+      if (!callerId) throw new Error('no sub')
+    } catch {
+      return json({ error: 'Unauthorized' }, 401)
+    }
 
     const { email, role = 'user', org_id } = await req.json()
     if (!email || !org_id) return json({ error: 'email and org_id are required' }, 400)
@@ -129,7 +132,7 @@ Deno.serve(async (req: Request) => {
     const { data: callerProfile, error: profileErr } = await db
       .from('la_profiles')
       .select('role, org_id, is_platform_admin, first_name, last_name, email')
-      .eq('id', caller.id)
+      .eq('id', callerId)
       .single()
 
     if (profileErr || !callerProfile) return json({ error: 'Could not verify permissions' }, 403)
