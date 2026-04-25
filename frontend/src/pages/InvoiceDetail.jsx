@@ -113,7 +113,7 @@ export default function InvoiceDetail() {
             party_apportionment_id: pa.id,
             insurer_id:             ins.insurer_id,
             days_on_risk:           ins.days_on_risk ?? null,
-            total_days:             ins.total_exposure_days ?? null,
+            total_days:             ins.total_coverage_days ?? null,
             percentage:             ins.normalized_percentage,
             amount:                 ins.amount,
           })
@@ -380,7 +380,7 @@ export default function InvoiceDetail() {
                                     <td className="py-1.5 pr-4 font-medium text-slate-700">{ins.insurer_name}</td>
                                     {m.value === 'pro_rata_time_on_risk' && (
                                       <td className="py-1.5 pr-4 text-right text-slate-500">
-                                        {ins.days_on_risk != null ? `${ins.days_on_risk} / ${ins.total_exposure_days}d` : '—'}
+                                        {ins.days_on_risk != null ? `${ins.days_on_risk} / ${ins.total_coverage_days}d` : '—'}
                                       </td>
                                     )}
                                     {m.value === 'limits_proportional' && (
