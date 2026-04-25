@@ -90,6 +90,9 @@ export default function Landing() {
           <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[800px] h-[600px] bg-brand-600/20 rounded-full blur-3xl" />
         </div>
         <div className="relative max-w-4xl mx-auto">
+          <div className="flex justify-center mb-10">
+            <img src="/logo.svg" alt="LexAlloc" className="h-28 lg:h-36 w-auto" />
+          </div>
           <h1 className="text-5xl lg:text-7xl font-extrabold leading-tight mb-6 tracking-tight">
             Apportion Legal Fees<br />
             <span className="bg-gradient-to-r from-brand-400 to-cyan-400 bg-clip-text text-transparent">
