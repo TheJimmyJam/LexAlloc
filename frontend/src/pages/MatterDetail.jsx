@@ -1475,8 +1475,8 @@ export default function MatterDetail() {
                         <tr key={i} className="hover:bg-slate-50">
                           <td className="px-5 py-4 font-medium text-slate-800">{ins.name}</td>
                           <td className="hidden sm:table-cell px-4 py-4 text-sm font-mono text-slate-500">{ins.policy_number || '—'}</td>
-                          <td className="px-4 py-4 text-right font-semibold text-slate-800">{formatCurrency(ins.owed)}</td>
-                          <td className="px-4 py-4 text-right font-semibold text-green-700">{formatCurrency(ins.paid)}</td>
+                          <td className="px-4 py-4 text-right whitespace-nowrap font-semibold text-slate-800">{formatCurrency(ins.owed)}</td>
+                          <td className="px-4 py-4 text-right whitespace-nowrap font-semibold text-green-700">{formatCurrency(ins.paid)}</td>
                           <td className="px-4 py-4 text-right">
                             <span className={`font-semibold ${outstanding > 0 ? 'text-amber-600' : 'text-green-600'}`}>
                               {formatCurrency(outstanding)}
@@ -1507,9 +1507,9 @@ export default function MatterDetail() {
                   <tfoot>
                     <tr className="border-t-2 border-slate-200 bg-slate-50">
                       <td colSpan={2} className="px-5 py-3 font-bold text-slate-900">Total</td>
-                      <td className="px-4 py-3 text-right font-bold text-slate-900">{formatCurrency(totalApportioned)}</td>
-                      <td className="px-4 py-3 text-right font-bold text-green-700">{formatCurrency(totalPaid)}</td>
-                      <td className="px-4 py-3 text-right font-bold text-amber-600">{formatCurrency(totalOutstanding)}</td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap font-bold text-slate-900">{formatCurrency(totalApportioned)}</td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap font-bold text-green-700">{formatCurrency(totalPaid)}</td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap font-bold text-amber-600">{formatCurrency(totalOutstanding)}</td>
                       <td /><td />
                     </tr>
                   </tfoot>
@@ -1538,8 +1538,8 @@ export default function MatterDetail() {
                     {Object.entries(byParty).sort((a,b) => b[1].owed - a[1].owed).map(([name, p]) => (
                       <tr key={name} className="hover:bg-slate-50">
                         <td className="px-5 py-4 font-medium text-slate-800">{name}</td>
-                        <td className="px-4 py-4 text-right font-semibold text-slate-800">{formatCurrency(p.owed)}</td>
-                        <td className="px-4 py-4 text-right font-semibold text-green-700">{formatCurrency(p.paid)}</td>
+                        <td className="px-4 py-4 text-right whitespace-nowrap font-semibold text-slate-800">{formatCurrency(p.owed)}</td>
+                        <td className="px-4 py-4 text-right whitespace-nowrap font-semibold text-green-700">{formatCurrency(p.paid)}</td>
                         <td className="px-4 py-4 text-right">
                           <span className={`font-semibold ${p.owed - p.paid > 0 ? 'text-amber-600' : 'text-green-600'}`}>
                             {formatCurrency(p.owed - p.paid)}
@@ -1584,7 +1584,7 @@ export default function MatterDetail() {
                           </td>
                           <td className="px-4 py-3 text-sm text-slate-600">{ia.party_name}</td>
                           <td className="px-4 py-3 text-sm font-medium text-slate-800">{ia.insurers?.name}</td>
-                          <td className="px-4 py-3 text-right font-semibold text-slate-800">{formatCurrency(ia.amount)}</td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap font-semibold text-slate-800">{formatCurrency(ia.amount)}</td>
                           <td className="px-4 py-3 text-right text-green-700 font-semibold">
                             {ia.amount_paid > 0 ? formatCurrency(ia.amount_paid) : '—'}
                           </td>
@@ -2063,7 +2063,7 @@ export default function MatterDetail() {
                       <td className="px-4 py-4 text-sm text-slate-600">
                         {inv.invoice_date ? format(parseISO(inv.invoice_date), 'MM/dd/yyyy') : '—'}
                       </td>
-                      <td className="px-4 py-4 text-right font-semibold text-slate-800">{formatCurrency(inv.total_amount)}</td>
+                      <td className="px-4 py-4 text-right whitespace-nowrap font-semibold text-slate-800">{formatCurrency(inv.total_amount)}</td>
                       <td className="px-4 py-4">
                         <span className={`badge ${statusColors[inv.status] || 'bg-slate-100 text-slate-500'}`}>{inv.status}</span>
                       </td>
@@ -2113,7 +2113,7 @@ export default function MatterDetail() {
                     {apportionments.map(a => (
                       <tr key={a.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => navigate(`/matters/${matterId}/apportionments/${a.id}`)}>
                         <td className="px-5 py-4 font-medium text-slate-800">{a.invoices?.invoice_number || 'Invoice'}</td>
-                        <td className="px-4 py-4 text-right font-semibold">{formatCurrency(a.invoices?.total_amount)}</td>
+                        <td className="px-4 py-4 text-right whitespace-nowrap font-semibold">{formatCurrency(a.invoices?.total_amount)}</td>
                         <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-500 capitalize">{a.calculation_method?.replace('_', ' ')}</td>
                         <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-400">
                           {a.calculated_at ? format(parseISO(a.calculated_at), 'MM/dd/yyyy HH:mm') : '—'}
