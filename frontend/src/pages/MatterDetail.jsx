@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.jsx'
@@ -676,10 +676,12 @@ function EditInsurerModal({ pp, matterId, onClose }) {
 }
 
 // ── Add Insurer Modal ─────────────────────────────────────────────────────────
-function AddInsurerModal({ matterId, parties, onClose }) {
+function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) {
   const { profile } = useAuth()
   const qc = useQueryClient()
-  const { register, control, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm()
+  const { register, control, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm({
+    defaultValues: { party_id: defaultPartyId || '' },
+  })
   const [dirSearch, setDirSearch]     = useState('')
   const [dirOpen, setDirOpen]         = useState(false)
   const [selectedInsurerId, setSelectedInsurerId] = useState(null) // known id from directory
@@ -849,14 +851,22 @@ function AddInsurerModal({ matterId, parties, onClose }) {
             <input className="form-input" placeholder="GL-2019-001234"
               {...register('policy_number')} />
           </div>
-          <div>
-            <label className="form-label">Insured Party *</label>
-            <select className="form-input" {...register('party_id', { required: 'Required' })}>
-              <option value="">Select party…</option>
-              {parties?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-            {errors.party_id && <p className="text-red-500 text-xs mt-1">{errors.party_id.message}</p>}
-          </div>
+          {defaultPartyId ? (
+            <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-2.5 text-sm text-slate-700">
+              <span className="text-xs text-slate-400 uppercase tracking-wide font-semibold mr-2">Party:</span>
+              {parties?.find(p => p.id === defaultPartyId)?.name || 'Selected party'}
+              <input type="hidden" value={defaultPartyId} {...register('party_id', { required: 'Required' })} />
+            </div>
+          ) : (
+            <div>
+              <label className="form-label">Insured Party *</label>
+              <select className="form-input" {...register('party_id', { required: 'Required' })}>
+                <option value="">Select party…</option>
+                {parties?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              {errors.party_id && <p className="text-red-500 text-xs mt-1">{errors.party_id.message}</p>}
+            </div>
+          )}
           <InsurerPolicyFields register={register} control={control} />
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
@@ -882,6 +892,8 @@ export default function MatterDetail() {
   const [editingParty, setEditingParty] = useState(null)
   const [editingPct, setEditingPct] = useState({})   // { [partyId]: stringValue }
   const [showAddInsurer, setShowAddInsurer] = useState(false)
+  const [addInsurerForParty, setAddInsurerForParty] = useState(null) // party object — opens modal pre-scoped
+  const [expandedParties, setExpandedParties] = useState(new Set())
   const [showUploadDoc, setShowUploadDoc] = useState(false)
   const [editingInsurer, setEditingInsurer] = useState(null)
   const [showUploadInvoice, setShowUploadInvoice] = useState(false)
@@ -1599,12 +1611,19 @@ export default function MatterDetail() {
         const isOver    = totalPartyPct > 100
         const isUnder   = totalPartyPct < 100
         const isExact   = totalPartyPct === 100
+
+        const toggleParty = (partyId) => setExpandedParties(prev => {
+          const next = new Set(prev)
+          next.has(partyId) ? next.delete(partyId) : next.add(partyId)
+          return next
+        })
+
         return (
         <div>
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="font-semibold text-slate-900">Parties</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Click any percentage to edit it inline.</p>
+              <h2 className="font-semibold text-slate-900">Parties & Insurers</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Click a party row to expand its insurers. Click any percentage to edit inline.</p>
             </div>
             <div className="flex items-center gap-2 flex-wrap justify-end">
               {isUnder && parties.length > 0 && (
@@ -1620,7 +1639,6 @@ export default function MatterDetail() {
               <button onClick={() => setShowAddParty(true)} className="btn-primary">
                 <Plus className="h-4 w-4" /> Add Party
               </button>
-
             </div>
           </div>
 
@@ -1649,69 +1667,191 @@ export default function MatterDetail() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Name</th>
+                    <th className="w-9" />
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Name</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Type</th>
-                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">
-                      Share %
-                    </th>
+                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Share %</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Insurers</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Notes</th>
                     <th />
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {parties.map(p => (
-                    <tr key={p.id} className="hover:bg-slate-50">
-                      <td className="px-5 py-4 font-medium text-slate-800">{p.name}</td>
-                      <td className="px-4 py-4">
-                        <span className="badge bg-slate-100 text-slate-600 capitalize">{p.type?.replace('_', ' ')}</span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {editingPct[p.id] !== undefined ? (
-                          <div className="flex items-center justify-end gap-1">
-                            <input
-                              type="number" step="0.01" min="0" max="100"
-                              value={editingPct[p.id]}
-                              onChange={e => setEditingPct(prev => ({ ...prev, [p.id]: e.target.value }))}
-                              onBlur={() => savePct(p.id, editingPct[p.id])}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter') { e.target.blur() }
-                                if (e.key === 'Escape') { setEditingPct(prev => { const n={...prev}; delete n[p.id]; return n }) }
-                              }}
-                              className="w-24 text-right form-input py-1 px-2 text-sm font-semibold"
-                              autoFocus
-                            />
-                            <span className="text-xs text-slate-400">%</span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-end gap-2">
-                            <span className="font-semibold text-slate-800">{p.share_percentage}%</span>
-                            <button
-                              onClick={() => setEditingPct(prev => ({ ...prev, [p.id]: String(p.share_percentage) }))}
-                              className="text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded p-1 transition-colors"
-                              title="Edit percentage"
-                            >
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                <tbody>
+                  {parties.map(p => {
+                    const isExpanded    = expandedParties.has(p.id)
+                    const partyInsurers = insurerPeriods.filter(pp => pp.party_id === p.id)
+
+                    return (
+                      <React.Fragment key={p.id}>
+                        {/* ── Party row ── */}
+                        <tr
+                          className="hover:bg-slate-50 border-b border-slate-100 cursor-pointer select-none"
+                          onClick={() => toggleParty(p.id)}
+                        >
+                          <td className="pl-3 py-4 text-slate-400">
+                            <ChevronRight className={`h-4 w-4 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} />
+                          </td>
+                          <td className="px-4 py-4 font-medium text-slate-800">{p.name}</td>
+                          <td className="px-4 py-4">
+                            <span className="badge bg-slate-100 text-slate-600 capitalize">{p.type?.replace('_', ' ')}</span>
+                          </td>
+                          <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
+                            {editingPct[p.id] !== undefined ? (
+                              <div className="flex items-center justify-end gap-1">
+                                <input
+                                  type="number" step="0.01" min="0" max="100"
+                                  value={editingPct[p.id]}
+                                  onChange={e => setEditingPct(prev => ({ ...prev, [p.id]: e.target.value }))}
+                                  onBlur={() => savePct(p.id, editingPct[p.id])}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') { e.target.blur() }
+                                    if (e.key === 'Escape') { setEditingPct(prev => { const n={...prev}; delete n[p.id]; return n }) }
+                                  }}
+                                  className="w-24 text-right form-input py-1 px-2 text-sm font-semibold"
+                                  autoFocus
+                                />
+                                <span className="text-xs text-slate-400">%</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-end gap-2">
+                                <span className="font-semibold text-slate-800">{p.share_percentage}%</span>
+                                <button
+                                  onClick={() => setEditingPct(prev => ({ ...prev, [p.id]: String(p.share_percentage) }))}
+                                  className="text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded p-1 transition-colors"
+                                  title="Edit percentage"
+                                >
+                                  <Edit2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-4 text-sm text-slate-500">
+                            {partyInsurers.length > 0 ? (
+                              <span className="flex items-center gap-1.5">
+                                <Shield className="h-3.5 w-3.5 text-slate-400" />
+                                {partyInsurers.length} insurer{partyInsurers.length !== 1 ? 's' : ''}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 text-xs">none</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-4 text-sm text-slate-400 max-w-xs truncate">{p.notes || '—'}</td>
+                          <td className="px-4 py-4" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => setEditingParty(p)} className="text-slate-300 hover:text-brand-600 transition-colors" title="Edit party">
+                                <Edit2 className="h-4 w-4" />
+                              </button>
+                              <button onClick={() => deleteParty(p.id)} className="text-slate-300 hover:text-red-500 transition-colors" title="Remove party">
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* ── Expanded insurer sub-section ── */}
+                        {isExpanded && (
+                          <tr className="border-b border-slate-100">
+                            <td colSpan={7} className="px-0 py-0 bg-slate-50/60">
+                              <div className="pl-12 pr-5 py-4">
+                                {partyInsurers.length === 0 ? (
+                                  <p className="text-sm text-slate-400 mb-3 flex items-center gap-2">
+                                    <Shield className="h-4 w-4 text-slate-300" />
+                                    No insurers assigned to {p.name} yet.
+                                  </p>
+                                ) : (
+                                  <table className="w-full text-sm mb-3">
+                                    <thead>
+                                      <tr className="text-xs text-slate-400 uppercase tracking-wide border-b border-slate-200">
+                                        <th className="text-left pb-2 pr-4 font-semibold">Insurer</th>
+                                        <th className="text-left pb-2 pr-4 font-semibold">Policy #</th>
+                                        <th className="text-left pb-2 pr-4 font-semibold">Claim #</th>
+                                        <th className="text-left pb-2 pr-4 font-semibold">Claims Rep</th>
+                                        <th className="text-left pb-2 pr-4 font-semibold">Period</th>
+                                        <th className="text-right pb-2 pr-4 font-semibold">Limit</th>
+                                        <th className="text-left pb-2 font-semibold">Exhaustion</th>
+                                        <th className="w-16" />
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                      {partyInsurers.map(pp => {
+                                        const obligated = obligatedByPeriodId[pp.id] || 0
+                                        const xPct      = pp.policy_limit && obligated > 0 ? (obligated / Number(pp.policy_limit)) * 100 : null
+                                        const info      = xPct !== null ? exhaustionInfo(xPct) : null
+                                        const isExhausted = xPct !== null && xPct >= 100
+                                        return (
+                                          <tr key={pp.id} className={`group ${isExhausted ? 'bg-red-50/40' : 'hover:bg-white'}`}>
+                                            <td className="py-2.5 pr-4 font-medium text-slate-800">{pp.insurers?.name}</td>
+                                            <td className="py-2.5 pr-4 font-mono text-xs text-slate-500">{pp.insurers?.policy_number || '—'}</td>
+                                            <td className="py-2.5 pr-4 font-mono text-xs text-slate-500">{pp.claim_number || '—'}</td>
+                                            <td className="py-2.5 pr-4">
+                                              {pp.claims_rep_name ? (
+                                                <div>
+                                                  <p className="text-xs font-medium text-slate-700">{pp.claims_rep_name}</p>
+                                                  {pp.claims_rep_email && (
+                                                    <a href={`mailto:${pp.claims_rep_email}`} className="text-xs text-brand-600 hover:underline">
+                                                      {pp.claims_rep_email}
+                                                    </a>
+                                                  )}
+                                                </div>
+                                              ) : <span className="text-slate-300 text-xs">—</span>}
+                                            </td>
+                                            <td className="py-2.5 pr-4 text-xs text-slate-500 whitespace-nowrap">
+                                              {pp.policy_start ? format(parseISO(pp.policy_start), 'MM/dd/yy') : '—'} – {pp.policy_end ? format(parseISO(pp.policy_end), 'MM/dd/yy') : '—'}
+                                            </td>
+                                            <td className="py-2.5 pr-4 text-right text-xs text-slate-600 whitespace-nowrap">
+                                              {pp.policy_limit ? formatCurrency(pp.policy_limit) : '—'}
+                                            </td>
+                                            <td className="py-2.5">
+                                              {xPct !== null ? (
+                                                <div className="flex items-center gap-2">
+                                                  <div className="w-16 bg-slate-200 rounded-full h-1.5">
+                                                    <div className={`${info.barColor} h-1.5 rounded-full`} style={{ width: `${Math.min(xPct, 100)}%` }} />
+                                                  </div>
+                                                  <span className={`text-xs font-bold ${info.color}`}>{xPct.toFixed(1)}%</span>
+                                                </div>
+                                              ) : <span className="text-xs text-slate-300">—</span>}
+                                            </td>
+                                            <td className="py-2.5 pl-2">
+                                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button
+                                                  onClick={() => setEditingInsurer(pp)}
+                                                  className="text-slate-300 hover:text-brand-600 p-1 rounded transition-colors"
+                                                  title="Edit policy period"
+                                                >
+                                                  <Edit2 className="h-3.5 w-3.5" />
+                                                </button>
+                                                <button
+                                                  onClick={() => deleteInsurer(pp.id)}
+                                                  className="text-slate-300 hover:text-red-500 p-1 rounded transition-colors"
+                                                  title="Remove insurer"
+                                                >
+                                                  <Trash2 className="h-3.5 w-3.5" />
+                                                </button>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        )
+                                      })}
+                                    </tbody>
+                                  </table>
+                                )}
+                                <button
+                                  onClick={() => setAddInsurerForParty(p)}
+                                  className="flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-800 bg-brand-50 hover:bg-brand-100 px-2.5 py-1.5 rounded-lg transition-colors"
+                                >
+                                  <Plus className="h-3.5 w-3.5" /> Add Insurer to {p.name}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
                         )}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-slate-400 max-w-xs truncate">{p.notes || '—'}</td>
-                      <td className="px-4 py-4">
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => setEditingParty(p)} className="text-slate-300 hover:text-brand-600 transition-colors" title="Edit name / type / notes">
-                            <Edit2 className="h-4 w-4" />
-                          </button>
-                          <button onClick={() => deleteParty(p.id)} className="text-slate-300 hover:text-red-500 transition-colors" title="Remove party">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                      </React.Fragment>
+                    )
+                  })}
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-slate-200 bg-slate-50">
-                    <td colSpan={2} className="px-5 py-3 text-sm font-semibold text-slate-700">Total</td>
+                    <td colSpan={3} className="px-5 py-3 text-sm font-semibold text-slate-700">Total</td>
                     <td className={`px-4 py-3 text-right font-bold text-sm ${
                       isExact ? 'text-green-600' : isOver ? 'text-red-600' : 'text-amber-600'
                     }`}>
@@ -1720,7 +1860,7 @@ export default function MatterDetail() {
                       {isUnder && <span className="ml-1.5 text-xs font-normal text-amber-500">({remaining}% remaining)</span>}
                       {isOver  && <span className="ml-1.5 text-xs font-normal text-red-500">(over by {Math.abs(remaining)}%)</span>}
                     </td>
-                    <td colSpan={2} />
+                    <td colSpan={3} />
                   </tr>
                 </tfoot>
               </table>
@@ -2331,7 +2471,14 @@ export default function MatterDetail() {
       {showEditMatter  && <EditMatterModal matter={matter} onClose={() => setShowEditMatter(false)} />}
       {showAddParty    && <AddPartyModal   matterId={matterId} existingParties={parties} onClose={() => setShowAddParty(false)} />}
       {editingParty    && <EditPartyModal  party={editingParty} matterId={matterId} onClose={() => setEditingParty(null)} />}
-      {showAddInsurer  && <AddInsurerModal matterId={matterId} parties={parties} onClose={() => setShowAddInsurer(false)} />}
+      {(showAddInsurer || addInsurerForParty) && (
+        <AddInsurerModal
+          matterId={matterId}
+          parties={parties}
+          defaultPartyId={addInsurerForParty?.id || null}
+          onClose={() => { setShowAddInsurer(false); setAddInsurerForParty(null) }}
+        />
+      )}
       {editingInsurer  && <EditInsurerModal pp={editingInsurer} matterId={matterId} onClose={() => setEditingInsurer(null)} />}
       {showUploadInvoice && (
         <InvoiceUploadModal
