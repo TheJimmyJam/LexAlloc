@@ -15,7 +15,7 @@ export default function Settings() {
 
   return (
     <div className="p-6 lg:p-8 max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold text-slate-900 mb-6">Settings</h1>
+      <h1 className="text-2xl font-semibold tracking-tight text-slate-900 mb-6">Settings</h1>
 
       <div className="card mb-6">
         <div className="flex items-center gap-2 p-5 border-b border-slate-100"><User className="h-4 w-4 text-brand-600"/><h2 className="font-semibold text-slate-900">Profile</h2></div>

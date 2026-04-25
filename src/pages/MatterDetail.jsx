@@ -17,7 +17,13 @@ const TABS = [
   { key:'apportionments', label:'Apportionments', icon:Calculator },
 ]
 
-const STATUS_COLORS = { draft:'bg-slate-100 text-slate-500', parsed:'bg-blue-100 text-blue-700', apportioned:'bg-purple-100 text-purple-700', active:'bg-green-100 text-green-700' }
+const STATUS_COLORS = {
+  draft:       'bg-slate-100 text-slate-500',
+  parsed:      'bg-blue-50 text-blue-700 ring-1 ring-blue-200/60',
+  apportioned: 'bg-purple-50 text-purple-700 ring-1 ring-purple-200/60',
+  active:      'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/60',
+  pending:     'bg-amber-50 text-amber-700 ring-1 ring-amber-200/60',
+}
 
 function PartyModal({ matterId, profile, onClose, onSaved }) {
   const { register, handleSubmit } = useForm()
@@ -120,7 +126,7 @@ export default function MatterDetail() {
         <Link to="/matters" className="flex items-center gap-1 text-slate-500 hover:text-brand-600 text-sm mb-3"><ArrowLeft className="h-3 w-3"/> All Matters</Link>
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">{matter.name}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{matter.name}</h1>
             <p className="text-slate-500 text-sm mt-1">{matter.matter_number && <span className="mr-3">#{matter.matter_number}</span>}{matter.description}</p>
           </div>
           <span className={`badge ${STATUS_COLORS[matter.status]||'bg-slate-100 text-slate-500'} text-sm px-3 py-1`}>{matter.status}</span>
@@ -128,11 +134,15 @@ export default function MatterDetail() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-slate-200 mb-6 overflow-x-auto">
-        {TABS.map(({key,label,icon:Icon}) => (
+      <div className="flex gap-0.5 border-b border-slate-200 mb-6 overflow-x-auto">
+        {TABS.map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setTab(key)}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${tab===key?'border-brand-600 text-brand-600':'border-transparent text-slate-500 hover:text-slate-700'}`}>
-            <Icon className="h-4 w-4"/>{label}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all duration-150 whitespace-nowrap ${
+              tab === key
+                ? 'border-brand-600 text-brand-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
+            }`}>
+            <Icon className="h-3.5 w-3.5" />{label}
           </button>
         ))}
       </div>
@@ -164,7 +174,7 @@ export default function MatterDetail() {
               <div className="p-10 text-center text-slate-400"><Users className="h-8 w-8 mx-auto mb-2 text-slate-300"/><p>No parties yet.</p><button onClick={() => setShowParty(true)} className="btn-primary mt-4"><Plus className="h-4 w-4"/> Add Party</button></div>
             ) : (
               <table className="w-full">
-                <thead><tr className="border-b border-slate-100 bg-slate-50">{['Name','Type','Share %','Notes',''].map(h=><th key={h} className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">{h}</th>)}</tr></thead>
+                <thead><tr className="border-b border-slate-100 bg-slate-50/80">{['Name','Type','Share %','Notes',''].map(h=><th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">{h}</th>)}</tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {parties.map(p => (
                     <tr key={p.id} className="hover:bg-slate-50">
@@ -196,7 +206,7 @@ export default function MatterDetail() {
               <div className="p-10 text-center text-slate-400"><Shield className="h-8 w-8 mx-auto mb-2 text-slate-300"/><p>No insurers added yet.</p></div>
             ) : (
               <table className="w-full">
-                <thead><tr className="border-b border-slate-100 bg-slate-50">{['Insurer','Policy #','Party','Policy Period','Limit',''].map(h=><th key={h} className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">{h}</th>)}</tr></thead>
+                <thead><tr className="border-b border-slate-100 bg-slate-50/80">{['Insurer','Policy #','Party','Policy Period','Limit',''].map(h=><th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">{h}</th>)}</tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {insurers.map(pp => (
                     <tr key={pp.id} className="hover:bg-slate-50">
@@ -227,7 +237,7 @@ export default function MatterDetail() {
               <div className="p-10 text-center text-slate-400"><FileText className="h-8 w-8 mx-auto mb-2 text-slate-300"/><p>No invoices yet.</p><button onClick={() => setShowUpload(true)} className="btn-primary mt-4"><Upload className="h-4 w-4"/> Upload First Invoice</button></div>
             ) : (
               <table className="w-full">
-                <thead><tr className="border-b border-slate-100 bg-slate-50">{['Invoice #','Billing Firm','Date','Amount','Status',''].map(h=><th key={h} className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">{h}</th>)}</tr></thead>
+                <thead><tr className="border-b border-slate-100 bg-slate-50/80">{['Invoice #','Billing Firm','Date','Amount','Status',''].map(h=><th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">{h}</th>)}</tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {invoices.map(inv => (
                     <tr key={inv.id} className="hover:bg-slate-50">
@@ -255,7 +265,7 @@ export default function MatterDetail() {
               <div className="p-10 text-center text-slate-400"><Calculator className="h-8 w-8 mx-auto mb-2 text-slate-300"/><p>No apportionments yet.</p><p className="text-xs mt-1">Open an invoice and click "Run Apportionment".</p></div>
             ) : (
               <table className="w-full">
-                <thead><tr className="border-b border-slate-100 bg-slate-50">{['Invoice','Total','Method','Calculated',''].map(h=><th key={h} className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">{h}</th>)}</tr></thead>
+                <thead><tr className="border-b border-slate-100 bg-slate-50/80">{['Invoice','Total','Method','Calculated',''].map(h=><th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">{h}</th>)}</tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {apports.map(a => (
                     <tr key={a.id} className="hover:bg-slate-50">

@@ -7,7 +7,11 @@ import { Plus, Search, FolderOpen, X, ChevronRight, FileText, Calculator } from 
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 
-const STATUS_COLORS = { active:'bg-green-100 text-green-700', closed:'bg-slate-100 text-slate-600', pending:'bg-yellow-100 text-yellow-700' }
+const STATUS_COLORS = {
+  active:  'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/60',
+  closed:  'bg-slate-100 text-slate-500',
+  pending: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/60',
+}
 
 function Modal({ onClose, profile, onCreated }) {
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm()
@@ -72,8 +76,8 @@ export default function Matters() {
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Matters</h1>
-          <p className="text-slate-500 text-sm mt-1">{matters.length} matter{matters.length !== 1 ? 's' : ''} total</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Matters</h1>
+          <p className="text-slate-500 text-sm mt-0.5">{matters.length} matter{matters.length !== 1 ? 's' : ''} total</p>
         </div>
         <button onClick={() => setShowModal(true)} className="btn-primary"><Plus className="h-4 w-4" /> New Matter</button>
       </div>
@@ -112,9 +116,9 @@ export default function Matters() {
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b border-slate-100 bg-slate-50">
+              <tr className="border-b border-slate-100 bg-slate-50/80">
                 {['Matter','Number','Parties','Invoices','Status','Created',''].map(h => (
-                  <th key={h} className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">{h}</th>
+                  <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">{h}</th>
                 ))}
               </tr>
             </thead>
