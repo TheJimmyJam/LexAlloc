@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { formatCurrency, apportionInvoice } from '../lib/calculations.js'
-import { ArrowLeft, Calculator, FileText, ExternalLink, Loader2, GitCompare, ChevronDown, ChevronUp, CheckCircle2, AlertCircle, AlertTriangle, Sparkles, Info } from 'lucide-react'
+import { ArrowLeft, Calculator, FileText, ExternalLink, Loader2, GitCompare, ChevronDown, ChevronUp, CheckCircle2, AlertCircle, AlertTriangle, Sparkles, Info, Eye } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
@@ -256,6 +256,57 @@ export default function InvoiceDetail() {
       limits_proportional:   apportionInvoice(invoice, partiesWithPolicies, 'limits_proportional'),
     }
   }, [invoice, partiesWithPolicies])
+
+  // Live preview for the currently selected method
+  const livePreview = useMemo(
+    () => comparisonResults?.[calcMethod] ?? null,
+    [comparisonResults, calcMethod]
+  )
+
+  // Validation issues surfaced in the preview panel
+  const previewIssues = useMemo(() => {
+    const issues = []
+    if (!invoice?.service_start) {
+      issues.push({ level: 'error', msg: 'Invoice has no service start date — apportionment cannot run until one is set.' })
+      return issues
+    }
+    if (parties.length === 0) {
+      issues.push({ level: 'error', msg: 'No parties on this matter yet. Add parties in the Parties tab before running apportionment.' })
+      return issues
+    }
+    if (partiesWithPolicies.length === 0) {
+      issues.push({ level: 'error', msg: 'No parties overlap with the invoice service period. Check responsible-date ranges on each party.' })
+      return issues
+    }
+    if (excludedParties.length > 0) {
+      issues.push({ level: 'warning', msg: `${excludedParties.map(p => p.name).join(', ')} ${excludedParties.length === 1 ? 'is' : 'are'} excluded — 0 days overlap with the invoice service period.` })
+    }
+    const noInsurer = partiesWithPolicies.filter(p => !p.policy_periods?.length)
+    if (noInsurer.length > 0) {
+      issues.push({ level: 'warning', msg: `${noInsurer.map(p => p.name).join(', ')} ${noInsurer.length === 1 ? 'has' : 'have'} no insurer policy periods — ${noInsurer.length === 1 ? 'their' : 'their'} share will be uninsured.` })
+    }
+    if (calcMethod === 'limits_proportional') {
+      const noLimit = partiesWithPolicies.flatMap(p => p.policy_periods || []).filter(pp => !pp.policy_limit || Number(pp.policy_limit) === 0)
+      if (noLimit.length > 0) {
+        issues.push({ level: 'warning', msg: `${noLimit.length} policy period${noLimit.length !== 1 ? 's' : ''} ${noLimit.length === 1 ? 'has' : 'have'} no policy limit — will fall back to equal shares for that insurer.` })
+      }
+    }
+    if (livePreview) {
+      // Check party share total (auto-normalized, but floating-point edge cases)
+      const partyTotal = livePreview.party_breakdown.reduce((s, pb) => s + pb.party_amount, 0)
+      const partyGap   = Math.abs(partyTotal - invoice.total_amount)
+      if (partyGap > 0.02) {
+        issues.push({ level: 'warning', msg: `Party amounts sum to ${formatCurrency(partyTotal)} vs invoice total ${formatCurrency(invoice.total_amount)} — ${formatCurrency(partyGap)} unallocated.` })
+      }
+      // Rounding check on final insurer distribution
+      const insurerTotal = livePreview.party_breakdown.reduce((s, pb) => s + pb.insurers.reduce((s2, i) => s2 + i.amount, 0), 0)
+      const roundGap     = Math.abs(insurerTotal - invoice.total_amount)
+      if (roundGap > 0.02 && roundGap > partyGap + 0.001) {
+        issues.push({ level: 'info', msg: `${formatCurrency(roundGap)} rounding difference in insurer distribution — normal for percentage-based allocation.` })
+      }
+    }
+    return issues
+  }, [invoice, parties, partiesWithPolicies, excludedParties, calcMethod, livePreview])
 
   if (isLoading) return <div className="p-8 text-center text-slate-400">Loading invoice…</div>
   if (!invoice)  return <div className="p-8 text-center text-slate-400">Invoice not found.</div>
@@ -514,6 +565,184 @@ export default function InvoiceDetail() {
           )}
         </div>
       </div>
+
+      {/* ── Live Calculation Preview ── */}
+      {(livePreview || previewIssues.some(i => i.level === 'error')) && (() => {
+        const colCount  = calcMethod === 'pro_rata_time_on_risk' ? 4 : 3
+        const errorOnly = previewIssues.some(i => i.level === 'error')
+
+        const ISSUE_STYLES = {
+          error:   { wrap: 'bg-red-50 border border-red-200 text-red-800',       icon: <AlertCircle   className="h-3.5 w-3.5 text-red-500 mt-0.5 flex-shrink-0" /> },
+          warning: { wrap: 'bg-amber-50 border border-amber-200 text-amber-800', icon: <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 flex-shrink-0" /> },
+          info:    { wrap: 'bg-blue-50 border border-blue-200 text-blue-700',    icon: <Info          className="h-3.5 w-3.5 text-blue-400 mt-0.5 flex-shrink-0" /> },
+        }
+
+        return (
+          <div className="card mb-6">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Eye className="h-4 w-4 text-brand-600" />
+                <span className="font-semibold text-slate-900">Calculation Preview</span>
+                <span className="text-xs bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full font-medium">Live</span>
+              </div>
+              <span className="text-xs text-slate-400">Updates as you configure method, parties, and policy periods</span>
+            </div>
+
+            {/* Issues */}
+            {previewIssues.length > 0 && (
+              <div className="px-5 py-4 space-y-2 border-b border-slate-100">
+                {previewIssues.map((issue, i) => {
+                  const s = ISSUE_STYLES[issue.level]
+                  return (
+                    <div key={i} className={`flex items-start gap-2 rounded-lg px-3 py-2 text-sm ${s.wrap}`}>
+                      {s.icon}
+                      <span>{issue.msg}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Breakdown table */}
+            {!errorOnly && livePreview && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50">
+                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Party / Insurer</th>
+                      {calcMethod === 'pro_rata_time_on_risk' && (
+                        <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3 whitespace-nowrap">Days on Risk</th>
+                      )}
+                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Share</th>
+                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {livePreview.party_breakdown.flatMap(pb => {
+                      const hasNoInsurers = pb.insurers.length === 0
+                      const hasUninsured  = pb.uninsured_amount > 0.01
+                      const rows = []
+
+                      // Party header row
+                      rows.push(
+                        <tr key={`pv-party-${pb.party_id}`} className="border-t border-slate-200 bg-slate-50/70">
+                          <td className="px-5 py-2.5">
+                            <span className="font-semibold text-slate-800 text-xs uppercase tracking-wide">{pb.party_name}</span>
+                          </td>
+                          {calcMethod === 'pro_rata_time_on_risk' && <td />}
+                          <td className="px-4 py-2.5 text-right">
+                            <span className="font-semibold text-slate-700 text-xs">{pb.share_percentage.toFixed(2)}%</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            <span className="font-bold text-slate-800">{formatCurrency(pb.party_amount)}</span>
+                          </td>
+                        </tr>
+                      )
+
+                      if (hasNoInsurers) {
+                        rows.push(
+                          <tr key={`pv-noi-${pb.party_id}`} className="border-b border-slate-100">
+                            <td colSpan={colCount} className="px-5 py-2 pl-10">
+                              <div className="flex items-center gap-1.5 text-amber-600 text-xs">
+                                <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+                                No insurer policy periods — full party share will be uninsured
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      } else {
+                        pb.insurers.forEach((ins, idx) => {
+                          rows.push(
+                            <tr key={`pv-ins-${pb.party_id}-${idx}`} className="border-b border-slate-50 hover:bg-slate-50/60">
+                              <td className="px-5 py-2.5 pl-10">
+                                <span className="font-medium text-slate-700">{ins.insurer_name || <em className="text-slate-400 font-normal">Unknown insurer</em>}</span>
+                                {ins.policy_start && (
+                                  <span className="text-xs text-slate-400 ml-2">
+                                    {format(parseISO(ins.policy_start), 'MM/dd/yy')} – {ins.policy_end ? format(parseISO(ins.policy_end), 'MM/dd/yy') : 'present'}
+                                  </span>
+                                )}
+                              </td>
+                              {calcMethod === 'pro_rata_time_on_risk' && (
+                                <td className="px-4 py-2.5 text-right text-xs text-slate-500 whitespace-nowrap">
+                                  {ins.days_on_risk != null
+                                    ? <><span className="font-medium text-slate-700">{ins.days_on_risk}d</span> / {ins.total_coverage_days}d</>
+                                    : '—'}
+                                </td>
+                              )}
+                              <td className="px-4 py-2.5 text-right text-xs text-slate-500">
+                                {(ins.normalized_percentage ?? ins.percentage ?? 0).toFixed(2)}%
+                              </td>
+                              <td className="px-4 py-2.5 text-right font-semibold text-slate-700 whitespace-nowrap">
+                                {formatCurrency(ins.amount)}
+                              </td>
+                            </tr>
+                          )
+                        })
+                      }
+
+                      if (hasUninsured) {
+                        rows.push(
+                          <tr key={`pv-unins-${pb.party_id}`} className="border-b border-amber-100 bg-amber-50/40">
+                            <td colSpan={colCount} className="px-5 py-1.5 pl-10">
+                              <div className="flex items-center gap-1.5 text-amber-700 text-xs">
+                                <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                                Uninsured gap: {formatCurrency(pb.uninsured_amount)}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      }
+
+                      return rows
+                    })}
+                  </tbody>
+                  <tfoot>
+                    {(() => {
+                      const insurerTotal = livePreview.party_breakdown.reduce(
+                        (s, pb) => s + pb.insurers.reduce((s2, i) => s2 + i.amount, 0), 0
+                      )
+                      const gap     = Math.abs(insurerTotal - invoice.total_amount)
+                      const isExact = gap < 0.02
+                      return (
+                        <tr className="border-t-2 border-slate-300 bg-slate-50">
+                          <td className="px-5 py-3 font-bold text-slate-800">
+                            Total Distributed
+                          </td>
+                          {calcMethod === 'pro_rata_time_on_risk' && <td />}
+                          <td className="px-4 py-3 text-right text-xs text-slate-400">
+                            {isExact
+                              ? <span className="text-green-600 font-medium">100%</span>
+                              : <span className="text-amber-600 font-medium">{((insurerTotal / invoice.total_amount) * 100).toFixed(2)}%</span>
+                            }
+                          </td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap">
+                            <span className={`font-bold text-base ${isExact ? 'text-green-700' : 'text-amber-700'}`}>
+                              {formatCurrency(insurerTotal)}
+                            </span>
+                            {isExact
+                              ? <CheckCircle2 className="h-4 w-4 text-green-500 inline ml-1.5 mb-0.5" />
+                              : <span className="text-xs text-amber-600 ml-1.5">(gap: {formatCurrency(gap)})</span>
+                            }
+                          </td>
+                        </tr>
+                      )
+                    })()}
+                  </tfoot>
+                </table>
+              </div>
+            )}
+
+            {/* All-clear footer */}
+            {!errorOnly && livePreview && previewIssues.filter(i => i.level !== 'info').length === 0 && (
+              <div className="px-5 py-3 border-t border-slate-100 flex items-center gap-2 text-sm text-green-700 bg-green-50/50 rounded-b-2xl">
+                <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+                Configuration looks good — ready to run apportionment.
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Method Comparison */}
       {comparisonResults && (
