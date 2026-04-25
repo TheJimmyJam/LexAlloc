@@ -1,10 +1,13 @@
+import { useEffect, useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, Navigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { FolderOpen, FileText, DollarSign, TrendingUp, Plus, ArrowRight, ChevronRight } from 'lucide-react'
 import { formatCurrency } from '../lib/calculations.js'
 import { format, parseISO } from 'date-fns'
+import OnboardingWizard from '../components/OnboardingWizard.jsx'
+import OnboardingChecklist from '../components/OnboardingChecklist.jsx'
 
 function StatCard({ icon: Icon, label, value, gradient, to }) {
   return (
@@ -34,60 +37,136 @@ const statusColors = {
   apportioned: 'bg-purple-50 text-purple-700 ring-1 ring-purple-200/60',
 }
 
+// ── localStorage helpers keyed to org ────────────────────────────────────────
+const wizardKey     = (orgId) => `la_onboarding_wizard_seen_${orgId}`
+const checklistKey  = (orgId) => `la_onboarding_checklist_dismissed_${orgId}`
+
 export default function Dashboard() {
   const { profile } = useAuth()
+  const navigate    = useNavigate()
 
   if (profile?.role === 'client') return <Navigate to="/portal" replace />
 
-  const { data: stats } = useQuery({
-    queryKey: ['dashboard-stats', profile?.org_id],
-    enabled: !!profile?.org_id,
+  const orgId = profile?.org_id
+
+  // ── Wizard state ────────────────────────────────────────────────────────────
+  const [showWizard,          setShowWizard]          = useState(false)
+  const [checklistDismissed,  setChecklistDismissed]  = useState(
+    () => orgId ? !!localStorage.getItem(checklistKey(orgId)) : false
+  )
+
+  // ── Dashboard stats (includes parties for checklist) ────────────────────────
+  const { data: stats, isSuccess: statsLoaded } = useQuery({
+    queryKey: ['dashboard-stats', orgId],
+    enabled: !!orgId,
     queryFn: async () => {
-      const [mattersRes, invoicesRes, apportRes] = await Promise.all([
-        supabase.from('la_matters').select('id', { count: 'exact' }).eq('org_id', profile.org_id),
-        supabase.from('la_invoices').select('id, total_amount', { count: 'exact' }).eq('org_id', profile.org_id),
-        supabase.from('la_apportionments').select('id', { count: 'exact' }).eq('org_id', profile.org_id),
+      const [mattersRes, invoicesRes, apportRes, partiesRes] = await Promise.all([
+        supabase.from('la_matters').select('id', { count: 'exact' }).eq('org_id', orgId).eq('is_template', false),
+        supabase.from('la_invoices').select('id, total_amount', { count: 'exact' }).eq('org_id', orgId),
+        supabase.from('la_apportionments').select('id', { count: 'exact' }).eq('org_id', orgId),
+        supabase.from('la_parties').select('id', { count: 'exact' }).eq('org_id', orgId),
       ])
       const totalInvoiced = invoicesRes.data?.reduce((s, i) => s + (i.total_amount || 0), 0) || 0
       return {
-        matters:        mattersRes.count || 0,
-        invoices:       invoicesRes.count || 0,
-        apportionments: apportRes.count || 0,
+        matters:        mattersRes.count        || 0,
+        invoices:       invoicesRes.count        || 0,
+        apportionments: apportRes.count         || 0,
+        parties:        partiesRes.count         || 0,
         totalInvoiced,
       }
-    }
+    },
   })
 
+  // ── Auto-launch wizard for new orgs ─────────────────────────────────────────
+  useEffect(() => {
+    if (!statsLoaded || !orgId) return
+    if (stats.matters === 0 && !localStorage.getItem(wizardKey(orgId))) {
+      setShowWizard(true)
+    }
+  }, [statsLoaded, stats?.matters, orgId])
+
+  // ── Wizard completed / dismissed ────────────────────────────────────────────
+  const handleWizardComplete = useCallback((createdMatterId) => {
+    if (orgId) localStorage.setItem(wizardKey(orgId), '1')
+    setShowWizard(false)
+    // If they navigated away inside the wizard it handled navigation itself
+  }, [orgId])
+
+  // ── Checklist dismiss ────────────────────────────────────────────────────────
+  const handleDismissChecklist = useCallback(() => {
+    if (orgId) localStorage.setItem(checklistKey(orgId), '1')
+    setChecklistDismissed(true)
+  }, [orgId])
+
+  // ── Recent data ──────────────────────────────────────────────────────────────
   const { data: recentMatters } = useQuery({
-    queryKey: ['recent-matters', profile?.org_id],
-    enabled: !!profile?.org_id,
+    queryKey: ['recent-matters', orgId],
+    enabled: !!orgId,
     queryFn: async () => {
       const { data } = await supabase
         .from('la_matters')
         .select('id, name, matter_number, status, created_at')
-        .eq('org_id', profile.org_id)
+        .eq('org_id', orgId)
+        .eq('is_template', false)
         .order('created_at', { ascending: false })
         .limit(5)
       return data || []
-    }
+    },
   })
 
   const { data: recentInvoices } = useQuery({
-    queryKey: ['recent-invoices', profile?.org_id],
-    enabled: !!profile?.org_id,
+    queryKey: ['recent-invoices', orgId],
+    enabled: !!orgId,
     queryFn: async () => {
       const { data } = await supabase
         .from('la_invoices')
         .select('id, invoice_number, invoice_date, total_amount, status, matter_id, la_matters(name)')
-        .eq('org_id', profile.org_id)
+        .eq('org_id', orgId)
         .order('created_at', { ascending: false })
         .limit(5)
       return data || []
-    }
+    },
   })
 
-  const hour = new Date().getHours()
+  const hour     = new Date().getHours()
   const greeting = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'
+
+  // ── Checklist steps ──────────────────────────────────────────────────────────
+  const checklistSteps = stats ? [
+    {
+      id:          'matter',
+      label:       'Create your first matter',
+      done:        stats.matters > 0,
+      actionLabel: 'Create now',
+      actionOnClick: () => setShowWizard(true),
+    },
+    {
+      id:          'party',
+      label:       'Add a responsible party',
+      done:        stats.parties > 0,
+      actionLabel: 'Go to Matters',
+      actionTo:    '/matters',
+    },
+    {
+      id:          'invoice',
+      label:       'Upload your first invoice',
+      done:        stats.invoices > 0,
+      actionLabel: 'Go to Matters',
+      actionTo:    '/matters',
+    },
+    {
+      id:          'apportionment',
+      label:       'Run your first apportionment',
+      done:        stats.apportionments > 0,
+      actionLabel: 'Go to Matters',
+      actionTo:    '/matters',
+    },
+  ] : []
+
+  const allStepsDone = checklistSteps.length > 0 && checklistSteps.every(s => s.done)
+
+  // Show checklist if: steps available, not dismissed (unless all done — keep it visible briefly)
+  const showChecklist = checklistSteps.length > 0 && !checklistDismissed
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
@@ -99,6 +178,15 @@ export default function Dashboard() {
         </h1>
         <p className="text-slate-500 mt-1 text-sm">Here's what's happening with your matters.</p>
       </div>
+
+      {/* Onboarding checklist */}
+      {showChecklist && (
+        <OnboardingChecklist
+          steps={checklistSteps}
+          onDismiss={handleDismissChecklist}
+          onLaunchWizard={() => setShowWizard(true)}
+        />
+      )}
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -122,7 +210,12 @@ export default function Dashboard() {
             {recentMatters?.length === 0 && (
               <div className="p-6 text-center text-slate-400 text-sm">
                 No matters yet.{' '}
-                <Link to="/matters" className="text-brand-600 hover:underline">Create your first matter</Link>
+                <button
+                  onClick={() => setShowWizard(true)}
+                  className="text-brand-600 hover:underline"
+                >
+                  Create your first matter
+                </button>
               </div>
             )}
             {recentMatters?.map((m) => (
@@ -172,10 +265,18 @@ export default function Dashboard() {
       <div className="mt-6 card p-5">
         <h2 className="text-sm font-semibold text-slate-900 mb-3">Quick Actions</h2>
         <div className="flex flex-wrap gap-3">
-          <Link to="/matters" className="btn-primary"><Plus className="h-4 w-4" /> New Matter</Link>
+          <button onClick={() => setShowWizard(true)} className="btn-primary"><Plus className="h-4 w-4" /> New Matter</button>
           <Link to="/matters" className="btn-secondary"><FileText className="h-4 w-4" /> Upload Invoice</Link>
         </div>
       </div>
+
+      {/* Onboarding wizard */}
+      {showWizard && profile && (
+        <OnboardingWizard
+          profile={profile}
+          onComplete={handleWizardComplete}
+        />
+      )}
     </div>
   )
 }
