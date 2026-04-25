@@ -140,7 +140,7 @@ export default function Landing() {
         <div className="relative max-w-4xl mx-auto">
           {/* Logo lockup */}
           <div className="flex justify-center mb-6">
-            <img src="/logo.svg" alt="LexAlloc" className="h-48 lg:h-64 w-auto" />
+            <img src="/logo-icon.png" alt="LexAlloc" className="rounded-full" style={{ width: '120px', height: '120px', objectFit: 'cover' }} />
           </div>
 
           <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-brand-500/15 border border-brand-500/25 rounded-full text-brand-300 text-xs font-medium mb-6">
@@ -319,7 +319,7 @@ export default function Landing() {
       <footer className="border-t border-white/5 px-6 lg:px-16 py-8">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center">
-            <img src="/logo.svg" alt="LexAlloc" className="h-12 w-auto" />
+            <img src="/logo-icon.png" alt="LexAlloc" className="rounded-full" style={{ width: '36px', height: '36px', objectFit: 'cover' }} />
           </div>
           <p className="text-slate-500 text-sm">© {new Date().getFullYear()} LexAlloc. Built for legal professionals.</p>
           <div className="flex items-center gap-4 text-sm">

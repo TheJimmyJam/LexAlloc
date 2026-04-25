@@ -12,7 +12,7 @@ export default function Login() {
   const navigate = useNavigate()
   const { brandName, logoUrl, supportEmail, isWhiteLabeled } = useBranding()
   const appName = brandName || 'LexAlloc'
-  const logoSrc = logoUrl  || '/logo.svg'
+  const logoSrc = logoUrl  || '/logo-icon.png'
 
   const onSubmit = async ({ email, password }) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
@@ -32,7 +32,7 @@ export default function Login() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="flex justify-center mb-6">
-            <img src={logoSrc} alt={appName} className="h-20 w-auto" />
+            <img src={logoSrc} alt={appName} className="rounded-full" style={{ width: '72px', height: '72px', objectFit: 'cover' }} />
           </div>
           <h1 className="text-2xl font-bold text-white">Sign in to {appName}</h1>
           <p className="text-slate-400 mt-1 text-sm">
