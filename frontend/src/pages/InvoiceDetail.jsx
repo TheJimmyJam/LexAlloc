@@ -77,25 +77,27 @@ export default function InvoiceDetail() {
   })
 
   const [showDupeApportWarning, setShowDupeApportWarning] = useState(false)
+  const [existingApportionments, setExistingApportionments] = useState([])
 
   const handleRunApportionment = async (force = false) => {
     if (parties.length === 0) { toast.error('Add parties before running apportionment.'); return }
     if (!invoice?.service_start) { toast.error('Invoice is missing a service period start date.'); return }
 
-    // ── Dupe check: same invoice + method already apportioned ───────────────
+    // ── Dupe check: any apportionment already exists for this invoice ────────
     if (!force) {
       const { data: existing } = await supabase
         .from('la_apportionments')
         .select('id, calculation_method, calculated_at')
         .eq('invoice_id', invoiceId)
-        .eq('calculation_method', calcMethod)
-        .limit(1)
+        .order('calculated_at', { ascending: false })
       if (existing?.length) {
+        setExistingApportionments(existing)
         setShowDupeApportWarning(true)
         return
       }
     }
     setShowDupeApportWarning(false)
+    setExistingApportionments([])
 
     setCalculating(true)
     try {
@@ -280,12 +282,24 @@ export default function InvoiceDetail() {
                 <AlertTriangle className="h-5 w-5 text-amber-600" />
               </div>
               <div>
-                <h3 className="font-semibold text-slate-900">Apportionment Already Exists</h3>
-                <p className="text-sm text-slate-500 mt-1">An apportionment using this method has already been calculated for this invoice. Running again will create a duplicate record.</p>
+                <h3 className="font-semibold text-slate-900">Apportionment Already Run</h3>
+                <p className="text-sm text-slate-500 mt-1">
+                  This invoice already has {existingApportionments.length === 1 ? 'an apportionment' : `${existingApportionments.length} apportionments`}. Running again will create an additional record.
+                </p>
               </div>
             </div>
+            {existingApportionments.length > 0 && (
+              <div className="bg-slate-50 rounded-lg px-3 py-2 space-y-1.5">
+                {existingApportionments.map(a => (
+                  <div key={a.id} className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-slate-700 capitalize">{a.calculation_method?.replace(/_/g, ' ')}</span>
+                    <span className="text-slate-400">{a.calculated_at ? format(parseISO(a.calculated_at), 'MM/dd/yyyy h:mm a') : '—'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="flex gap-3 pt-1">
-              <button onClick={() => setShowDupeApportWarning(false)} className="btn-secondary flex-1 justify-center">Cancel</button>
+              <button onClick={() => { setShowDupeApportWarning(false); setExistingApportionments([]) }} className="btn-secondary flex-1 justify-center">Cancel</button>
               <button onClick={() => handleRunApportionment(true)} className="btn-primary flex-1 justify-center bg-amber-600 hover:bg-amber-700 border-amber-600">Run Anyway</button>
             </div>
           </div>
