@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw, CreditCard, Zap, Star, Building, ChevronRight, Loader2, Key, Copy, Eye, EyeOff, Code, Terminal, Palette, Globe, Image } from 'lucide-react'
+import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw, CreditCard, Zap, Star, Building, ChevronRight, Loader2, Key, Copy, Eye, EyeOff, Code, Terminal, Palette, Globe, Image, Wand2 } from 'lucide-react'
 import { applyPalette } from '../context/BrandingContext.jsx'
 import { formatCurrency } from '../lib/calculations.js'
 import { format, parseISO } from 'date-fns'
@@ -11,13 +11,41 @@ import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
 
 const TABS = [
-  { key: 'users',        label: 'Users',         icon: Users      },
-  { key: 'orgs',         label: 'Organizations', icon: Building2  },
-  { key: 'integrations', label: 'Integrations',  icon: Plug       },
-  { key: 'billing',      label: 'Billing',        icon: CreditCard },
-  { key: 'api',          label: 'API',            icon: Key        },
-  { key: 'branding',     label: 'Branding',       icon: Palette    },
+  { key: 'users',        label: 'Users',         icon: Users,     dbAdminOnly: false },
+  { key: 'orgs',         label: 'Organizations', icon: Building2, dbAdminOnly: false },
+  { key: 'integrations', label: 'Integrations',  icon: Plug,      dbAdminOnly: false },
+  { key: 'billing',      label: 'Billing',        icon: CreditCard,dbAdminOnly: false },
+  { key: 'api',          label: 'API',            icon: Key,       dbAdminOnly: false },
+  { key: 'branding',     label: 'Branding',       icon: Palette,   dbAdminOnly: false },
+  { key: 'demo',         label: 'Demo Data',      icon: Wand2,     dbAdminOnly: true  },
 ]
+
+const DEMO_PREFIX = '[DEMO]'
+
+const DEMO_MATTERS = [
+  'Smith v. Hartford Insurance','Johnson v. Allstate Corp','Williams v. State Farm',
+  'Brown v. Liberty Mutual','Jones v. Travelers Group','Garcia v. Nationwide',
+  'Miller v. Progressive','Davis v. USAA','Wilson v. Farmers Insurance',
+  'Anderson v. CNA Financial','Taylor v. Zurich Insurance','Thomas v. Chubb Limited',
+  'Jackson v. AIG','White v. Berkshire Hathaway','Harris v. Cincinnati Financial',
+  'Martin v. Markel Corp','Thompson v. Hanover Insurance','Martinez v. Erie Indemnity',
+  'Robinson v. Auto-Owners','Clark v. Westfield Group',
+]
+
+const DEMO_INSURERS = [
+  'Hartford Insurance Co.','Allstate Insurance','State Farm Mutual',
+  'Liberty Mutual Group','Travelers Insurance','Nationwide Mutual',
+  'Progressive Corp','USAA Insurance','Farmers Insurance Exchange','CNA Financial',
+]
+
+function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min }
+function randAmount(min, max) { return Math.round((Math.random() * (max - min) + min) * 100) / 100 }
+function randStatus() {
+  const r = Math.random()
+  if (r < 0.50) return 'paid'
+  if (r < 0.75) return 'pending'
+  return 'demanded'
+}
 
 // ── QBO / Clio OAuth URLs (client_id goes in frontend — it's not a secret) ───
 const QBO_CLIENT_ID    = import.meta.env.VITE_QBO_CLIENT_ID    ?? ''
@@ -538,6 +566,12 @@ export default function AdminPanel() {
   // Optimistic insurer display — keyed by userId, cleared after refetch
   const [pendingInsurers, setPendingInsurers] = useState({})
 
+  // ── Demo Data ─────────────────────────────────────────────────────────────
+  const [demoGenerating, setDemoGenerating] = useState(false)
+  const [demoClearing,   setDemoClearing]   = useState(false)
+  const [demoProgress,   setDemoProgress]   = useState('')
+  const [demoStats,      setDemoStats]      = useState(null)
+
   const qc = useQueryClient()
   const isPlatformAdmin = profile?.is_platform_admin === true
 
@@ -693,6 +727,125 @@ export default function AdminPanel() {
     await navigator.clipboard.writeText(text)
     setCopiedKey(true)
     setTimeout(() => setCopiedKey(false), 2000)
+  }
+
+  // ── Demo Data generator ───────────────────────────────────────────────────
+  const generateDemoData = async () => {
+    setDemoGenerating(true)
+    setDemoProgress('Creating demo matters…')
+    try {
+      // 1. Pick a fixed org for the demo data — use the current user's org
+      const orgId = profile.org_id
+
+      // 2. Insert 20 matters
+      const matterRows = DEMO_MATTERS.map(name => ({
+        org_id: orgId,
+        name:   `${DEMO_PREFIX} ${name}`,
+        status: 'active',
+      }))
+      const { data: matters, error: mErr } = await supabase
+        .from('la_matters').insert(matterRows).select('id')
+      if (mErr) throw mErr
+
+      setDemoProgress('Creating invoices…')
+      // 3. One invoice per matter
+      const invoiceRows = matters.map(m => ({
+        matter_id:    m.id,
+        org_id:       orgId,
+        total_amount: randAmount(50000, 500000),
+      }))
+      const { data: invoices, error: iErr } = await supabase
+        .from('la_invoices').insert(invoiceRows).select('id, matter_id')
+      if (iErr) throw iErr
+
+      setDemoProgress('Creating apportionments…')
+      // 4. One apportionment per invoice
+      const appRows = invoices.map(inv => ({
+        invoice_id:         inv.id,
+        matter_id:          inv.matter_id,
+        org_id:             orgId,
+        calculation_method: ['equal_shares','weighted_billing','custom'][rand(0,2)],
+      }))
+      const { data: apportionments, error: aErr } = await supabase
+        .from('la_apportionments').insert(appRows).select('id')
+      if (aErr) throw aErr
+
+      setDemoProgress('Creating 300 insurer apportionments…')
+      // 5. 15 insurer apportionments per apportionment = 300 total
+      const insurerAppRows = []
+      for (const app of apportionments) {
+        for (let i = 0; i < 15; i++) {
+          const status = randStatus()
+          const amount = randAmount(1000, 80000)
+          insurerAppRows.push({
+            apportionment_id: app.id,
+            insurer_name:     DEMO_INSURERS[i % DEMO_INSURERS.length],
+            amount,
+            amount_paid:      status === 'paid' ? amount : status === 'pending' ? 0 : randAmount(0, amount / 2),
+            payment_status:   status,
+          })
+        }
+      }
+
+      // Insert in batches of 100 to stay under payload limits
+      for (let i = 0; i < insurerAppRows.length; i += 100) {
+        const { error: iaErr } = await supabase
+          .from('la_insurer_apportionments')
+          .insert(insurerAppRows.slice(i, i + 100))
+        if (iaErr) throw iaErr
+      }
+
+      const paid    = insurerAppRows.filter(r => r.payment_status === 'paid').length
+      const pending = insurerAppRows.filter(r => r.payment_status === 'pending').length
+      const demanded = insurerAppRows.filter(r => r.payment_status === 'demanded').length
+      setDemoStats({ matters: matters.length, apportionments: apportionments.length, total: insurerAppRows.length, paid, pending, demanded })
+      setDemoProgress('')
+      toast.success('Demo data generated!')
+      qc.invalidateQueries()
+    } catch (err) {
+      setDemoProgress('')
+      toast.error(err.message || 'Demo generation failed')
+    } finally {
+      setDemoGenerating(false)
+    }
+  }
+
+  const clearDemoData = async () => {
+    if (!confirm('Delete all [DEMO] matters and their related data? This cannot be undone.')) return
+    setDemoClearing(true)
+    setDemoProgress('Finding demo matters…')
+    try {
+      const { data: demoMatters } = await supabase
+        .from('la_matters')
+        .select('id')
+        .ilike('name', `${DEMO_PREFIX}%`)
+        .eq('org_id', profile.org_id)
+      if (!demoMatters?.length) { toast.success('No demo data found.'); return }
+
+      const mIds = demoMatters.map(m => m.id)
+      setDemoProgress('Removing apportionments…')
+
+      // Delete in cascade order: insurer_apportionments → apportionments → invoices → matters
+      const { data: apps } = await supabase
+        .from('la_apportionments').select('id').in('matter_id', mIds)
+      if (apps?.length) {
+        const aIds = apps.map(a => a.id)
+        await supabase.from('la_insurer_apportionments').delete().in('apportionment_id', aIds)
+        await supabase.from('la_apportionments').delete().in('id', aIds)
+      }
+      await supabase.from('la_invoices').delete().in('matter_id', mIds)
+      await supabase.from('la_matters').delete().in('id', mIds)
+
+      setDemoStats(null)
+      setDemoProgress('')
+      toast.success('Demo data cleared.')
+      qc.invalidateQueries()
+    } catch (err) {
+      setDemoProgress('')
+      toast.error(err.message || 'Failed to clear demo data')
+    } finally {
+      setDemoClearing(false)
+    }
   }
 
   // ── Branding ──────────────────────────────────────────────────────────────
@@ -932,7 +1085,7 @@ export default function AdminPanel() {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-slate-200 mb-6">
-        {TABS.map(({ key, label, icon: Icon }) => (
+        {TABS.filter(t => !t.dbAdminOnly || isPlatformAdmin).map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setTab(key)}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               tab === key ? 'border-brand-600 text-brand-600' : 'border-transparent text-slate-500 hover:text-slate-700'
@@ -1884,6 +2037,84 @@ export default function AdminPanel() {
               </p>
             </div>
           </details>
+        </div>
+      )}
+
+      {/* ── Demo Data Tab ─────────────────────────────────────────────────── */}
+      {tab === 'demo' && isPlatformAdmin && (
+        <div className="space-y-6">
+          <div className="card p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center">
+                <Wand2 className="h-5 w-5 text-violet-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900">Demo Data Generator</h3>
+                <p className="text-sm text-slate-500">Populate your account with realistic sample data for demos and testing.</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 rounded-xl p-4 mb-6 text-sm text-slate-600 space-y-1">
+              <p className="font-medium text-slate-700 mb-2">What gets created:</p>
+              <div className="grid grid-cols-2 gap-x-8 gap-y-1">
+                <span>✦ 20 demo matters (legal cases)</span>
+                <span>✦ 20 invoices (one per matter)</span>
+                <span>✦ 20 apportionment runs</span>
+                <span>✦ 300 insurer obligations (15 per run)</span>
+                <span>✦ Mixed payment statuses</span>
+                <span>✦ Randomized amounts $1K–$80K each</span>
+              </div>
+              <p className="text-xs text-slate-400 mt-2">All demo records are tagged <code className="bg-slate-200 px-1 rounded">[DEMO]</code> and can be cleared at any time.</p>
+            </div>
+
+            {demoProgress && (
+              <div className="flex items-center gap-3 mb-4 p-3 bg-violet-50 rounded-lg">
+                <Loader2 className="h-4 w-4 text-violet-600 animate-spin flex-shrink-0" />
+                <p className="text-sm text-violet-700">{demoProgress}</p>
+              </div>
+            )}
+
+            {demoStats && (
+              <div className="grid grid-cols-3 gap-3 mb-5">
+                {[
+                  { label: 'Matters',    value: demoStats.matters },
+                  { label: 'Apportionments', value: demoStats.apportionments },
+                  { label: 'Obligations', value: demoStats.total },
+                  { label: 'Paid',       value: demoStats.paid,     color: 'text-green-600' },
+                  { label: 'Pending',    value: demoStats.pending,  color: 'text-amber-600' },
+                  { label: 'Demanded',   value: demoStats.demanded, color: 'text-red-500'   },
+                ].map(s => (
+                  <div key={s.label} className="bg-slate-50 rounded-lg p-3 text-center">
+                    <p className={`text-xl font-bold ${s.color ?? 'text-slate-900'}`}>{s.value}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={generateDemoData}
+                disabled={demoGenerating || demoClearing}
+                className="btn-primary flex items-center gap-2"
+              >
+                {demoGenerating
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</>
+                  : <><Wand2 className="h-4 w-4" /> Generate Demo Data</>
+                }
+              </button>
+              <button
+                onClick={clearDemoData}
+                disabled={demoGenerating || demoClearing}
+                className="btn-secondary flex items-center gap-2 text-red-600 border-red-200 hover:bg-red-50"
+              >
+                {demoClearing
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Clearing…</>
+                  : <><Trash2 className="h-4 w-4" /> Clear Demo Data</>
+                }
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
