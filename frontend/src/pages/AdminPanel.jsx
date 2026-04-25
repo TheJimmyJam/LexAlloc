@@ -274,6 +274,19 @@ export default function AdminPanel() {
     user:   'bg-slate-100 text-slate-600',
   }
 
+  const deleteOrg = async (org) => {
+    const userCount = users.filter(u => u.org_id === org.id).length
+    const warning = userCount > 0
+      ? `Delete "${org.name}"?\n\nThis org has ${userCount} user${userCount !== 1 ? 's' : ''} — they will be left without an organization.\n\nAll matters, invoices, and apportionments for this org will be permanently deleted. This cannot be undone.`
+      : `Delete "${org.name}"?\n\nAll matters, invoices, and apportionments for this org will be permanently deleted. This cannot be undone.`
+    if (!confirm(warning)) return
+    const { error } = await supabase.from('la_organizations').delete().eq('id', org.id)
+    if (error) { toast.error(error.message); return }
+    toast.success(`"${org.name}" deleted`)
+    qc.invalidateQueries({ queryKey: ['admin-orgs'] })
+    qc.invalidateQueries({ queryKey: ['admin-users', 'all'] })
+  }
+
   const changeRole = async (userId, role) => {
     const { error } = await supabase.from('la_profiles').update({ role }).eq('id', userId)
     if (error) { toast.error(error.message); return }
@@ -559,12 +572,22 @@ export default function AdminPanel() {
                       </td>
                       {isPlatformAdmin && (
                         <td className="px-4 py-4">
-                          <button
-                            onClick={() => setAssignModal(org)}
-                            className="btn-secondary text-xs py-1.5 px-3"
-                          >
-                            <UserPlus className="h-3.5 w-3.5" /> Assign User
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setAssignModal(org)}
+                              className="btn-secondary text-xs py-1.5 px-3"
+                            >
+                              <UserPlus className="h-3.5 w-3.5" /> Assign User
+                            </button>
+                            <button
+                              onClick={() => deleteOrg(org)}
+                              disabled={org.id === profile?.org_id}
+                              className="text-slate-300 hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors p-1.5 rounded hover:bg-red-50"
+                              title={org.id === profile?.org_id ? 'Cannot delete your own org' : 'Delete organization'}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
                         </td>
                       )}
                     </tr>
