@@ -690,8 +690,8 @@ export default function InvoiceDetail() {
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-500">{li.timekeeper || '—'}</td>
                     <td className="px-4 py-3 text-right text-sm text-slate-600">{li.hours ? li.hours.toFixed(2) : '—'}</td>
-                    <td className="px-4 py-3 text-right text-sm text-slate-600">{li.rate ? formatCurrency(li.rate) : '—'}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-slate-800">{formatCurrency(li.amount)}</td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap text-sm text-slate-600">{li.rate ? formatCurrency(li.rate) : '—'}</td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap font-semibold text-slate-800">{formatCurrency(li.amount)}</td>
                     <td className="px-4 py-3">
                       <span className="badge bg-slate-100 text-slate-600 capitalize">{li.category}</span>
                     </td>
@@ -701,7 +701,7 @@ export default function InvoiceDetail() {
               <tfoot>
                 <tr className="border-t-2 border-slate-200 bg-slate-50">
                   <td colSpan={5} className="px-5 py-3 text-sm font-semibold text-slate-700">Total</td>
-                  <td className="px-4 py-3 text-right font-bold text-brand-700">{formatCurrency(invoice.total_amount)}</td>
+                  <td className="px-4 py-3 text-right whitespace-nowrap font-bold text-brand-700">{formatCurrency(invoice.total_amount)}</td>
                   <td />
                 </tr>
               </tfoot>
