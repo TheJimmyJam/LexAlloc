@@ -25,7 +25,7 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const appName = brandName || 'LexAlloc'
-  const logoSrc = logoUrl  || '/logo.svg'
+  const logoSrc = logoUrl  || '/logo-icon.png'
 
   const handleSignOut = async () => { await signOut(); navigate('/login') }
 
@@ -80,8 +80,8 @@ export default function Layout() {
       <aside className={`fixed inset-y-0 left-0 z-30 w-64 bg-slate-900 flex flex-col transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:flex ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
 
         {/* Logo */}
-        <div className="flex items-center px-4 border-b border-slate-800 flex-shrink-0" style={{ height: '88px' }}>
-          <img src={logoSrc} alt={appName} className="w-full h-auto" style={{ maxHeight: '64px', objectFit: 'contain' }} />
+        <div className="flex items-center px-5 border-b border-slate-800 flex-shrink-0" style={{ height: '72px' }}>
+          <img src={logoSrc} alt={appName} className="rounded-full" style={{ width: '44px', height: '44px', objectFit: 'cover' }} />
         </div>
 
         {/* Org badge */}
@@ -133,7 +133,7 @@ export default function Layout() {
           <button onClick={() => setSidebarOpen(true)} className="p-1.5 rounded-lg hover:bg-slate-800 transition-colors">
             <Menu className="h-5 w-5 text-slate-300" />
           </button>
-          <img src={logoSrc} alt={appName} className="h-9 w-auto" />
+          <img src={logoSrc} alt={appName} className="rounded-full" style={{ width: '36px', height: '36px', objectFit: 'cover' }} />
         </header>
 
         {isProfileIncomplete && (
