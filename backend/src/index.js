@@ -6,6 +6,7 @@ import apportRoutes     from './routes/apportionments.js'
 import notifRoutes      from './routes/notifications.js'
 import inviteRoutes     from './routes/invitations.js'
 import billingRoutes, { webhookHandler } from './routes/billing.js'
+import v1Router         from './routes/v1/index.js'
 
 const app  = express()
 const PORT = process.env.PORT || 8080
@@ -22,7 +23,7 @@ app.post('/billing/webhook', express.raw({ type: 'application/json' }), webhookH
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
-// ── Auth middleware ───────────────────────────────────────────────────────────
+// ── Internal API auth (Supabase JWT) ──────────────────────────────────────────
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseAdmin = createClient(
@@ -36,6 +37,10 @@ app.use('/api', async (req, res, next) => {
     return res.status(401).json({ error: 'Unauthorized' })
   }
   const token = auth.slice(7)
+  // API keys start with lx_ — don't try to validate them as Supabase JWTs
+  if (token.startsWith('lx_')) {
+    return res.status(401).json({ error: 'Use /v1/* endpoints for API key access' })
+  }
   const { data: { user }, error } = await supabaseAdmin.auth.getUser(token)
   if (error || !user) return res.status(401).json({ error: 'Invalid token' })
   req.user = user
@@ -49,6 +54,9 @@ app.use('/api/apportionments', apportRoutes)
 app.use('/api/notifications',  notifRoutes)
 app.use('/api/invitations',    inviteRoutes)
 app.use('/api/billing',        billingRoutes)
+
+// Public REST API v1 (API key auth handled inside v1Router)
+app.use('/v1', v1Router)
 
 // ── Error handler ─────────────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
