@@ -71,6 +71,8 @@ export const ACTION_META = {
   'insurer.added':             { label: 'Insurer added',              icon: 'Shield',      color: 'text-sky-600 bg-sky-50'       },
   'insurer.updated':           { label: 'Policy period updated',      icon: 'Shield',      color: 'text-sky-600 bg-sky-50'       },
   'insurer.deleted':           { label: 'Insurer removed',            icon: 'Shield',      color: 'text-red-600 bg-red-50'       },
+  'insurer.override_set':      { label: 'Percentage override applied',icon: 'Shield',      color: 'text-amber-600 bg-amber-50'   },
+  'insurer.override_cleared':  { label: 'Percentage override cleared',icon: 'Shield',      color: 'text-slate-600 bg-slate-50'   },
   // Invoices
   'invoice.uploaded':          { label: 'Invoice uploaded',           icon: 'FileText',    color: 'text-violet-600 bg-violet-50' },
   'invoice.parsed':            { label: 'Invoice parsed',             icon: 'FileText',    color: 'text-violet-600 bg-violet-50' },
