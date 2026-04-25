@@ -3,7 +3,7 @@ import { useAuth } from '../hooks/useAuth.jsx'
 import { useBranding } from '../context/BrandingContext.jsx'
 import {
   LayoutDashboard, FolderOpen, Settings, LogOut,
-  Shield, Menu, UserCircle, ShieldCheck, Database, BookOpen
+  Shield, Menu, UserCircle, ShieldCheck, Database, BookOpen, BarChart3
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -64,6 +64,22 @@ export default function Layout() {
         >
           <Shield className="h-4 w-4 flex-shrink-0" />
           Admin
+        </NavLink>
+      )}
+      {profile?.is_platform_admin && (
+        <NavLink
+          to="/financials"
+          className={({ isActive }) =>
+            `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
+              isActive
+                ? 'bg-brand-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-100 hover:bg-white/8'
+            }`
+          }
+          onClick={() => setSidebarOpen(false)}
+        >
+          <BarChart3 className="h-4 w-4 flex-shrink-0" />
+          Financials
         </NavLink>
       )}
     </>
