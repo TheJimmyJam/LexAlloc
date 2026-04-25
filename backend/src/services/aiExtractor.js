@@ -9,7 +9,9 @@ Extract structured data from legal invoices and return ONLY valid JSON with this
 {
   "invoice_number":  "string or null",
   "invoice_date":    "YYYY-MM-DD or null",
-  "billing_firm":    "string or null",
+  "billing_firm":    "string or null (the law firm or vendor issuing the invoice)",
+  "matter_name":     "string or null (the case or matter name, e.g. 'Smith v. Acme Corp — Employment Dispute')",
+  "matter_number":   "string or null (the matter/file number shown on the invoice, e.g. '2025-MDN-0047')",
   "total_amount":    number,
   "service_start":   "YYYY-MM-DD or null (earliest date of service in the invoice)",
   "service_end":     "YYYY-MM-DD or null (latest date of service in the invoice)",
@@ -26,7 +28,9 @@ Extract structured data from legal invoices and return ONLY valid JSON with this
   ]
 }
 Be thorough — extract every billing entry as a line item.
-For costs/expenses, hours and rate may be null. Return only JSON, no markdown.`
+For costs/expenses, hours and rate may be null.
+matter_name is the litigation/matter caption (not the firm name). matter_number is the client or firm reference number for the matter.
+Return only JSON, no markdown.`
 
 /**
  * Use GPT-4 to extract structured invoice data.
