@@ -302,8 +302,8 @@ function MatterCard({ matter, rows, insurerName, onPay, payingId }) {
               <tfoot>
                 <tr className="border-t-2 border-slate-200 bg-slate-50">
                   <td colSpan={4} className="px-5 py-3 text-sm font-semibold text-slate-700">Matter Total</td>
-                  <td className="px-4 py-3 text-right font-bold text-slate-900 text-sm">{formatCurrency(mOwed)}</td>
-                  <td className="px-4 py-3 text-right font-bold text-green-600 text-sm">{formatCurrency(mPaid)}</td>
+                  <td className="px-4 py-3 text-right whitespace-nowrap font-bold text-slate-900 text-sm">{formatCurrency(mOwed)}</td>
+                  <td className="px-4 py-3 text-right whitespace-nowrap font-bold text-green-600 text-sm">{formatCurrency(mPaid)}</td>
                   <td className="px-4 py-3">
                     <span className={`text-sm font-bold ${allPaid ? 'text-green-600' : 'text-amber-600'}`}>
                       {allPaid ? '✓ Fully Paid' : `${formatCurrency(mOutstanding)} outstanding`}
