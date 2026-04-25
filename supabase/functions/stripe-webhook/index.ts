@@ -32,8 +32,9 @@ async function sendPaymentReceiptEmail(opts: {
   amountPaid:      number
   paymentDate:     string
   paymentIntentId: string | null
+  receiptUrl:      string | null
 }) {
-  const { to, insurerName, matterName, invoiceNumber, amountPaid, paymentDate, paymentIntentId } = opts
+  const { to, insurerName, matterName, invoiceNumber, amountPaid, paymentDate, paymentIntentId, receiptUrl } = opts
   if (!RESEND_API_KEY || !to) return
 
   const body = `
@@ -57,6 +58,7 @@ async function sendPaymentReceiptEmail(opts: {
       ${paymentIntentId ? infoRow('Transaction ID', `<span style="font-family:monospace;font-size:12px;color:#475569;">${paymentIntentId}</span>`) : ''}
     </table>
 
+    ${receiptUrl ? ctaButton('View Stripe Receipt', receiptUrl, '#0f172a') : ''}
     ${ctaButton('View Your Portal', `${FRONTEND_URL}/portal`, '#4f46e5')}
   `
 
@@ -155,6 +157,20 @@ Deno.serve(async (req: Request) => {
 
       console.log(`Obligation ${obligationId} marked ${updates.payment_status} ($${paidCents / 100})`)
 
+      // Fetch receipt URL from the charge
+      let receiptUrl: string | null = null
+      if (paymentIntent) {
+        try {
+          const pi = await stripe.paymentIntents.retrieve(paymentIntent, {
+            expand: ['latest_charge'],
+          })
+          const charge = pi.latest_charge as Stripe.Charge | null
+          receiptUrl = charge?.receipt_url ?? null
+        } catch (err: any) {
+          console.warn('Could not fetch receipt URL:', err.message)
+        }
+      }
+
       // Send payment receipt email
       if (customerEmail) {
         await sendPaymentReceiptEmail({
@@ -165,6 +181,7 @@ Deno.serve(async (req: Request) => {
           amountPaid:      paidCents / 100,
           paymentDate:     new Date(paymentDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
           paymentIntentId: paymentIntent,
+          receiptUrl,
         })
       }
     }
