@@ -173,14 +173,22 @@ Deno.serve(async (req: Request) => {
                    || callerProfile.email
                    || 'Your administrator'
 
-    // Pre-create profile row
-    const { error: upsertErr } = await db
+    // Pre-create profile row.
+    // Use a two-step approach: try INSERT first, fall back to UPDATE.
+    // This handles the case where the on_auth_user_created trigger already
+    // created a shell row with null org_id before we get here.
+    const { error: insertErr } = await db
       .from('la_profiles')
-      .upsert(
-        { id: linkData.user.id, org_id, role, email },
-        { onConflict: 'id' }
-      )
-    if (upsertErr) throw new Error(upsertErr.message)
+      .insert({ id: linkData.user.id, org_id, role, email })
+
+    if (insertErr) {
+      // Row already exists (e.g. created by trigger) — update it explicitly
+      const { error: updateErr } = await db
+        .from('la_profiles')
+        .update({ org_id, role, email })
+        .eq('id', linkData.user.id)
+      if (updateErr) throw new Error(updateErr.message)
+    }
 
     // Send branded invite email via Resend
     await sendInviteEmail({ to: email, orgName, role, inviteUrl, invitedBy })
