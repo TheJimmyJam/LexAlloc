@@ -964,22 +964,39 @@ export default function AdminPanel() {
     qc.invalidateQueries({ queryKey: ['admin-users', 'all'] })
   }
 
+  const adminUpdateProfile = async (targetUserId, patch) => {
+    const { data: { session } } = await supabase.auth.getSession()
+    const { data, error } = await supabase.functions.invoke('admin-update-profile', {
+      body: { target_user_id: targetUserId, patch },
+      headers: session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : undefined,
+    })
+    if (error) {
+      const body = await error.context?.json?.().catch(() => null)
+      throw new Error(body?.error || error.message || 'Update failed')
+    }
+    if (data?.error) throw new Error(data.error)
+    return data
+  }
+
   const changeRole = async (userId, role) => {
-    const { error } = await supabase.from('la_profiles').update({ role }).eq('id', userId)
-    if (error) { toast.error(error.message); return }
-    toast.success('Role updated')
-    qc.invalidateQueries({ queryKey: ['admin-users', isPlatformAdmin ? 'all' : profile?.org_id] })
+    try {
+      await adminUpdateProfile(userId, { role })
+      toast.success('Role updated')
+      qc.invalidateQueries({ queryKey: ['admin-users', isPlatformAdmin ? 'all' : profile?.org_id] })
+    } catch (err) { toast.error(err.message) }
   }
 
   const changeOrg = async (userId, orgId) => {
-    const { error } = await supabase
-      .from('la_profiles')
-      .update({ org_id: orgId, insurer_id: null })
-      .eq('id', userId)
-    if (error) { toast.error(error.message); return }
-    toast.success('Organization updated')
-    qc.invalidateQueries({ queryKey: ['admin-users', isPlatformAdmin ? 'all' : profile?.org_id] })
-    qc.invalidateQueries({ queryKey: ['admin-orgs'] })
+    try {
+      await adminUpdateProfile(userId, { org_id: orgId })
+      // Also clear insurer assignment since it's org-specific
+      await supabase.from('la_profiles').update({ insurer_id: null }).eq('id', userId)
+      toast.success('Organization updated')
+      qc.invalidateQueries({ queryKey: ['admin-users', isPlatformAdmin ? 'all' : profile?.org_id] })
+      qc.invalidateQueries({ queryKey: ['admin-orgs'] })
+    } catch (err) { toast.error(err.message) }
   }
 
   const assignInsurer = async (userId, insurer_id) => {
@@ -1006,14 +1023,12 @@ export default function AdminPanel() {
       toast.error("Can't remove your own DB Admin status")
       return
     }
-    const { error } = await supabase
-      .from('la_profiles')
-      .update({ is_platform_admin: !current })
-      .eq('id', userId)
-    if (error) { toast.error(error.message); return }
-    toast.success(current ? 'DB Admin revoked' : 'DB Admin granted')
-    qc.invalidateQueries({ queryKey: ['admin-users', isPlatformAdmin ? 'all' : profile?.org_id] })
-    qc.invalidateQueries({ queryKey: ['platform-admins'] })
+    try {
+      await adminUpdateProfile(userId, { is_platform_admin: !current })
+      toast.success(current ? 'DB Admin revoked' : 'DB Admin granted')
+      qc.invalidateQueries({ queryKey: ['admin-users', isPlatformAdmin ? 'all' : profile?.org_id] })
+      qc.invalidateQueries({ queryKey: ['platform-admins'] })
+    } catch (err) { toast.error(err.message) }
   }
 
   const claimPlatformAdmin = async () => {
