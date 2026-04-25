@@ -157,8 +157,10 @@ export function layout(opts: LayoutOptions): string {
             ">
               <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
                 <tr>
-                  <td style="vertical-align:middle;">${LOGO_HTML}</td>
-                  <td align="right" style="vertical-align:middle;">${badge(badgeText, badgeColor)}</td>
+                  <td align="left" style="padding-bottom:14px;">${LOGO_HTML}</td>
+                </tr>
+                <tr>
+                  <td align="right">${badge(badgeText, badgeColor)}</td>
                 </tr>
               </table>
             </td>

@@ -41,9 +41,11 @@ function layout(title, badge, badgeColor, body) {
           <td style="background:#0f172a;border-radius:12px 12px 0 0;padding:24px 32px;">
             <table width="100%" cellpadding="0" cellspacing="0">
               <tr>
-                <td>
+                <td align="left" style="padding-bottom:14px;">
                   <img src="https://raw.githubusercontent.com/TheJimmyJam/LexAlloc/main/frontend/public/logo-email.png" alt="LexAlloc" width="360" style="display:block;height:auto;border:0;max-width:100%;" />
                 </td>
+              </tr>
+              <tr>
                 <td align="right">
                   <span style="background:${badgeColor};color:#fff;font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;letter-spacing:0.5px;text-transform:uppercase;">
                     ${badge}
