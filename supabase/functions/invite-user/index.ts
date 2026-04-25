@@ -9,11 +9,13 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { layout, ctaButton, infoRow, alertBox } from '../_shared/emailTemplate.ts'
 
 const SUPABASE_URL   = Deno.env.get('SUPABASE_URL')              ?? ''
+const ANON_KEY       = Deno.env.get('SUPABASE_ANON_KEY')         ?? ''
 const SERVICE_KEY    = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 const FRONTEND_URL   = Deno.env.get('FRONTEND_URL')              ?? 'https://lexalloc.netlify.app'
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')            ?? ''
 const RESEND_FROM    = Deno.env.get('RESEND_FROM_EMAIL')         ?? 'noreply@lexalloc.app'
 
+// Admin client for privileged operations (generating links, upserting profiles)
 const db = createClient(SUPABASE_URL, SERVICE_KEY)
 
 const corsHeaders = {
@@ -110,12 +112,14 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // Verify caller
+    // Verify caller — use user-context client (anon key + their JWT) for auth
     const authHeader = req.headers.get('Authorization') ?? ''
-    const token      = authHeader.replace('Bearer ', '').trim()
-    if (!token) return json({ error: 'Unauthorized' }, 401)
+    if (!authHeader) return json({ error: 'Unauthorized' }, 401)
 
-    const { data: { user: caller }, error: authErr } = await db.auth.getUser(token)
+    const userClient = createClient(SUPABASE_URL, ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    })
+    const { data: { user: caller }, error: authErr } = await userClient.auth.getUser()
     if (authErr || !caller) return json({ error: 'Unauthorized' }, 401)
 
     const { email, role = 'user', org_id } = await req.json()
