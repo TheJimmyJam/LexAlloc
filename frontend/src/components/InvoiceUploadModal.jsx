@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import {
   X, Upload, Loader2, CheckCircle, AlertCircle, FileText,
-  Trash2, ChevronDown, ChevronUp, Save, RefreshCw
+  Trash2, ChevronDown, ChevronUp, Save, RefreshCw, Plus, RefreshCcw
 } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
@@ -177,6 +177,42 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
   const editParsed = (id, field, value) =>
     setQueue(q => q.map(i => i.id === id ? { ...i, parsed: { ...i.parsed, [field]: value } } : i))
 
+  // ── Line item helpers ─────────────────────────────────────────────────────
+  const editLineItem = (id, idx, field, value) =>
+    setQueue(q => q.map(i => {
+      if (i.id !== id) return i
+      const items = [...(i.parsed?.line_items || [])]
+      items[idx] = { ...items[idx], [field]: value }
+      // Auto-recalc total from sum of amounts
+      const newTotal = items.reduce((s, li) => s + (parseFloat(li.amount) || 0), 0)
+      return { ...i, parsed: { ...i.parsed, line_items: items, total_amount: parseFloat(newTotal.toFixed(2)) } }
+    }))
+
+  const addLineItem = (id) =>
+    setQueue(q => q.map(i => {
+      if (i.id !== id) return i
+      const items = [...(i.parsed?.line_items || []), {
+        date_of_service: '', description: '', timekeeper: '',
+        hours: '', rate: '', amount: '', category: 'fees',
+      }]
+      return { ...i, parsed: { ...i.parsed, line_items: items } }
+    }))
+
+  const deleteLineItem = (id, idx) =>
+    setQueue(q => q.map(i => {
+      if (i.id !== id) return i
+      const items = (i.parsed?.line_items || []).filter((_, j) => j !== idx)
+      const newTotal = items.reduce((s, li) => s + (parseFloat(li.amount) || 0), 0)
+      return { ...i, parsed: { ...i.parsed, line_items: items, total_amount: parseFloat(newTotal.toFixed(2)) } }
+    }))
+
+  const syncTotalFromItems = (id) =>
+    setQueue(q => q.map(i => {
+      if (i.id !== id) return i
+      const total = (i.parsed?.line_items || []).reduce((s, li) => s + (parseFloat(li.amount) || 0), 0)
+      return { ...i, parsed: { ...i.parsed, total_amount: parseFloat(total.toFixed(2)) } }
+    }))
+
   const readyCount  = queue.filter(i => i.status === 'ready').length
   const savedCount  = queue.filter(i => i.status === 'saved').length
   const errorCount  = queue.filter(i => i.status === 'error').length
@@ -316,11 +352,156 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
                           </div>
                         ))}
                       </div>
-                      {item.parsed.line_items?.length > 0 && (
-                        <p className="text-xs text-slate-400 mt-3">
-                          {item.parsed.line_items.length} line items extracted — edit them after saving in Invoice Detail.
-                        </p>
-                      )}
+                      {/* ── Line Items Editor ── */}
+                      <div className="mt-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                            Line Items
+                            {item.parsed.line_items?.length > 0 && (
+                              <span className="ml-2 font-normal text-slate-400 normal-case">
+                                {item.parsed.line_items.length} row{item.parsed.line_items.length !== 1 ? 's' : ''}
+                                {' · '}
+                                total ${(item.parsed.line_items.reduce((s, li) => s + (parseFloat(li.amount) || 0), 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </span>
+                            )}
+                          </p>
+                          <div className="flex items-center gap-2">
+                            {item.parsed.line_items?.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => syncTotalFromItems(item.id)}
+                                className="text-xs text-slate-400 hover:text-brand-600 flex items-center gap-1"
+                                title="Recalculate invoice total from line item amounts"
+                              >
+                                <RefreshCcw className="h-3 w-3" /> Sync total
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => addLineItem(item.id)}
+                              className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-medium bg-brand-50 hover:bg-brand-100 px-2 py-1 rounded-lg transition-colors"
+                            >
+                              <Plus className="h-3 w-3" /> Add Row
+                            </button>
+                          </div>
+                        </div>
+
+                        {(!item.parsed.line_items || item.parsed.line_items.length === 0) ? (
+                          <div className="text-center py-4 border border-dashed border-slate-200 rounded-lg">
+                            <p className="text-xs text-slate-400">No line items — click Add Row to enter them manually.</p>
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="bg-slate-100 border-b border-slate-200">
+                                  <th className="text-left font-semibold text-slate-500 px-2 py-1.5 w-24">Date</th>
+                                  <th className="text-left font-semibold text-slate-500 px-2 py-1.5">Description</th>
+                                  <th className="text-left font-semibold text-slate-500 px-2 py-1.5 w-24">Timekeeper</th>
+                                  <th className="text-right font-semibold text-slate-500 px-2 py-1.5 w-14">Hours</th>
+                                  <th className="text-right font-semibold text-slate-500 px-2 py-1.5 w-18">Rate</th>
+                                  <th className="text-right font-semibold text-slate-500 px-2 py-1.5 w-20">Amount</th>
+                                  <th className="text-left font-semibold text-slate-500 px-2 py-1.5 w-20">Category</th>
+                                  <th className="w-6" />
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 bg-white">
+                                {item.parsed.line_items.map((li, idx) => (
+                                  <tr key={idx} className="hover:bg-slate-50 group">
+                                    <td className="px-1 py-1">
+                                      <input
+                                        type="date"
+                                        className="w-full border border-transparent hover:border-slate-200 focus:border-brand-400 rounded px-1 py-0.5 text-xs bg-transparent focus:bg-white outline-none"
+                                        value={li.date_of_service || li.date || ''}
+                                        onChange={e => editLineItem(item.id, idx, 'date_of_service', e.target.value)}
+                                      />
+                                    </td>
+                                    <td className="px-1 py-1">
+                                      <input
+                                        type="text"
+                                        className="w-full border border-transparent hover:border-slate-200 focus:border-brand-400 rounded px-1 py-0.5 text-xs bg-transparent focus:bg-white outline-none min-w-0"
+                                        value={li.description || ''}
+                                        onChange={e => editLineItem(item.id, idx, 'description', e.target.value)}
+                                        placeholder="Description"
+                                      />
+                                    </td>
+                                    <td className="px-1 py-1">
+                                      <input
+                                        type="text"
+                                        className="w-full border border-transparent hover:border-slate-200 focus:border-brand-400 rounded px-1 py-0.5 text-xs bg-transparent focus:bg-white outline-none"
+                                        value={li.timekeeper || ''}
+                                        onChange={e => editLineItem(item.id, idx, 'timekeeper', e.target.value)}
+                                        placeholder="Name"
+                                      />
+                                    </td>
+                                    <td className="px-1 py-1">
+                                      <input
+                                        type="number"
+                                        step="0.1"
+                                        className="w-full border border-transparent hover:border-slate-200 focus:border-brand-400 rounded px-1 py-0.5 text-xs bg-transparent focus:bg-white outline-none text-right"
+                                        value={li.hours || ''}
+                                        onChange={e => editLineItem(item.id, idx, 'hours', e.target.value)}
+                                        placeholder="0.0"
+                                      />
+                                    </td>
+                                    <td className="px-1 py-1">
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        className="w-full border border-transparent hover:border-slate-200 focus:border-brand-400 rounded px-1 py-0.5 text-xs bg-transparent focus:bg-white outline-none text-right"
+                                        value={li.rate || ''}
+                                        onChange={e => editLineItem(item.id, idx, 'rate', e.target.value)}
+                                        placeholder="0.00"
+                                      />
+                                    </td>
+                                    <td className="px-1 py-1">
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        className="w-full border border-transparent hover:border-slate-200 focus:border-brand-400 rounded px-1 py-0.5 text-xs bg-transparent focus:bg-white outline-none text-right font-semibold"
+                                        value={li.amount || ''}
+                                        onChange={e => editLineItem(item.id, idx, 'amount', e.target.value)}
+                                        placeholder="0.00"
+                                      />
+                                    </td>
+                                    <td className="px-1 py-1">
+                                      <select
+                                        className="w-full border border-transparent hover:border-slate-200 focus:border-brand-400 rounded px-1 py-0.5 text-xs bg-transparent focus:bg-white outline-none"
+                                        value={li.category || 'fees'}
+                                        onChange={e => editLineItem(item.id, idx, 'category', e.target.value)}
+                                      >
+                                        <option value="fees">Fees</option>
+                                        <option value="costs">Costs</option>
+                                        <option value="expenses">Expenses</option>
+                                        <option value="other">Other</option>
+                                      </select>
+                                    </td>
+                                    <td className="px-1 py-1 text-center">
+                                      <button
+                                        type="button"
+                                        onClick={() => deleteLineItem(item.id, idx)}
+                                        className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all p-0.5 rounded"
+                                        title="Delete row"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot>
+                                <tr className="border-t-2 border-slate-200 bg-slate-50">
+                                  <td colSpan={5} className="px-2 py-1.5 text-xs font-semibold text-slate-500">Total</td>
+                                  <td className="px-2 py-1.5 text-right text-xs font-bold text-slate-800">
+                                    ${(item.parsed.line_items.reduce((s, li) => s + (parseFloat(li.amount) || 0), 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                  </td>
+                                  <td colSpan={2} />
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
