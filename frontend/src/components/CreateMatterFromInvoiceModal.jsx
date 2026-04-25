@@ -132,9 +132,15 @@ export default function CreateMatterFromInvoiceModal({ onClose }) {
       setParsed(result)
       setInv(result)
 
-      // Pre-seed matter name from billing firm if available
-      if (result.billing_firm && !matterName) {
+      // Pre-seed matter fields from parsed invoice data
+      if (result.matter_name && !matterName) {
+        setMatterName(result.matter_name)
+      } else if (result.billing_firm && !matterName) {
+        // Fallback: use billing firm only if no matter name found
         setMatterName(result.billing_firm)
+      }
+      if (result.matter_number && !matterNumber) {
+        setMatterNumber(result.matter_number)
       }
 
       setParseStatus('ready')
