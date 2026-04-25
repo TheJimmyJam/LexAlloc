@@ -6,9 +6,9 @@ import { generateDemandLetterBlob, getDemandLetterFilename } from '../lib/genera
 import { generateApportionmentReport } from '../lib/generateApportionmentReport.js'
 import DemandLetterModal from '../components/DemandLetterModal.jsx'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2, AlertTriangle, Mail, FileDown } from 'lucide-react'
+import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2, AlertTriangle, Mail, FileDown, Bell, Clock } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays } from 'date-fns'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 import toast from 'react-hot-toast'
@@ -158,6 +158,7 @@ export default function Apportionment() {
   const [paymentModal, setPaymentModal] = useState(null)   // { ia, partyName }
   const [letterModal,  setLetterModal]  = useState(null)   // { apport, invoice, pa, ia, orgName }
   const [generatingAll, setGeneratingAll] = useState(false)
+  const [sendingReminder, setSendingReminder] = useState(new Set()) // set of ia.ids
 
   const { data: apport, isLoading } = useQuery({
     queryKey: ['apportionment', apportionmentId],
@@ -184,6 +185,57 @@ export default function Apportionment() {
       return data
     }
   })
+
+  // All insurer apportionment ids in this apportionment (for reminder query)
+  const iaIds = useMemo(() => {
+    if (!apport) return []
+    return (apport.party_apportionments || []).flatMap(pa =>
+      (pa.insurer_apportionments || []).map(ia => ia.id)
+    )
+  }, [apport])
+
+  const { data: remindersMap = {} } = useQuery({
+    queryKey: ['payment-reminders', apportionmentId],
+    queryFn: async () => {
+      if (!iaIds.length) return {}
+      const { data } = await supabase
+        .from('la_payment_reminders')
+        .select('insurer_apportionment_id, days_threshold, triggered_by, sent_at, status')
+        .in('insurer_apportionment_id', iaIds)
+        .eq('status', 'sent')
+        .order('sent_at', { ascending: false })
+      // Build map: iaId → sorted list of reminders (most recent first)
+      const map = {}
+      for (const r of data ?? []) {
+        if (!map[r.insurer_apportionment_id]) map[r.insurer_apportionment_id] = []
+        map[r.insurer_apportionment_id].push(r)
+      }
+      return map
+    },
+    enabled: iaIds.length > 0,
+  })
+
+  const sendReminder = async (ia) => {
+    const iaId = ia.id
+    setSendingReminder(prev => new Set([...prev, iaId]))
+    try {
+      const { error } = await supabase.functions.invoke('send-payment-reminders', {
+        body: { insurer_apportionment_id: iaId },
+      })
+      if (error) throw new Error(error.message)
+      toast.success(`Reminder sent to ${ia.insurer_policy_periods?.claims_rep_email || ia.insurers?.name || 'insurer'}`)
+      qc.invalidateQueries({ queryKey: ['payment-reminders', apportionmentId] })
+    } catch (err) {
+      toast.error('Reminder failed: ' + (err.message || 'Unknown error'))
+    } finally {
+      setSendingReminder(prev => { const n = new Set(prev); n.delete(iaId); return n })
+    }
+  }
+
+  const daysOutstanding = (demandedAt) => {
+    if (!demandedAt) return null
+    return differenceInCalendarDays(new Date(), new Date(demandedAt))
+  }
 
   const handlePrint = () => window.print()
 
@@ -514,8 +566,14 @@ export default function Apportionment() {
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {pa.insurer_apportionments.map((ia) => {
-                      const pp        = ia.insurer_policy_periods
-                      const outstanding = ia.amount - (ia.amount_paid || 0)
+                      const pp           = ia.insurer_policy_periods
+                      const outstanding  = ia.amount - (ia.amount_paid || 0)
+                      const days         = daysOutstanding(ia.demanded_at)
+                      const iaReminders  = remindersMap[ia.id] || []
+                      const lastReminder = iaReminders[0] ?? null
+                      const canRemind    = ['demanded', 'pending', 'partially_paid', 'disputed'].includes(ia.payment_status)
+                      const isSending    = sendingReminder.has(ia.id)
+                      const tierColor    = days === null ? '' : days >= 90 ? 'text-red-600 bg-red-50' : days >= 60 ? 'text-orange-600 bg-orange-50' : days >= 30 ? 'text-amber-600 bg-amber-50' : 'text-slate-500 bg-slate-100'
                       return (
                         <tr key={ia.id} className="hover:bg-slate-50">
                           <td className="py-3 font-medium text-slate-800">{ia.insurers?.name}</td>
@@ -583,20 +641,54 @@ export default function Apportionment() {
                             )}
                           </td>
                           <td className="py-3 text-center print:hidden">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <button
-                                onClick={() => openLetterModal(pa, ia)}
-                                title="Generate demand letter"
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
-                              >
-                                <Mail className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                onClick={() => setPaymentModal({ ia, partyName: pa.parties?.name })}
-                                className={`badge cursor-pointer hover:opacity-80 transition-opacity ${paymentColor(ia.payment_status)}`}
-                              >
-                                {paymentLabel(ia.payment_status)}
-                              </button>
+                            <div className="flex flex-col items-center gap-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => openLetterModal(pa, ia)}
+                                  title="Generate demand letter"
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
+                                >
+                                  <Mail className="h-3.5 w-3.5" />
+                                </button>
+                                {canRemind && (
+                                  <button
+                                    onClick={() => sendReminder(ia)}
+                                    disabled={isSending}
+                                    title={lastReminder
+                                      ? `Send reminder (last: ${lastReminder.days_threshold || 'manual'}d · ${format(new Date(lastReminder.sent_at), 'MMM d')})`
+                                      : 'Send payment reminder to insurer'}
+                                    className={`p-1.5 rounded-lg transition-colors ${
+                                      isSending
+                                        ? 'text-slate-300 cursor-wait'
+                                        : lastReminder
+                                        ? 'text-amber-500 hover:text-amber-700 hover:bg-amber-50'
+                                        : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
+                                    }`}
+                                  >
+                                    {isSending
+                                      ? <Clock className="h-3.5 w-3.5 animate-spin" />
+                                      : <Bell className="h-3.5 w-3.5" />}
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => setPaymentModal({ ia, partyName: pa.parties?.name })}
+                                  className={`badge cursor-pointer hover:opacity-80 transition-opacity ${paymentColor(ia.payment_status)}`}
+                                >
+                                  {paymentLabel(ia.payment_status)}
+                                </button>
+                              </div>
+                              {/* Days outstanding badge */}
+                              {days !== null && canRemind && (
+                                <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full leading-none ${tierColor}`}>
+                                  {days}d outstanding
+                                </span>
+                              )}
+                              {/* Last reminder sent */}
+                              {lastReminder && (
+                                <span className="text-xs text-slate-400 leading-none">
+                                  {lastReminder.triggered_by === 'manual' ? 'Manual' : `${lastReminder.days_threshold}d`} · {format(new Date(lastReminder.sent_at), 'MMM d')}
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td className="py-3 text-center hidden print:table-cell">
