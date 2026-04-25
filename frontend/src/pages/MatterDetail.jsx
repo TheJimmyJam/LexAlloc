@@ -10,7 +10,8 @@ import {
   ArrowLeft, Plus, Trash2, X, Upload, FileText,
   Users, Shield, Calculator, ChevronRight, Edit2, Check, TrendingUp, AlertTriangle,
   Paperclip, Download, ExternalLink, LayoutTemplate, Copy, BookOpen, Search,
-  Bell, RefreshCcw, Loader2, Clock, Briefcase, DollarSign, Mail, Activity
+  Bell, RefreshCcw, Loader2, Clock, Briefcase, DollarSign, Mail, Activity,
+  MessageSquare, Flag, Phone, Pin, Send, AlertCircle
 } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays, addDays, startOfYear, addYears } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -225,14 +226,15 @@ function PolicyTimeline({ insurerPeriods, invoices, parties }) {
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 const ALL_TABS = [
-  { key: 'overview',      label: 'Overview',      icon: FileText,   templateOnly: false },
-  { key: 'financials',    label: 'Financials',     icon: TrendingUp, templateOnly: false },
-  { key: 'parties',       label: 'Parties',        icon: Users,      templateOnly: false },
-  { key: 'insurers',      label: 'Insurers',       icon: Shield,     templateOnly: false },
-  { key: 'invoices',      label: 'Invoices',       icon: Upload,     templateOnly: false },
-  { key: 'apportionments',label: 'Apportionments', icon: Calculator, templateOnly: false },
-  { key: 'documents',     label: 'Documents',      icon: Paperclip,  templateOnly: false },
-  { key: 'activity',     label: 'Activity',       icon: Clock,      templateOnly: false },
+  { key: 'overview',      label: 'Overview',      icon: FileText,       templateOnly: false },
+  { key: 'financials',    label: 'Financials',     icon: TrendingUp,     templateOnly: false },
+  { key: 'parties',       label: 'Parties',        icon: Users,          templateOnly: false },
+  { key: 'insurers',      label: 'Insurers',       icon: Shield,         templateOnly: false },
+  { key: 'invoices',      label: 'Invoices',       icon: Upload,         templateOnly: false },
+  { key: 'apportionments',label: 'Apportionments', icon: Calculator,     templateOnly: false },
+  { key: 'documents',     label: 'Documents',      icon: Paperclip,      templateOnly: false },
+  { key: 'notes',         label: 'Notes',          icon: MessageSquare,  templateOnly: false },
+  { key: 'activity',      label: 'Activity',       icon: Clock,          templateOnly: false },
 ]
 // Tabs hidden when viewing a template (template has no invoices, apportionments, or financial data)
 const TEMPLATE_HIDDEN_TABS = new Set(['financials', 'invoices', 'apportionments'])
@@ -950,6 +952,58 @@ export default function MatterDetail() {
     },
     enabled: !!matterId,
   })
+
+  // Matter Notes
+  const { data: matterNotes = [], refetch: refetchNotes } = useQuery({
+    queryKey: ['matter-notes', matterId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('la_matter_notes')
+        .select('*')
+        .eq('matter_id', matterId)
+        .order('is_pinned', { ascending: false })
+        .order('created_at', { ascending: false })
+      return data || []
+    },
+    enabled: !!matterId,
+  })
+  const [noteContent,  setNoteContent]  = useState('')
+  const [noteType,     setNoteType]     = useState('note')
+  const [submittingNote, setSubmittingNote] = useState(false)
+
+  const submitNote = async () => {
+    if (!noteContent.trim() || !profile) return
+    setSubmittingNote(true)
+    try {
+      const { error } = await supabase.from('la_matter_notes').insert({
+        org_id:     matter.org_id,
+        matter_id:  matterId,
+        user_id:    profile.id,
+        user_name:  profile.full_name || profile.email,
+        user_email: profile.email,
+        content:    noteContent.trim(),
+        note_type:  noteType,
+      })
+      if (error) throw error
+      setNoteContent('')
+      setNoteType('note')
+      refetchNotes()
+    } catch (err) {
+      toast.error('Failed to save note')
+    } finally {
+      setSubmittingNote(false)
+    }
+  }
+
+  const togglePinNote = async (note) => {
+    await supabase.from('la_matter_notes').update({ is_pinned: !note.is_pinned }).eq('id', note.id)
+    refetchNotes()
+  }
+
+  const deleteNote = async (noteId) => {
+    await supabase.from('la_matter_notes').delete().eq('id', noteId)
+    refetchNotes()
+  }
 
   const [checkingLimits, setCheckingLimits] = useState(false)
   const checkLimitsNow = async () => {
@@ -2041,6 +2095,142 @@ export default function MatterDetail() {
       })()}
 
       {/* ── Activity Tab ── */}
+      {tab === 'notes' && (
+        <div className="space-y-5">
+
+          {/* Compose box */}
+          <div className="card p-5">
+            <div className="flex gap-2 mb-3">
+              {[
+                { value: 'note',     label: 'Note',     icon: MessageSquare, color: 'bg-brand-100 text-brand-700 border-brand-300' },
+                { value: 'flag',     label: 'Flag',     icon: Flag,          color: 'bg-red-100 text-red-700 border-red-300' },
+                { value: 'call_log', label: 'Call Log', icon: Phone,         color: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+                { value: 'issue',    label: 'Issue',    icon: AlertCircle,   color: 'bg-amber-100 text-amber-700 border-amber-300' },
+              ].map(({ value, label, icon: Icon, color }) => (
+                <button
+                  key={value}
+                  onClick={() => setNoteType(value)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
+                    noteType === value ? color + ' shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={noteContent}
+              onChange={e => setNoteContent(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submitNote() }}
+              placeholder={
+                noteType === 'flag'     ? 'Describe the issue to flag…' :
+                noteType === 'call_log' ? 'Log the call — who you spoke with, what was discussed…' :
+                noteType === 'issue'    ? 'Describe the issue…' :
+                'Add a note — context, follow-ups, anything the team should know…'
+              }
+              rows={3}
+              className="form-input resize-none w-full text-sm"
+            />
+            <div className="flex items-center justify-between mt-3">
+              <span className="text-xs text-slate-400">⌘ + Enter to post</span>
+              <button
+                onClick={submitNote}
+                disabled={!noteContent.trim() || submittingNote}
+                className="btn-primary py-1.5 px-4 text-sm flex items-center gap-2"
+              >
+                {submittingNote ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                Post
+              </button>
+            </div>
+          </div>
+
+          {/* Notes thread */}
+          {matterNotes.length === 0 ? (
+            <div className="card p-10 text-center text-slate-400">
+              <MessageSquare className="h-8 w-8 mx-auto mb-2 text-slate-300" />
+              <p>No notes yet.</p>
+              <p className="text-xs mt-1">Post context, flag issues, or log calls — they'll stay attached to this matter.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {matterNotes.map(note => {
+                const NOTE_STYLES = {
+                  note:     { bar: 'bg-brand-500',   badge: 'bg-brand-100 text-brand-700',    icon: MessageSquare, label: 'Note' },
+                  flag:     { bar: 'bg-red-500',      badge: 'bg-red-100 text-red-700',        icon: Flag,          label: 'Flag' },
+                  call_log: { bar: 'bg-emerald-500',  badge: 'bg-emerald-100 text-emerald-700',icon: Phone,         label: 'Call Log' },
+                  issue:    { bar: 'bg-amber-500',    badge: 'bg-amber-100 text-amber-700',    icon: AlertCircle,   label: 'Issue' },
+                }
+                const style = NOTE_STYLES[note.note_type] || NOTE_STYLES.note
+                const NoteIcon = style.icon
+                const isOwn = profile?.id === note.user_id
+                const isAdmin = ['owner', 'admin'].includes(profile?.role)
+
+                return (
+                  <div
+                    key={note.id}
+                    className={`card overflow-hidden flex ${note.is_pinned ? 'ring-2 ring-brand-200' : ''}`}
+                  >
+                    {/* Color bar */}
+                    <div className={`w-1 flex-shrink-0 ${style.bar}`} />
+                    <div className="flex-1 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {/* Type badge */}
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${style.badge}`}>
+                            <NoteIcon className="h-3 w-3" />
+                            {style.label}
+                          </span>
+                          {note.is_pinned && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-brand-50 text-brand-600">
+                              <Pin className="h-3 w-3" />
+                              Pinned
+                            </span>
+                          )}
+                        </div>
+                        {/* Actions */}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <button
+                            onClick={() => togglePinNote(note)}
+                            className={`p-1 rounded transition-colors ${note.is_pinned ? 'text-brand-500 hover:text-brand-700' : 'text-slate-300 hover:text-slate-500'}`}
+                            title={note.is_pinned ? 'Unpin' : 'Pin to top'}
+                          >
+                            <Pin className="h-3.5 w-3.5" />
+                          </button>
+                          {(isOwn || isAdmin) && (
+                            <button
+                              onClick={() => { if (window.confirm('Delete this note?')) deleteNote(note.id) }}
+                              className="p-1 rounded text-slate-300 hover:text-red-500 transition-colors"
+                              title="Delete note"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Content */}
+                      <p className="mt-2 text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{note.content}</p>
+
+                      {/* Footer */}
+                      <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
+                        <div className="w-5 h-5 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-semibold uppercase text-[10px]">
+                          {(note.user_name || note.user_email || '?')[0]}
+                        </div>
+                        <span className="font-medium text-slate-600">{note.user_name || note.user_email}</span>
+                        <span>·</span>
+                        <span>{format(new Date(note.created_at), 'MMM d, yyyy h:mm a')}</span>
+                        {note.updated_at !== note.created_at && <span className="italic">(edited)</span>}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {tab === 'activity' && (
         <div>
           <div className="flex items-center justify-between mb-4">
