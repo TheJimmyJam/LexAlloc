@@ -324,7 +324,7 @@ export default function Matters() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Matters</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Matters</h1>
           <p className="text-slate-500 text-sm mt-1">
             {matters.length} matter{matters.length !== 1 ? 's' : ''}
             {templates.length > 0 && ` · ${templates.length} template${templates.length !== 1 ? 's' : ''}`}
@@ -441,9 +441,9 @@ export default function Matters() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-100 bg-violet-50">
-                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Template Name</th>
-                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Parties</th>
-                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Created</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Template Name</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Parties</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Created</th>
                 <th />
               </tr>
             </thead>
@@ -493,12 +493,12 @@ export default function Matters() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
-                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Matter</th>
-                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Number</th>
-                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Parties</th>
-                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Invoices</th>
-                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Status</th>
-                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Created</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Matter</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Number</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Parties</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Invoices</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Status</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Created</th>
                 <th />
               </tr>
             </thead>

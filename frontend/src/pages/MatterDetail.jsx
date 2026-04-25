@@ -1250,7 +1250,7 @@ export default function MatterDetail() {
 
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">{matter.name}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{matter.name}</h1>
             <p className="text-slate-500 text-sm mt-1">
               {matter.firm_name && <span className="mr-3 font-medium text-slate-600">{matter.firm_name}</span>}
               {matter.matter_number && <span className="mr-3">#{matter.matter_number}</span>}
@@ -1419,7 +1419,7 @@ export default function MatterDetail() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="card p-5">
                 <p className="text-xs text-slate-400 uppercase tracking-wide font-medium">Total Invoiced</p>
-                <p className="text-2xl font-bold text-slate-900 mt-1">{formatCurrency(totalInvoiced)}</p>
+                <p className="text-2xl font-semibold tracking-tight text-slate-900 mt-1">{formatCurrency(totalInvoiced)}</p>
                 <p className="text-xs text-slate-400 mt-1">{invoices.length} invoice{invoices.length !== 1 ? 's' : ''}</p>
               </div>
               <div className="card p-5">
@@ -1457,13 +1457,13 @@ export default function MatterDetail() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50">
-                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Insurer</th>
-                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Policy #</th>
+                      <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Insurer</th>
+                      <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Policy #</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Total Owed</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Paid</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Outstanding</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Policy Limit</th>
-                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Exhaustion</th>
+                      <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Exhaustion</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1525,7 +1525,7 @@ export default function MatterDetail() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50">
-                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Party</th>
+                      <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Party</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Total Owed</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Insurer Paid</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Outstanding</th>
@@ -1560,13 +1560,13 @@ export default function MatterDetail() {
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50">
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Invoice</th>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Party</th>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Insurer</th>
+                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Invoice</th>
+                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Party</th>
+                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Insurer</th>
                         <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Owed</th>
                         <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Paid</th>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Status</th>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Payment Date</th>
+                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Status</th>
+                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Payment Date</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1672,10 +1672,10 @@ export default function MatterDetail() {
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
                     <th className="w-9" />
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Name</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Name</th>
                     <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Share %</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Insurers</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Notes</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Insurers</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Notes</th>
                     <th />
                   </tr>
                 </thead>
@@ -1920,14 +1920,14 @@ export default function MatterDetail() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Insurer</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Policy #</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Claim #</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Claims Rep</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Party</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Policy Period</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Insurer</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Policy #</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Claim #</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Claims Rep</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Party</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Policy Period</th>
                     <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Limit</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Exhaustion</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Exhaustion</th>
                     <th />
                   </tr>
                 </thead>
@@ -2044,11 +2044,11 @@ export default function MatterDetail() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Invoice #</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Billing Firm</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Date</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Invoice #</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Billing Firm</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Date</th>
                     <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Amount</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Status</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -2087,10 +2087,10 @@ export default function MatterDetail() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Invoice</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Invoice</th>
                     <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Total</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Method</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Calculated</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Method</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Calculated</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
