@@ -10,12 +10,7 @@
 // SVG is not safe in email; we use an HTML table-based wordmark instead.
 // The indigo square + "LexAlloc" wordmark in white is the brand anchor.
 
-const LOGO_HTML = `
-<a href="https://lexalloc.app" style="text-decoration:none;display:block;">
-  <img src="https://raw.githubusercontent.com/TheJimmyJam/LexAlloc/main/frontend/public/logo-email.png"
-       alt="LexAlloc" width="440"
-       style="display:block;height:auto;border:0;outline:none;max-width:100%;" />
-</a>`
+const LOGO_HTML = `<a href="https://lexalloc.app" style="text-decoration:none;display:inline-block;"><img src="https://raw.githubusercontent.com/TheJimmyJam/LexAlloc/main/frontend/public/logo-email.png" alt="LexAlloc" width="280" style="display:block;height:auto;border:0;outline:none;" /></a>`
 
 // ── Badge / chip ──────────────────────────────────────────────────────────────
 
@@ -157,10 +152,8 @@ export function layout(opts: LayoutOptions): string {
             ">
               <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
                 <tr>
-                  <td align="left" style="padding-bottom:14px;">${LOGO_HTML}</td>
-                </tr>
-                <tr>
-                  <td align="right">${badge(badgeText, badgeColor)}</td>
+                  <td align="left" style="vertical-align:middle;">${LOGO_HTML}</td>
+                  <td align="right" style="vertical-align:middle;white-space:nowrap;">${badge(badgeText, badgeColor)}</td>
                 </tr>
               </table>
             </td>
