@@ -42,7 +42,12 @@ export const api = {
     const { data, error } = await supabase.functions.invoke('invite-user', {
       body: { email, role, org_id: orgId },
     })
-    if (error) throw new Error(error.message || 'Invite failed')
+    if (error) {
+      // Supabase SDK wraps non-2xx responses with a generic message.
+      // Extract the real error from the response body if possible.
+      const body = await error.context?.json?.().catch(() => null)
+      throw new Error(body?.error || error.message || 'Invite failed')
+    }
     if (data?.error) throw new Error(data.error)
     return data
   },
