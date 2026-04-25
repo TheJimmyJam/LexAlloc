@@ -660,9 +660,9 @@ export default function Apportionment() {
 
   const handlePrint = () => window.print()
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     try {
-      generateApportionmentReport(apport)
+      await generateApportionmentReport(apport)
     } catch (err) {
       toast.error('PDF generation failed: ' + err.message)
     }
