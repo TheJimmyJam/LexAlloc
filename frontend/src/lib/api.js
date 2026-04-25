@@ -39,12 +39,14 @@ export const api = {
   // VITE_API_URL being configured (Railway not required for invites).
   inviteUser: async (email, role, orgId) => {
     const { supabase } = await import('./supabase.js')
+    const { data: { session } } = await supabase.auth.getSession()
     const { data, error } = await supabase.functions.invoke('invite-user', {
       body: { email, role, org_id: orgId },
+      headers: session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : undefined,
     })
     if (error) {
-      // Supabase SDK wraps non-2xx responses with a generic message.
-      // Extract the real error from the response body if possible.
       const body = await error.context?.json?.().catch(() => null)
       throw new Error(body?.error || error.message || 'Invite failed')
     }
