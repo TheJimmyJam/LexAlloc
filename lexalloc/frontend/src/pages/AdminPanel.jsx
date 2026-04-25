@@ -110,25 +110,28 @@ function IntegrationSettingsForm({ conn, onSaved }) {
   )
 }
 
+"LEXALLOC_BUILD_MARKER_XYZ789"
 // ─── Invite User Modal ────────────────────────────────────────────────────────
 
 function InviteUserModal({ onClose, orgs, defaultOrgId, insurers = [] }) {
   const qc = useQueryClient()
   const [sent, setSent] = useState(false)
   const [sentEmail, setSentEmail] = useState('')
-  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm({
-    defaultValues: { role: 'user', org_id: defaultOrgId || '', insurer_id: '' }
+  // Local state drives conditional rendering — no react-hook-form watch needed
+  const [selectedRole,  setSelectedRole]  = useState('user')
+  const [selectedOrgId, setSelectedOrgId] = useState(defaultOrgId || orgs[0]?.id || '')
+  const [selectedInsurer, setSelectedInsurer] = useState('')
+  const { register, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm({
+    defaultValues: { role: 'user', org_id: defaultOrgId || orgs[0]?.id || '', insurer_id: '' }
   })
 
-  const watchedRole   = watch('role')
-  const watchedOrgId  = watch('org_id')
-  const orgInsurers   = insurers.filter(i => i.org_id === watchedOrgId)
+  const orgInsurers = insurers.filter(i => i.org_id === selectedOrgId)
 
   const onSubmit = async (values) => {
     try {
       await api.inviteUser(values.email, values.role, values.org_id)
-      // If inviting a client with an insurer pre-selected, assign it after invite
-      if (values.role === 'client' && values.insurer_id) {
+      // If inviting a client with an insurer pre-selected, assign after invite
+      if (values.role === 'client' && selectedInsurer) {
         await new Promise(r => setTimeout(r, 1500))
         const { data: newProfile } = await supabase
           .from('la_profiles')
@@ -137,7 +140,7 @@ function InviteUserModal({ onClose, orgs, defaultOrgId, insurers = [] }) {
           .maybeSingle()
         if (newProfile?.id) {
           await supabase.from('la_profiles')
-            .update({ insurer_id: values.insurer_id })
+            .update({ insurer_id: selectedInsurer })
             .eq('id', newProfile.id)
         }
       }
@@ -178,7 +181,16 @@ function InviteUserModal({ onClose, orgs, defaultOrgId, insurers = [] }) {
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
           <div>
             <label className="form-label">Organization *</label>
-            <select className="form-input" {...register('org_id', { required: true })}>
+            <select
+              className="form-input"
+              value={selectedOrgId}
+              {...register('org_id', { required: true })}
+              onChange={e => {
+                setSelectedOrgId(e.target.value)
+                setSelectedInsurer('')
+                setValue('org_id', e.target.value)
+              }}
+            >
               {orgs.map(o => (
                 <option key={o.id} value={o.id}>{o.name}</option>
               ))}
@@ -192,16 +204,29 @@ function InviteUserModal({ onClose, orgs, defaultOrgId, insurers = [] }) {
           </div>
           <div>
             <label className="form-label">Role</label>
-            <select className="form-input" {...register('role')}>
+            <select
+              className="form-input"
+              value={selectedRole}
+              {...register('role')}
+              onChange={e => {
+                setSelectedRole(e.target.value)
+                setSelectedInsurer('')
+                setValue('role', e.target.value)
+              }}
+            >
               <option value="user">User — standard access</option>
               <option value="client">Client — view only</option>
               <option value="admin">Admin — full access</option>
             </select>
           </div>
-          {watchedRole === 'client' && (
+          {selectedRole === 'client' && (
             <div>
               <label className="form-label">Insurer <span className="text-slate-400 font-normal">(optional)</span></label>
-              <select className="form-input" {...register('insurer_id')}>
+              <select
+                className="form-input"
+                value={selectedInsurer}
+                onChange={e => setSelectedInsurer(e.target.value)}
+              >
                 <option value="">— assign later —</option>
                 {orgInsurers.map(ins => (
                   <option key={ins.id} value={ins.id}>{ins.name}</option>
@@ -512,9 +537,11 @@ export default function AdminPanel() {
       window.history.replaceState({}, '', window.location.pathname)
     }
   }, [])
-  const [showInvite,  setShowInvite]  = useState(false)
-  const [showAddOrg,  setShowAddOrg]  = useState(false)
-  const [assignModal, setAssignModal] = useState(null)
+  const [showInvite,     setShowInvite]     = useState(false)
+  const [showAddOrg,     setShowAddOrg]     = useState(false)
+  const [assignModal,    setAssignModal]    = useState(null)
+  // Optimistic insurer display — keyed by userId, cleared after refetch
+  const [pendingInsurers, setPendingInsurers] = useState({})
 
   const qc = useQueryClient()
   const isPlatformAdmin = profile?.is_platform_admin === true
@@ -808,21 +835,22 @@ export default function AdminPanel() {
   }
 
   const assignInsurer = async (userId, insurer_id) => {
-    const queryKey = ['admin-users', isPlatformAdmin ? 'all' : profile?.org_id]
-    // Optimistic update — dropdown reflects new value immediately
-    qc.setQueryData(queryKey, (old) =>
-      old?.map(u => u.id === userId ? { ...u, insurer_id: insurer_id || null } : u)
-    )
+    // Immediately show the new value in the dropdown via local state
+    setPendingInsurers(prev => ({ ...prev, [userId]: insurer_id || null }))
     const { error } = await supabase
       .from('la_profiles')
       .update({ insurer_id: insurer_id || null })
       .eq('id', userId)
     if (error) {
       toast.error(error.message)
-      qc.invalidateQueries({ queryKey }) // rollback via refetch on failure
+      // Roll back optimistic value
+      setPendingInsurers(prev => { const next = { ...prev }; delete next[userId]; return next })
       return
     }
     toast.success('Insurer assigned')
+    // Refetch so the underlying query data is fresh; clear pending entry after
+    await qc.invalidateQueries({ queryKey: ['admin-users', isPlatformAdmin ? 'all' : profile?.org_id] })
+    setPendingInsurers(prev => { const next = { ...prev }; delete next[userId]; return next })
   }
 
   const togglePlatformAdmin = async (userId, current) => {
@@ -979,7 +1007,11 @@ export default function AdminPanel() {
                     <td className="px-4 py-4">
                       {u.role === 'client' ? (
                         <select
-                          value={u.insurer_id || ''}
+                          value={
+                            u.id in pendingInsurers
+                              ? (pendingInsurers[u.id] || '')
+                              : (u.insurer_id || '')
+                          }
                           onChange={e => assignInsurer(u.id, e.target.value)}
                           className="form-input text-xs py-1 px-2 h-auto min-w-[160px]"
                         >
