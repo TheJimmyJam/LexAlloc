@@ -1,50 +1,41 @@
-import { differenceInCalendarDays, parseISO, max, min } from 'date-fns'
+import { differenceInCalendarDays, parseISO } from 'date-fns'
 
 /**
- * Server-side pro-rata time-on-risk calculation.
- * Mirrors the frontend calculations.js for API-driven use.
+ * Server-side apportionment calculation.
+ * Mirrors frontend calculations.js for API-driven use.
+ *
+ * Party shares are pre-set on each party object (share_percentage).
+ * Insurer TOR = insurer policy duration / sum of all policy durations for that party.
+ * No reference to invoice service dates for insurer allocation.
  */
 export function calcTimeOnRisk(invoice, parties) {
-  const serviceStart = parseISO(invoice.service_start)
-  const serviceEnd   = parseISO(invoice.service_end || invoice.service_start)
-  const totalDays    = Math.max(1, differenceInCalendarDays(serviceEnd, serviceStart))
-
-  const partyBreakdown = parties.map(party => {
+  const breakdown = parties.map(party => {
     const partyAmount = (party.share_percentage / 100) * invoice.total_amount
+    const today       = new Date()
 
-    // Clip exposure to party's responsible dates so insurer TOR is measured
-    // against the period the party is actually liable, not the full invoice period.
-    const pRespStart    = party.responsible_start ? parseISO(party.responsible_start) : serviceStart
-    const pRespEnd      = party.responsible_end   ? parseISO(party.responsible_end)   : serviceEnd
-    const exposureStart = pRespStart > serviceStart ? pRespStart : serviceStart
-    const exposureEnd   = pRespEnd   < serviceEnd   ? pRespEnd   : serviceEnd
-    const exposureDays  = Math.max(1, differenceInCalendarDays(exposureEnd, exposureStart))
-
-    const insurers = (party.policy_periods || []).map(pp => {
-      const pStart     = parseISO(pp.policy_start)
-      // null/empty policy_end = policy still in effect; treat as covering through exposure end
-      const pEnd       = pp.policy_end ? parseISO(pp.policy_end) : exposureEnd
-      const overlapStart = max([exposureStart, pStart])
-      const overlapEnd   = min([exposureEnd,   pEnd])
-      const daysOnRisk   = Math.max(0, differenceInCalendarDays(overlapEnd, overlapStart))
-      const pct          = (daysOnRisk / exposureDays) * 100
+    const withDays = (party.policy_periods || []).map(pp => {
+      const pStart = parseISO(pp.policy_start)
+      // null policy_end = still in effect; use today as ceiling
+      const pEnd   = pp.policy_end ? parseISO(pp.policy_end) : today
+      const days   = Math.max(1, differenceInCalendarDays(pEnd, pStart))
 
       return {
-        insurer_id:          pp.insurer_id,
-        insurer_name:        pp.insurer_name,
-        policy_start:        pp.policy_start,
-        policy_end:          pp.policy_end,
-        days_on_risk:        daysOnRisk,
-        total_exposure_days: exposureDays,
-        percentage:          pct,
-        amount:              (pct / 100) * partyAmount,
+        insurer_id:   pp.insurer_id,
+        insurer_name: pp.insurer_name,
+        policy_start: pp.policy_start,
+        policy_end:   pp.policy_end,
+        days_on_risk: days,
       }
     })
 
-    const totalInsPct = insurers.reduce((s, i) => s + i.percentage, 0)
-    const normalized  = insurers.map(i => ({
+    const totalDays = withDays.reduce((s, i) => s + i.days_on_risk, 0) || 1
+
+    const insurers = withDays.map(i => ({
       ...i,
-      normalized_percentage: totalInsPct > 0 ? (i.percentage / totalInsPct) * 100 : 0,
+      total_coverage_days:   totalDays,
+      percentage:            (i.days_on_risk / totalDays) * 100,
+      normalized_percentage: (i.days_on_risk / totalDays) * 100,
+      amount:                (i.days_on_risk / totalDays) * partyAmount,
     }))
 
     return {
@@ -52,18 +43,17 @@ export function calcTimeOnRisk(invoice, parties) {
       party_name:        party.name,
       share_percentage:  party.share_percentage,
       party_amount:      partyAmount,
-      insurers:          normalized,
-      uninsured_amount:  partyAmount - normalized.reduce((s, i) => s + i.amount, 0),
+      insurers,
+      uninsured_amount:  Math.max(0, partyAmount - insurers.reduce((s, i) => s + i.amount, 0)),
     }
   })
 
   return {
-    invoice_total:   invoice.total_amount,
-    service_start:   invoice.service_start,
-    service_end:     invoice.service_end || invoice.service_start,
-    total_exposure_days: totalDays,
-    party_breakdown: partyBreakdown,
-    calculated_at:   new Date().toISOString(),
-    method:          'pro_rata_time_on_risk',
+    invoice_total:      invoice.total_amount,
+    service_start:      invoice.service_start,
+    service_end:        invoice.service_end || invoice.service_start,
+    party_breakdown:    breakdown,
+    calculated_at:      new Date().toISOString(),
+    method:             'pro_rata_time_on_risk',
   }
 }
