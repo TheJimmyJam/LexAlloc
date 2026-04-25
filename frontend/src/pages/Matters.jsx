@@ -9,6 +9,7 @@ import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
 import ImportMatterModal from '../components/ImportMatterModal.jsx'
+import { logAudit } from '../lib/audit.js'
 
 // ── Create / New Template Modal ───────────────────────────────────────────────
 function CreateMatterModal({ isTemplate = false, onClose }) {
@@ -17,7 +18,7 @@ function CreateMatterModal({ isTemplate = false, onClose }) {
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm()
 
   const onSubmit = async (values) => {
-    const { error } = await supabase.from('la_matters').insert({
+    const { data: newMatter, error } = await supabase.from('la_matters').insert({
       org_id:        profile.org_id,
       name:          values.name,
       matter_number: values.matter_number || null,
@@ -25,8 +26,9 @@ function CreateMatterModal({ isTemplate = false, onClose }) {
       status:        'active',
       created_by:    profile.id,
       is_template:   isTemplate,
-    })
+    }).select().single()
     if (error) { toast.error(error.message); return }
+    logAudit({ profile, matterId: newMatter?.id, action: 'matter.created', entityType: 'matter', entityId: newMatter?.id, entityName: values.name, metadata: { matter_number: values.matter_number || null, is_template: isTemplate } })
     toast.success(isTemplate ? 'Template created!' : 'Matter created!')
     qc.invalidateQueries({ queryKey: ['matters'] })
     qc.invalidateQueries({ queryKey: ['dashboard-stats'] })

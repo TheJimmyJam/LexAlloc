@@ -13,6 +13,7 @@ import { useForm } from 'react-hook-form'
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
+import { logAudit } from '../lib/audit.js'
 
 const COLORS = ['#4f46e5','#0891b2','#059669','#d97706','#dc2626','#7c3aed','#db2777','#0d9488']
 
@@ -33,7 +34,8 @@ function paymentLabel(status) {
 }
 
 // ── Record Payment Modal ──────────────────────────────────────────────────────
-function RecordPaymentModal({ ia, partyName, onClose, onSaved }) {
+function RecordPaymentModal({ ia, partyName, matterId, onClose, onSaved }) {
+  const { profile } = useAuth()
   const { register, handleSubmit, watch, formState: { isSubmitting } } = useForm({
     defaultValues: {
       payment_status: ia.payment_status || 'pending',
@@ -60,6 +62,7 @@ function RecordPaymentModal({ ia, partyName, onClose, onSaved }) {
       })
       .eq('id', ia.id)
     if (error) { toast.error(error.message); return }
+    logAudit({ profile, matterId, action: 'payment.updated', entityType: 'payment', entityId: ia.id, entityName: ia.insurers?.name, metadata: { old_status: ia.payment_status, new_status: values.payment_status, amount_paid: parseFloat(values.amount_paid) || 0, party: partyName } })
     toast.success('Payment status updated')
     onSaved(values.payment_status)
     onClose()
@@ -361,6 +364,7 @@ export default function Apportionment() {
       ia,
       orgName: profile?.la_organizations?.name || '',
     })
+    logAudit({ profile, matterId, action: 'demand_letter.generated', entityType: 'demand_letter', entityId: ia.id, entityName: ia.insurers?.name, metadata: { invoice_number: apport.invoices?.invoice_number, party: pa.parties?.name, amount: ia.amount } })
   }
 
   const handleGenerateAll = async () => {
@@ -998,6 +1002,7 @@ export default function Apportionment() {
         <RecordPaymentModal
           ia={paymentModal.ia}
           partyName={paymentModal.partyName}
+          matterId={matterId}
           onClose={() => setPaymentModal(null)}
           onSaved={(newStatus) => {
             qc.invalidateQueries({ queryKey: ['apportionment', apportionmentId] })

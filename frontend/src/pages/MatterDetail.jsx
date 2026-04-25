@@ -5,11 +5,12 @@ import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { useForm, Controller } from 'react-hook-form'
 import { formatCurrency, exhaustionInfo } from '../lib/calculations.js'
+import { logAudit, getActionMeta } from '../lib/audit.js'
 import {
   ArrowLeft, Plus, Trash2, X, Upload, FileText,
   Users, Shield, Calculator, ChevronRight, Edit2, Check, TrendingUp, AlertTriangle,
   Paperclip, Download, ExternalLink, LayoutTemplate, Copy, BookOpen, Search,
-  Bell, RefreshCcw, Loader2
+  Bell, RefreshCcw, Loader2, Clock, Briefcase, DollarSign, Mail, Activity
 } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays, addDays, startOfYear, addYears } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -231,6 +232,7 @@ const ALL_TABS = [
   { key: 'invoices',      label: 'Invoices',       icon: Upload,     templateOnly: false },
   { key: 'apportionments',label: 'Apportionments', icon: Calculator, templateOnly: false },
   { key: 'documents',     label: 'Documents',      icon: Paperclip,  templateOnly: false },
+  { key: 'activity',     label: 'Activity',       icon: Clock,      templateOnly: false },
 ]
 // Tabs hidden when viewing a template (template has no invoices, apportionments, or financial data)
 const TEMPLATE_HIDDEN_TABS = new Set(['financials', 'invoices', 'apportionments'])
@@ -615,6 +617,7 @@ function InsurerPolicyFields({ register, control }) {
 // ── Edit Insurer Modal ────────────────────────────────────────────────────────
 function EditInsurerModal({ pp, matterId, onClose }) {
   const qc = useQueryClient()
+  const { profile } = useAuth()
   const { register, control, handleSubmit, formState: { isSubmitting } } = useForm({
     defaultValues: {
       policy_start:      pp.policy_start,
@@ -640,6 +643,7 @@ function EditInsurerModal({ pp, matterId, onClose }) {
       billing_address:  values.billing_address  || null,
     }).eq('id', pp.id)
     if (error) { toast.error(error.message); return }
+    logAudit({ profile, matterId, action: 'insurer.updated', entityType: 'insurer', entityId: pp.id, entityName: pp.insurers?.name, metadata: { party: pp.parties?.name, policy_limit: values.policy_limit || null } })
     toast.success('Policy period updated!')
     qc.invalidateQueries({ queryKey: ['matter-insurers', matterId] })
     onClose()
@@ -757,6 +761,8 @@ function AddInsurerModal({ matterId, parties, onClose }) {
       billing_address:  values.billing_address  || null,
     })
     if (ppErr) { toast.error(ppErr.message); return }
+    const selectedParty = parties.find(p => p.id === values.party_id)
+    logAudit({ profile, matterId, action: 'insurer.added', entityType: 'insurer', entityId: insurerId, entityName: values.insurer_name, metadata: { party: selectedParty?.name, policy_limit: values.policy_limit || null, policy_start: values.policy_start, policy_end: values.policy_end } })
     toast.success('Insurer & policy period added!')
     qc.invalidateQueries({ queryKey: ['matter-insurers', matterId] })
     qc.invalidateQueries({ queryKey: ['org-insurers', profile?.org_id] })
@@ -930,6 +936,21 @@ export default function MatterDetail() {
     return map
   }, [limitAlerts])
 
+  // Audit log for the Activity tab
+  const { data: auditLogs = [] } = useQuery({
+    queryKey: ['matter-audit', matterId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('la_audit_logs')
+        .select('*')
+        .eq('matter_id', matterId)
+        .order('created_at', { ascending: false })
+        .limit(200)
+      return data || []
+    },
+    enabled: !!matterId,
+  })
+
   const [checkingLimits, setCheckingLimits] = useState(false)
   const checkLimitsNow = async () => {
     setCheckingLimits(true)
@@ -1024,6 +1045,7 @@ export default function MatterDetail() {
     if (!confirmed) return
 
     await supabase.from('la_parties').delete().eq('id', id)
+    logAudit({ profile, matterId, action: 'party.deleted', entityType: 'party', entityId: id, entityName: target?.name, metadata: { share_percentage: freedPct } })
 
     // Redistribute freed % evenly among remaining parties
     if (freedPct > 0 && remaining.length > 0) {
@@ -1044,7 +1066,9 @@ export default function MatterDetail() {
 
   const deleteInsurer = async (id) => {
     if (!confirm('Remove this policy period?')) return
+    const target = insurerPeriods.find(p => p.id === id)
     await supabase.from('la_insurer_policy_periods').delete().eq('id', id)
+    logAudit({ profile, matterId, action: 'insurer.deleted', entityType: 'insurer', entityId: id, entityName: target?.insurers?.name, metadata: { party: target?.parties?.name } })
     qc.invalidateQueries({ queryKey: ['matter-insurers', matterId] })
     toast.success('Policy period removed')
   }
@@ -1057,6 +1081,7 @@ export default function MatterDetail() {
       supabase.from('la_parties').update({ share_percentage: i === parties.length - 1 ? remainder : equal }).eq('id', p.id)
     )
     await Promise.all(updates)
+    logAudit({ profile, matterId, action: 'party.shares_equalized', entityType: 'party', metadata: { party_count: parties.length, equal_share: equal } })
     qc.invalidateQueries({ queryKey: ['matter-parties', matterId] })
     toast.success('Shares equalized!')
   }
@@ -1069,9 +1094,12 @@ export default function MatterDetail() {
       return
     }
     const rounded = parseFloat(val.toFixed(4))
+    const oldPct  = parties.find(p => p.id === partyId)?.share_percentage
+    const partyName = parties.find(p => p.id === partyId)?.name
     const { error } = await supabase.from('la_parties').update({ share_percentage: rounded }).eq('id', partyId)
     setEditingPct(prev => { const n = {...prev}; delete n[partyId]; return n })
     if (error) { toast.error(error.message); return }
+    logAudit({ profile, matterId, action: 'party.percentage_changed', entityType: 'party', entityId: partyId, entityName: partyName, metadata: { old_pct: oldPct, new_pct: rounded } })
     qc.invalidateQueries({ queryKey: ['matter-parties', matterId] })
   }
 
@@ -1086,6 +1114,7 @@ export default function MatterDetail() {
       return supabase.from('la_parties').update({ share_percentage: newPct }).eq('id', p.id)
     })
     await Promise.all(updates)
+    logAudit({ profile, matterId, action: 'party.remainder_split', entityType: 'party', metadata: { remaining_pct: remaining, party_count: parties.length } })
     qc.invalidateQueries({ queryKey: ['matter-parties', matterId] })
     toast.success('Remaining % split evenly!')
   }
@@ -1908,6 +1937,7 @@ export default function MatterDetail() {
           if (!confirm(`Delete "${doc.name}"?`)) return
           await supabase.storage.from('la_documents').remove([doc.file_path])
           await supabase.from('la_matter_documents').delete().eq('id', doc.id)
+          logAudit({ profile, matterId, action: 'document.deleted', entityType: 'document', entityId: doc.id, entityName: doc.name, metadata: { doc_type: doc.doc_type } })
           refetchDocs()
           toast.success('Document deleted')
         }
@@ -2009,6 +2039,103 @@ export default function MatterDetail() {
           </div>
         )
       })()}
+
+      {/* ── Activity Tab ── */}
+      {tab === 'activity' && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-slate-900">Matter Activity</h2>
+            <span className="text-xs text-slate-400">{auditLogs.length} events</span>
+          </div>
+
+          {auditLogs.length === 0 ? (
+            <div className="card p-10 text-center text-slate-400">
+              <Clock className="h-8 w-8 mx-auto mb-2 text-slate-300" />
+              <p>No activity recorded yet.</p>
+              <p className="text-xs mt-1">Actions like adding parties, running apportionments, and updating payments will appear here.</p>
+            </div>
+          ) : (
+            <div className="card overflow-hidden">
+              {(() => {
+                // Group by calendar date
+                const groups = []
+                let currentDay = null
+                for (const log of auditLogs) {
+                  const day = format(new Date(log.created_at), 'yyyy-MM-dd')
+                  if (day !== currentDay) {
+                    currentDay = day
+                    groups.push({ day, logs: [] })
+                  }
+                  groups[groups.length - 1].logs.push(log)
+                }
+
+                const ICON_MAP = {
+                  Briefcase: Briefcase, Users: Users, Shield: Shield,
+                  FileText: FileText, Calculator: Calculator,
+                  DollarSign: DollarSign, Mail: Mail, Paperclip: Paperclip,
+                  Activity: Activity, Clock: Clock,
+                }
+
+                return groups.map(({ day, logs: dayLogs }) => (
+                  <div key={day}>
+                    <div className="px-5 py-2 bg-slate-50 border-b border-slate-100 sticky top-0">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                        {format(new Date(day), 'MMMM d, yyyy')}
+                      </p>
+                    </div>
+                    <ul className="divide-y divide-slate-50">
+                      {dayLogs.map(log => {
+                        const meta = getActionMeta(log.action)
+                        const IconComp = ICON_MAP[meta.icon] || Activity
+                        const time = format(new Date(log.created_at), 'h:mm a')
+                        return (
+                          <li key={log.id} className="flex items-start gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
+                            {/* Action icon */}
+                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${meta.color}`}>
+                              <IconComp className="h-3.5 w-3.5" />
+                            </div>
+                            {/* Content */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-baseline justify-between gap-2">
+                                <p className="text-sm font-medium text-slate-800">{meta.label}</p>
+                                <span className="text-xs text-slate-400 flex-shrink-0">{time}</span>
+                              </div>
+                              {log.entity_name && (
+                                <p className="text-xs text-slate-600 mt-0.5 truncate">
+                                  <span className="font-medium">{log.entity_name}</span>
+                                  {/* Show key metadata inline */}
+                                  {log.action === 'party.percentage_changed' && log.metadata?.old_pct !== undefined && (
+                                    <span className="text-slate-400 ml-1">
+                                      {Number(log.metadata.old_pct).toFixed(2)}% → {Number(log.metadata.new_pct).toFixed(2)}%
+                                    </span>
+                                  )}
+                                  {log.action === 'insurer.added' && log.metadata?.party && (
+                                    <span className="text-slate-400 ml-1">on {log.metadata.party}</span>
+                                  )}
+                                  {log.action === 'payment.updated' && log.metadata?.new_status && (
+                                    <span className="text-slate-400 ml-1">→ {log.metadata.new_status}</span>
+                                  )}
+                                  {log.action === 'apportionment.calculated' && log.metadata?.method && (
+                                    <span className="text-slate-400 ml-1">({log.metadata.method?.replace(/_/g,' ')})</span>
+                                  )}
+                                </p>
+                              )}
+                              {/* Actor */}
+                              {log.user_name && (
+                                <p className="text-xs text-slate-400 mt-0.5">by {log.user_name}</p>
+                              )}
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
+                ))
+              })()}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Modals */}
       {showEditMatter  && <EditMatterModal matter={matter} onClose={() => setShowEditMatter(false)} />}

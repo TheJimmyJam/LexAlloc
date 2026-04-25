@@ -8,6 +8,7 @@ import { ArrowLeft, Calculator, FileText, ExternalLink, Loader2, GitCompare, Che
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
+import { logAudit } from '../lib/audit.js'
 
 const METHODS = [
   {
@@ -122,6 +123,7 @@ export default function InvoiceDetail() {
       // Update invoice status
       await supabase.from('la_invoices').update({ status: 'apportioned' }).eq('id', invoiceId)
 
+      logAudit({ profile, matterId, action: 'apportionment.calculated', entityType: 'apportionment', entityId: apport.id, entityName: invoice?.invoice_number || 'Invoice', metadata: { method: calcMethod, invoice_total: invoice?.total_amount, party_count: result.party_breakdown?.length } })
       toast.success('Apportionment calculated!')
 
       // Fire-and-forget notification
