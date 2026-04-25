@@ -950,16 +950,16 @@ export default function AdminPanel() {
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-5 py-3">Name</th>
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Email</th>
+                  <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Email</th>
                   {isPlatformAdmin && (
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Organization</th>
+                    <th className="hidden md:table-cell text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Organization</th>
                   )}
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Role</th>
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Insurer (clients)</th>
+                  <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Insurer (clients)</th>
                   {isPlatformAdmin && (
                     <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">DB Admin</th>
                   )}
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Joined</th>
+                  <th className="hidden md:table-cell text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Joined</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
@@ -977,9 +977,9 @@ export default function AdminPanel() {
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-4 text-sm text-slate-500">{u.email}</td>
+                    <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-500">{u.email}</td>
                     {isPlatformAdmin && (
-                      <td className="px-4 py-4">
+                      <td className="hidden md:table-cell px-4 py-4">
                         <select
                           value={u.org_id || ''}
                           onChange={e => changeOrg(u.id, e.target.value)}
@@ -1004,7 +1004,7 @@ export default function AdminPanel() {
                         <option value="user">User</option>
                       </select>
                     </td>
-                    <td className="px-4 py-4">
+                    <td className="hidden sm:table-cell px-4 py-4">
                       {u.role === 'client' ? (
                         <select
                           value={
@@ -1040,7 +1040,7 @@ export default function AdminPanel() {
                         </button>
                       </td>
                     )}
-                    <td className="px-4 py-4 text-sm text-slate-400">
+                    <td className="hidden md:table-cell px-4 py-4 text-sm text-slate-400">
                       {u.created_at ? format(parseISO(u.created_at), 'MM/dd/yyyy') : '—'}
                     </td>
                     <td className="px-4 py-4">
