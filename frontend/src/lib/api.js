@@ -47,6 +47,13 @@ export const api = {
     return data
   },
 
+  // ── AI Method Advisor ──────────────────────────────────────────────────────
+  recommendMethod: (context) =>
+    request('/api/ai/recommend-method', {
+      method: 'POST',
+      body: JSON.stringify(context),
+    }),
+
   // ── Billing ────────────────────────────────────────────────────────────────
   getSubscription: () =>
     request('/api/billing/subscription'),
