@@ -110,14 +110,21 @@ export function apportionInvoice(invoice, parties, method = 'pro_rata_time_on_ri
     const partyAmount = (party.share_percentage / 100) * invoice.total_amount
     const periods     = party.policy_periods || []
 
+    // Effective exposure for this party = party's responsible dates clipped to the invoice period.
+    // Insurers' TOR is measured against this window, not the full invoice service period.
+    const pRespStart    = party.responsible_start ? parseISO(party.responsible_start) : serviceStart
+    const pRespEnd      = party.responsible_end   ? parseISO(party.responsible_end)   : serviceEnd
+    const exposureStart = pRespStart > serviceStart ? pRespStart : serviceStart
+    const exposureEnd   = pRespEnd   < serviceEnd   ? pRespEnd   : serviceEnd
+
     let insurers
     if (method === 'equal_shares') {
       insurers = calcEqualShares(partyAmount, periods)
     } else if (method === 'limits_proportional') {
       insurers = calcLimitsProportional(partyAmount, periods)
     } else {
-      // pro_rata_time_on_risk (default)
-      const torBreakdown = calcTimeOnRisk(serviceStart, serviceEnd, periods)
+      // pro_rata_time_on_risk — insurer overlap measured against party's effective period
+      const torBreakdown = calcTimeOnRisk(exposureStart, exposureEnd, periods)
       const totalPct     = torBreakdown.reduce((s, i) => s + i.percentage, 0)
       insurers = torBreakdown.map((ins) => ({
         ...ins,
