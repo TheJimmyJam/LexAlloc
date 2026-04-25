@@ -1005,7 +1005,7 @@ export default function AdminPanel() {
                         {isClientTab && (
                           <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Insurer</th>
                         )}
-                        {isPlatformAdmin && (
+                        {isPlatformAdmin && userRoleTab === 'admin' && (
                           <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">DB Admin</th>
                         )}
                         <th className="hidden md:table-cell text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Joined</th>
@@ -1071,7 +1071,7 @@ export default function AdminPanel() {
                         </select>
                       </td>
                     )}
-                    {isPlatformAdmin && (
+                    {isPlatformAdmin && userRoleTab === 'admin' && (
                       <td className="px-4 py-4 text-center">
                         <button
                           onClick={() => togglePlatformAdmin(u.id, u.is_platform_admin)}
