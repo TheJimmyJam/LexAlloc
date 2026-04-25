@@ -21,7 +21,7 @@ const BLUE    = [29,  78, 216]   // #1d4ed8
 
 const METHODS = {
   pro_rata_time_on_risk: 'Pro-Rata Time-on-Risk',
-  equal_shares:          'Equal Shares',
+  equal_shares:          'Split Evenly Across All Carriers',
   limits_proportional:   'Limits-Proportional',
 }
 

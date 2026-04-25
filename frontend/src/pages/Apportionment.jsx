@@ -629,7 +629,7 @@ export default function Apportionment() {
   const isEqual    = calcMethod === 'equal_shares'
   const isLimits   = calcMethod === 'limits_proportional'
   const allocationLabel = isTOR ? 'TOR %' : isEqual ? 'Equal Split' : 'Limit Share %'
-  const sectionSuffix   = isTOR ? 'Time-on-Risk Breakdown' : isEqual ? 'Equal Shares Breakdown' : 'Limits-Proportional Breakdown'
+  const sectionSuffix   = isTOR ? 'Time-on-Risk Breakdown' : isEqual ? 'Split Evenly — All Carriers Breakdown' : 'Limits-Proportional Breakdown'
 
   // Chart data
   const pieData = partyApps.map((pa, i) => ({
@@ -798,7 +798,7 @@ export default function Apportionment() {
               {!aiLoading && aiRec && (() => {
                 const METHOD_META = {
                   pro_rata_time_on_risk: { label: 'Pro-Rata Time on Risk',   color: 'bg-brand-100 text-brand-700',   border: 'border-brand-200'   },
-                  equal_shares:          { label: 'Equal Shares',            color: 'bg-blue-100 text-blue-700',     border: 'border-blue-200'    },
+                  equal_shares:          { label: 'Split Evenly Across All Carriers',            color: 'bg-blue-100 text-blue-700',     border: 'border-blue-200'    },
                   limits_proportional:   { label: 'Limits Proportional',     color: 'bg-amber-100 text-amber-700',   border: 'border-amber-200'   },
                 }
                 const CONF_META = {

@@ -616,10 +616,9 @@ function InsurerPolicyFields({ register, control }) {
             {...register('claims_rep_email')} />
         </div>
         <div className="mt-4">
-          <label className="form-label">Billing Address</label>
-          <textarea className="form-input h-16 resize-none"
-            placeholder="P.O. Box 1234, Hartford, CT 06101"
-            {...register('billing_address')} />
+          <label className="form-label">Insurance Portal URL</label>
+          <input type="url" className="form-input" placeholder="https://claims.travelers.com"
+            {...register('portal_url')} />
         </div>
       </div>
     </>
@@ -638,7 +637,7 @@ function EditInsurerModal({ pp, matterId, onClose }) {
       claim_number:      pp.claim_number      || '',
       claims_rep_name:   pp.claims_rep_name   || '',
       claims_rep_email:  pp.claims_rep_email  || '',
-      billing_address:   pp.billing_address   || '',
+      portal_url:        pp.portal_url        || '',
     }
   })
 
@@ -650,7 +649,7 @@ function EditInsurerModal({ pp, matterId, onClose }) {
       claim_number:     values.claim_number     || null,
       claims_rep_name:  values.claims_rep_name  || null,
       claims_rep_email: values.claims_rep_email || null,
-      billing_address:  values.billing_address  || null,
+      portal_url:       values.portal_url       || null,
     }).eq('id', pp.id)
     if (error) { toast.error(error.message); return }
     logAudit({ profile, matterId, action: 'insurer.updated', entityType: 'insurer', entityId: pp.id, entityName: pp.insurers?.name, metadata: { party: pp.parties?.name, policy_limit: values.policy_limit || null } })
@@ -690,52 +689,13 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
   const { register, control, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm({
     defaultValues: { party_id: defaultPartyId || '' },
   })
-  const [dirSearch, setDirSearch]     = useState('')
-  const [dirOpen, setDirOpen]         = useState(false)
   const [selectedInsurerId, setSelectedInsurerId] = useState(null) // known id from directory
 
-  // Load org insurer directory
-  const { data: directoryInsurers = [] } = useQuery({
-    queryKey: ['org-insurers', profile?.org_id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('la_insurers')
-        .select('id, name, policy_number, contact_email, billing_address, claims_rep_name, claims_rep_phone')
-        .eq('org_id', profile.org_id)
-        .order('name')
-      return data || []
-    },
-    enabled: !!profile?.org_id,
-  })
-
-  const filteredDir = dirSearch.trim()
-    ? directoryInsurers.filter(i => i.name.toLowerCase().includes(dirSearch.toLowerCase()))
-    : directoryInsurers
-
-  const pickFromDirectory = (ins) => {
-    setSelectedInsurerId(ins.id)
-    setValue('insurer_name',   ins.name)
-    setValue('policy_number',  ins.policy_number  || '')
-    setValue('claims_rep_name',  ins.claims_rep_name  || '')
-    setValue('claims_rep_email', ins.contact_email    || '')
-    setValue('billing_address',  ins.billing_address  || '')
-    setDirOpen(false)
-    setDirSearch('')
-  }
-
-  const clearDirectoryPick = () => {
-    setSelectedInsurerId(null)
-    setValue('insurer_name',   '')
-    setValue('policy_number',  '')
-    setValue('claims_rep_name',  '')
-    setValue('claims_rep_email', '')
-    setValue('billing_address',  '')
-  }
 
   const onSubmit = async (values) => {
-    let insurerId = selectedInsurerId
+    let insurerId = null
 
-    if (!insurerId) {
+    {
       // Find by name or create new
       const { data: existing } = await supabase
         .from('la_insurers')
@@ -769,14 +729,13 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
       claim_number:     values.claim_number     || null,
       claims_rep_name:  values.claims_rep_name  || null,
       claims_rep_email: values.claims_rep_email || null,
-      billing_address:  values.billing_address  || null,
+      portal_url:       values.portal_url       || null,
     })
     if (ppErr) { toast.error(ppErr.message); return }
     const selectedParty = parties.find(p => p.id === values.party_id)
     logAudit({ profile, matterId, action: 'insurer.added', entityType: 'insurer', entityId: insurerId, entityName: values.insurer_name, metadata: { party: selectedParty?.name, policy_limit: values.policy_limit || null, policy_start: values.policy_start, policy_end: values.policy_end } })
     toast.success('Insurer & policy period added!')
     qc.invalidateQueries({ queryKey: ['matter-insurers', matterId] })
-    qc.invalidateQueries({ queryKey: ['org-insurers', profile?.org_id] })
     onClose()
   }
 
@@ -789,64 +748,8 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
 
-          {/* ── Directory picker ── */}
-          {directoryInsurers.length > 0 && (
-            <div className="rounded-xl border border-brand-200 bg-brand-50/40 p-4">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-brand-700 flex items-center gap-1.5">
-                  <BookOpen className="h-3.5 w-3.5" /> Pick from directory
-                </p>
-                {selectedInsurerId && (
-                  <button type="button" onClick={clearDirectoryPick}
-                    className="text-xs text-slate-400 hover:text-red-500 flex items-center gap-1">
-                    <X className="h-3 w-3" /> Clear
-                  </button>
-                )}
-              </div>
 
-              {selectedInsurerId ? (
-                <div className="flex items-center gap-2 text-sm text-slate-700">
-                  <span className="inline-flex items-center gap-1.5 bg-white border border-brand-200 rounded-lg px-3 py-1.5 font-medium">
-                    {directoryInsurers.find(i => i.id === selectedInsurerId)?.name}
-                    <span className="text-xs text-brand-500 font-normal">— contact info pre-filled</span>
-                  </span>
-                </div>
-              ) : (
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-                  <input
-                    className="form-input pl-8 text-sm py-2"
-                    placeholder={`Search ${directoryInsurers.length} insurer${directoryInsurers.length !== 1 ? 's' : ''}…`}
-                    value={dirSearch}
-                    onChange={e => { setDirSearch(e.target.value); setDirOpen(true) }}
-                    onFocus={() => setDirOpen(true)}
-                  />
-                  {dirOpen && filteredDir.length > 0 && (
-                    <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-44 overflow-y-auto">
-                      {filteredDir.map(ins => (
-                        <button
-                          key={ins.id}
-                          type="button"
-                          onMouseDown={() => pickFromDirectory(ins)}
-                          className="w-full text-left px-4 py-2.5 hover:bg-brand-50 text-sm flex items-center justify-between gap-2"
-                        >
-                          <span className="font-medium text-slate-800">{ins.name}</span>
-                          {ins.claims_rep_name && (
-                            <span className="text-xs text-slate-400 truncate">{ins.claims_rep_name}</span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              <p className="text-xs text-slate-400 mt-2">
-                Or fill in manually below to add a new insurer to the directory.
-              </p>
-            </div>
-          )}
-
-          {/* ── Manual / override fields ── */}
+                    {/* ── Manual / override fields ── */}
           <div>
             <label className="form-label">Insurer Name *</label>
             <input className="form-input" placeholder="Travelers Indemnity Company"
@@ -1891,7 +1794,7 @@ export default function MatterDetail() {
                                             <td className="py-2.5 pr-4 font-mono text-xs text-slate-500">{pp.insurers?.policy_number || '—'}</td>
                                             <td className="py-2.5 pr-4 font-mono text-xs text-slate-500">{pp.claim_number || '—'}</td>
                                             <td className="py-2.5 pr-4">
-                                              {pp.claims_rep_name ? (
+                                              {pp.claims_rep_name || pp.claims_rep_email || pp.portal_url ? (
                                                 <div>
                                                   <p className="text-xs font-medium text-slate-700">{pp.claims_rep_name}</p>
                                                   {pp.claims_rep_email && (

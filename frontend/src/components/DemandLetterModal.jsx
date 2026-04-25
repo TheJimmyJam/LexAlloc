@@ -29,11 +29,11 @@ function LetterPreview({ data }) {
     const pct = formatPercent(ia.percentage)
     if (method === 'equal_shares') {
       const n = pa.insurer_apportionments?.length || 1
-      return `Defense costs for ${pa.parties?.name || 'this party'} have been allocated equally among ${n} triggered carrier${n !== 1 ? 's' : ''}, resulting in an equal share of ${pct} for ${ia.insurers?.name || 'the insurer'}.`
+      return `Defense costs for ${pa.parties?.name || 'this party'} have been allocated equally among ${n} carrier${n !== 1 ? 's' : ''}, resulting in an equal share of ${pct} for ${ia.insurers?.name || 'the insurer'}.`
     }
     if (method === 'limits_proportional') {
       const limit = pp?.policy_limit ? formatCurrency(pp.policy_limit) : '[policy limit on file]'
-      return `Defense costs have been allocated proportionally based on policy limits. ${ia.insurers?.name || 'The insurer'}'s policy limit of ${limit} represents ${pct} of total limits across all triggered policies for this party.`
+      return `Defense costs have been allocated proportionally based on policy limits. ${ia.insurers?.name || 'The insurer'}'s policy limit of ${limit} represents ${pct} of total limits across all policies for this party.`
     }
     return `Defense costs have been allocated on a pro-rata time-on-risk basis. ${ia.insurers?.name || 'The insurer'}'s policy was on-risk for ${ia.days_on_risk ?? '—'} of the ${ia.total_days ?? '—'} days in the service period, representing ${pct} of total exposure.`
   }

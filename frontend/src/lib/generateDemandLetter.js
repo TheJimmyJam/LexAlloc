@@ -76,7 +76,7 @@ function calcDescription(method, ia, pa) {
   if (method === 'equal_shares') {
     const n = (pa.insurer_apportionments && pa.insurer_apportionments.length) ? pa.insurer_apportionments.length : 1
     return 'Defense costs for ' + partyName + ' have been allocated equally among ' + n +
-      ' triggered carrier' + (n !== 1 ? 's' : '') + ', resulting in an equal share of ' +
+      ' carrier' + (n !== 1 ? 's' : '') + ', resulting in an equal share of ' +
       pct + ' for ' + insurerName + '.'
   }
   if (method === 'limits_proportional') {

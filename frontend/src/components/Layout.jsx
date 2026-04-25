@@ -10,7 +10,6 @@ import { useState } from 'react'
 const staffNavItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/matters',   icon: FolderOpen,      label: 'Matters' },
-  { to: '/insurers',  icon: BookOpen,        label: 'Insurers' },
   { to: '/settings',  icon: Settings,        label: 'Settings' },
 ]
 
