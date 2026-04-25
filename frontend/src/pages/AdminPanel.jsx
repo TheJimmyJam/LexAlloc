@@ -779,7 +779,7 @@ export default function AdminPanel() {
           const amount = randAmount(1000, 80000)
           insurerAppRows.push({
             apportionment_id: app.id,
-            insurer_name:     DEMO_INSURERS[i % DEMO_INSURERS.length],
+            percentage:       parseFloat((100 / 15).toFixed(4)),
             amount,
             amount_paid:      status === 'paid' ? amount : status === 'pending' ? 0 : randAmount(0, amount / 2),
             payment_status:   status,
