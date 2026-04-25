@@ -912,19 +912,43 @@ export default function AdminPanel() {
 
       // ── 5. Invoices + line items ─────────────────────────────────────────
       setDemoProgress('Creating invoices and line items…')
-      // Each matter gets 1–3 invoices; invoices have 4–10 real line items each
+      // Each matter gets 1–3 invoices; invoices have 4–10 real line items each.
+      // Service dates are set inside the party responsible range so the advisor
+      // and apportionment logic can find overlapping parties.
+      const DEMO_FIRMS = ['Smith & Kellner LLP','Hargrove Litigation Group','Burke & Osei PC',
+        'Vantage Legal Partners','Calloway Weiss LLP','Meridian Trial Counsel']
       const invoiceRows = []
       matters.forEach(m => {
-        const meta = matterMeta.find(mm => mm.matterId === m.id)
+        const meta         = matterMeta.find(mm => mm.matterId === m.id)
+        const baseYear     = meta?.baseYear || 2015
         const invoiceCount = rand(1, 3)
+        // Pick a service window anchored inside the baseYear+1 to baseYear+3 span
+        // so it reliably overlaps the party responsible ranges
         for (let iv = 0; iv < invoiceCount; iv++) {
-          invoiceRows.push({ matter_id: m.id, org_id: orgId, _baseYear: meta?.baseYear || 2015 })
+          const svcYear  = baseYear + rand(1, 3)
+          const svcMonth = rand(0, 10)        // 0–10 so end month doesn't overflow
+          const svcStart = `${svcYear}-${String(svcMonth + 1).padStart(2, '0')}-01`
+          const svcEnd   = `${svcYear}-${String(svcMonth + 2).padStart(2, '0')}-28`
+          const invYear  = svcYear
+          const invMonth = svcMonth + 1
+          invoiceRows.push({
+            matter_id:      m.id,
+            org_id:         orgId,
+            total_amount:   0,
+            service_start:  svcStart,
+            service_end:    svcEnd,
+            invoice_date:   svcEnd,
+            invoice_number: `INV-${invYear}-${String(rand(1000, 9999))}`,
+            billing_firm:   DEMO_FIRMS[rand(0, DEMO_FIRMS.length - 1)],
+            status:         'parsed',
+            _baseYear:      baseYear,
+          })
         }
       })
-      // Insert invoices first (without _baseYear — strip it)
+      // Insert invoices (strip temp _baseYear field)
       const { data: invoices, error: iErr } = await supabase
         .from('la_invoices')
-        .insert(invoiceRows.map(({ _baseYear, ...r }) => ({ ...r, total_amount: 0 })))
+        .insert(invoiceRows.map(({ _baseYear, ...r }) => r))
         .select('id, matter_id')
       if (iErr) throw iErr
 
