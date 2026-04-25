@@ -35,12 +35,17 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  // Invite a user to the organization
-  inviteUser: (email, role, orgId) =>
-    request('/api/invitations/invite', {
-      method: 'POST',
-      body: JSON.stringify({ email, role, org_id: orgId }),
-    }),
+  // Invite a user — calls the Supabase Edge Function so it works without
+  // VITE_API_URL being configured (Railway not required for invites).
+  inviteUser: async (email, role, orgId) => {
+    const { supabase } = await import('./supabase.js')
+    const { data, error } = await supabase.functions.invoke('invite-user', {
+      body: { email, role, org_id: orgId },
+    })
+    if (error) throw new Error(error.message || 'Invite failed')
+    if (data?.error) throw new Error(data.error)
+    return data
+  },
 
   // ── Billing ────────────────────────────────────────────────────────────────
   getSubscription: () =>
