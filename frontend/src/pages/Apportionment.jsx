@@ -354,7 +354,7 @@ export default function Apportionment() {
           matters:la_matters(name, matter_number),
           party_apportionments:la_party_apportionments(
             id, percentage, amount,
-            parties:la_parties(name, type),
+            parties:la_parties(name),
             insurer_apportionments:la_insurer_apportionments(
               id, days_on_risk, total_days, percentage, amount,
               payment_status, amount_paid, payment_date, demanded_at, payment_notes,
@@ -534,7 +534,6 @@ export default function Apportionment() {
     try {
       const parties = (apport.party_apportionments || []).map(pa => ({
         name:       pa.parties?.name || 'Unknown',
-        type:       pa.parties?.type || 'party',
         share_pct:  pa.percentage,
         policy_periods: (pa.insurer_apportionments || []).map(ia => ({
           insurer_name: ia.insurers?.name,
@@ -935,7 +934,6 @@ export default function Apportionment() {
               <thead>
                 <tr className="border-b border-slate-100">
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Party</th>
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Type</th>
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Share %</th>
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Amount</th>
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide py-2">Insurers</th>
@@ -945,11 +943,6 @@ export default function Apportionment() {
                 {partyApps.map((pa) => (
                   <tr key={pa.id}>
                     <td className="py-3 font-semibold text-slate-800">{pa.parties?.name}</td>
-                    <td className="py-3">
-                      <span className="badge bg-slate-100 text-slate-600 capitalize">
-                        {pa.parties?.type?.replace('_',' ')}
-                      </span>
-                    </td>
                     <td className="py-3 text-right font-bold text-brand-700">{formatPercent(pa.percentage)}</td>
                     <td className="py-3 text-right font-bold text-slate-900">{formatCurrency(pa.amount)}</td>
                     <td className="py-3 text-right text-sm text-slate-500">
