@@ -2045,12 +2045,11 @@ export default function MatterDetail() {
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Date</th>
                     <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Amount</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Status</th>
-                    <th />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {invoices.map(inv => (
-                    <tr key={inv.id} className="hover:bg-slate-50">
+                    <tr key={inv.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => navigate(`/matters/${matterId}/invoices/${inv.id}`)}>
                       <td className="px-5 py-4 font-medium text-slate-800">{inv.invoice_number || 'Draft'}</td>
                       <td className="px-4 py-4 text-sm text-slate-600">{inv.billing_firm || '—'}</td>
                       <td className="px-4 py-4 text-sm text-slate-600">
@@ -2059,12 +2058,6 @@ export default function MatterDetail() {
                       <td className="px-4 py-4 text-right font-semibold text-slate-800">{formatCurrency(inv.total_amount)}</td>
                       <td className="px-4 py-4">
                         <span className={`badge ${statusColors[inv.status] || 'bg-slate-100 text-slate-500'}`}>{inv.status}</span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <Link to={`/matters/${matterId}/invoices/${inv.id}`}
-                          className="text-slate-400 hover:text-brand-600 transition-colors">
-                          <ChevronRight className="h-4 w-4" />
-                        </Link>
                       </td>
                     </tr>
                   ))}
