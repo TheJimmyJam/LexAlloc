@@ -21,6 +21,7 @@ async function getOrgRecipients(orgId: string): Promise<string[]> {
     .select('email')
     .eq('org_id', orgId)
     .in('role', ['admin', 'user'])
+    .eq('notifications_muted', false)
   return (data ?? []).map((r: any) => r.email).filter(Boolean)
 }
 
