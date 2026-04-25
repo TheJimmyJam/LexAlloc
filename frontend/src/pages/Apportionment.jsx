@@ -6,7 +6,7 @@ import { generateDemandLetterBlob, getDemandLetterFilename } from '../lib/genera
 import { generateApportionmentReport } from '../lib/generateApportionmentReport.js'
 import DemandLetterModal from '../components/DemandLetterModal.jsx'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2, AlertTriangle, Mail, FileDown, Bell, Clock } from 'lucide-react'
+import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2, AlertTriangle, Mail, FileDown, Bell, Clock, BookOpen, PlugZap } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays } from 'date-fns'
 import { useState, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
@@ -235,6 +235,60 @@ export default function Apportionment() {
   const daysOutstanding = (demandedAt) => {
     if (!demandedAt) return null
     return differenceInCalendarDays(new Date(), new Date(demandedAt))
+  }
+
+  // ── Accounting push ─────────────────────────────────────────────────────────
+  const [pushingBooks, setPushingBooks] = useState(new Set()) // ia.ids currently pushing
+
+  // Fetch accounting connections for this org (to know which providers are available)
+  const { data: accountingConns = [] } = useQuery({
+    queryKey: ['accounting-connections-appt'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('la_accounting_connections')
+        .select('provider, is_active')
+        .eq('is_active', true)
+      return data || []
+    },
+  })
+
+  const { data: pushesMap = {} } = useQuery({
+    queryKey: ['accounting-pushes', apportionmentId],
+    queryFn: async () => {
+      if (!iaIds.length) return {}
+      const { data } = await supabase
+        .from('la_accounting_pushes')
+        .select('insurer_apportionment_id, provider, status, external_id, pushed_at')
+        .in('insurer_apportionment_id', iaIds)
+        .order('pushed_at', { ascending: false })
+      const map = {}
+      for (const p of data ?? []) {
+        if (!map[p.insurer_apportionment_id]) map[p.insurer_apportionment_id] = []
+        map[p.insurer_apportionment_id].push(p)
+      }
+      return map
+    },
+    enabled: iaIds.length > 0,
+  })
+
+  const availableProviders = accountingConns.map(c => c.provider)
+
+  const pushToBooks = async (ia, provider) => {
+    const iaId = `${ia.id}:${provider}`
+    setPushingBooks(prev => new Set([...prev, iaId]))
+    try {
+      const { error } = await supabase.functions.invoke('push-accounting-payment', {
+        body: { insurer_apportionment_id: ia.id, provider },
+      })
+      if (error) throw new Error(error.message)
+      const providerLabel = provider === 'quickbooks' ? 'QuickBooks' : 'Clio'
+      toast.success(`Pushed to ${providerLabel}`)
+      qc.invalidateQueries({ queryKey: ['accounting-pushes', apportionmentId] })
+    } catch (err) {
+      toast.error('Push failed: ' + (err.message || 'Unknown error'))
+    } finally {
+      setPushingBooks(prev => { const n = new Set(prev); n.delete(iaId); return n })
+    }
   }
 
   const handlePrint = () => window.print()
@@ -574,6 +628,9 @@ export default function Apportionment() {
                       const canRemind    = ['demanded', 'pending', 'partially_paid', 'disputed'].includes(ia.payment_status)
                       const isSending    = sendingReminder.has(ia.id)
                       const tierColor    = days === null ? '' : days >= 90 ? 'text-red-600 bg-red-50' : days >= 60 ? 'text-orange-600 bg-orange-50' : days >= 30 ? 'text-amber-600 bg-amber-50' : 'text-slate-500 bg-slate-100'
+                      const isPaid       = ia.payment_status === 'paid' || ia.payment_status === 'partially_paid'
+                      const iaPushes     = pushesMap[ia.id] || []
+                      const lastPush     = iaPushes[0] ?? null
                       return (
                         <tr key={ia.id} className="hover:bg-slate-50">
                           <td className="py-3 font-medium text-slate-800">{ia.insurers?.name}</td>
@@ -688,6 +745,45 @@ export default function Apportionment() {
                                 <span className="text-xs text-slate-400 leading-none">
                                   {lastReminder.triggered_by === 'manual' ? 'Manual' : `${lastReminder.days_threshold}d`} · {format(new Date(lastReminder.sent_at), 'MMM d')}
                                 </span>
+                              )}
+                              {/* Push to Books buttons (shown when paid + provider connected) */}
+                              {isPaid && availableProviders.length > 0 && (
+                                <div className="flex items-center gap-1 mt-0.5">
+                                  {availableProviders.map(provider => {
+                                    const pushKey    = `${ia.id}:${provider}`
+                                    const isPushing  = pushingBooks.has(pushKey)
+                                    const alreadyPushed = iaPushes.some(p => p.provider === provider && p.status === 'success')
+                                    const label      = provider === 'quickbooks' ? 'QBO' : 'Clio'
+                                    return (
+                                      <button
+                                        key={provider}
+                                        onClick={() => !alreadyPushed && pushToBooks(ia, provider)}
+                                        disabled={isPushing || alreadyPushed}
+                                        title={alreadyPushed
+                                          ? `Already pushed to ${label} on ${format(new Date(iaPushes.find(p => p.provider === provider)?.pushed_at), 'MMM d')}`
+                                          : `Push to ${label}`}
+                                        className={`flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded transition-colors ${
+                                          alreadyPushed
+                                            ? 'text-green-700 bg-green-100 cursor-default'
+                                            : isPushing
+                                            ? 'text-slate-400 bg-slate-100 cursor-wait'
+                                            : 'text-slate-600 bg-slate-100 hover:bg-brand-100 hover:text-brand-700'
+                                        }`}
+                                      >
+                                        {isPushing
+                                          ? <Clock className="h-3 w-3 animate-spin" />
+                                          : alreadyPushed
+                                          ? <CheckCircle2 className="h-3 w-3" />
+                                          : <PlugZap className="h-3 w-3" />}
+                                        {label}
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                              {/* Last push date */}
+                              {lastPush?.status === 'failed' && (
+                                <span className="text-xs text-red-500 leading-none">Push failed</span>
                               )}
                             </div>
                           </td>

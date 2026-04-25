@@ -1,17 +1,110 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database } from 'lucide-react'
+import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
 
 const TABS = [
-  { key: 'users', label: 'Users',         icon: Users },
-  { key: 'orgs',  label: 'Organizations', icon: Building2 },
+  { key: 'users',        label: 'Users',         icon: Users    },
+  { key: 'orgs',         label: 'Organizations', icon: Building2 },
+  { key: 'integrations', label: 'Integrations',  icon: Plug     },
 ]
+
+// ── QBO / Clio OAuth URLs (client_id goes in frontend — it's not a secret) ───
+const QBO_CLIENT_ID    = import.meta.env.VITE_QBO_CLIENT_ID    ?? ''
+const QBO_REDIRECT_URI = import.meta.env.VITE_QBO_REDIRECT_URI ?? ''
+const CLIO_CLIENT_ID    = import.meta.env.VITE_CLIO_CLIENT_ID    ?? ''
+const CLIO_REDIRECT_URI = import.meta.env.VITE_CLIO_REDIRECT_URI ?? ''
+
+function buildOAuthURL(provider, orgId) {
+  const state = btoa(JSON.stringify({ provider, org_id: orgId }))
+  if (provider === 'quickbooks') {
+    const params = new URLSearchParams({
+      client_id:     QBO_CLIENT_ID,
+      redirect_uri:  QBO_REDIRECT_URI,
+      response_type: 'code',
+      scope:         'com.intuit.quickbooks.accounting',
+      state,
+    })
+    return `https://appcenter.intuit.com/connect/oauth2?${params}`
+  }
+  if (provider === 'clio') {
+    const params = new URLSearchParams({
+      client_id:     CLIO_CLIENT_ID,
+      redirect_uri:  CLIO_REDIRECT_URI,
+      response_type: 'code',
+      state,
+    })
+    return `https://app.clio.com/oauth/authorize?${params}`
+  }
+  return ''
+}
+
+// ── Integration settings form (post-connect) ─────────────────────────────────
+function IntegrationSettingsForm({ conn, onSaved }) {
+  const qc = useQueryClient()
+  const isQBO  = conn.provider === 'quickbooks'
+  const isClio = conn.provider === 'clio'
+  const { register, handleSubmit, formState: { isSubmitting } } = useForm({
+    defaultValues: conn.settings ?? {},
+  })
+
+  const onSubmit = async (values) => {
+    const settings = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== ''))
+    const { error } = await supabase
+      .from('la_accounting_connections')
+      .update({ settings })
+      .eq('id', conn.id)
+    if (error) { toast.error(error.message); return }
+    toast.success('Settings saved')
+    qc.invalidateQueries({ queryKey: ['accounting-connections'] })
+    onSaved?.()
+  }
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-3 border-t border-slate-100 pt-4">
+      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Settings</p>
+      {isQBO && (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="form-label">Deposit Account ID</label>
+              <input className="form-input text-sm" placeholder="35"
+                {...register('deposit_account_id')} />
+              <p className="text-xs text-slate-400 mt-1">QBO Chart of Accounts ID for your bank</p>
+            </div>
+            <div>
+              <label className="form-label">Income Account ID</label>
+              <input className="form-input text-sm" placeholder="79"
+                {...register('income_account_id')} />
+              <p className="text-xs text-slate-400 mt-1">QBO COA ID for income/revenue account</p>
+            </div>
+          </div>
+          <p className="text-xs text-slate-400">
+            Find account IDs in QBO: Accounting → Chart of Accounts → hover the account → Account ID shows in URL.
+          </p>
+        </>
+      )}
+      {isClio && (
+        <div>
+          <label className="form-label">Default Clio Matter ID (optional)</label>
+          <input className="form-input text-sm" placeholder="123456"
+            {...register('clio_matter_id')} />
+          <p className="text-xs text-slate-400 mt-1">
+            Payments will be logged under this matter. Find it in Clio → Matter → URL contains the ID.
+          </p>
+        </div>
+      )}
+      <button type="submit" className="btn-primary text-sm" disabled={isSubmitting}>
+        {isSubmitting ? 'Saving…' : 'Save Settings'}
+      </button>
+    </form>
+  )
+}
 
 // ─── Invite User Modal ────────────────────────────────────────────────────────
 
@@ -214,6 +307,22 @@ function AssignUserModal({ org, allUsers, onClose, onAssigned }) {
 export default function AdminPanel() {
   const { profile, refetchProfile } = useAuth()
   const [tab, setTab] = useState('users')
+
+  // Handle OAuth redirect back (?connected=quickbooks / ?error=xxx)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const connected = params.get('connected')
+    const error     = params.get('error')
+    if (connected) {
+      setTab('integrations')
+      toast.success(`${connected === 'quickbooks' ? 'QuickBooks' : 'Clio'} connected!`)
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (error) {
+      setTab('integrations')
+      toast.error(`Connection failed: ${error}`)
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])
   const [showInvite,  setShowInvite]  = useState(false)
   const [showAddOrg,  setShowAddOrg]  = useState(false)
   const [assignModal, setAssignModal] = useState(null)
@@ -243,6 +352,33 @@ export default function AdminPanel() {
       return data || []
     }
   })
+
+  const { data: accountingConnections = [] } = useQuery({
+    queryKey: ['accounting-connections'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('la_accounting_connections')
+        .select('*')
+        .eq('org_id', profile?.org_id)
+      return data || []
+    },
+    enabled: !!profile?.org_id,
+  })
+
+  const disconnectProvider = async (provider) => {
+    if (!confirm(`Disconnect ${provider === 'quickbooks' ? 'QuickBooks' : 'Clio'}? Push buttons will stop working.`)) return
+    const { error } = await supabase
+      .from('la_accounting_connections')
+      .update({ is_active: false })
+      .eq('org_id', profile.org_id)
+      .eq('provider', provider)
+    if (error) { toast.error(error.message); return }
+    toast.success('Disconnected')
+    qc.invalidateQueries({ queryKey: ['accounting-connections'] })
+  }
+
+  const qboConn  = accountingConnections.find(c => c.provider === 'quickbooks' && c.is_active)
+  const clioConn = accountingConnections.find(c => c.provider === 'clio' && c.is_active)
 
   const { data: orgs = [] } = useQuery({
     queryKey: ['admin-orgs'],
@@ -596,6 +732,143 @@ export default function AdminPanel() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* ── Integrations Tab ── */}
+      {tab === 'integrations' && (
+        <div className="max-w-2xl space-y-6">
+          <div>
+            <h2 className="font-semibold text-slate-900 mb-1">Accounting Integrations</h2>
+            <p className="text-sm text-slate-500">
+              Connect QuickBooks Online or Clio to push paid apportionment amounts directly to your books.
+              Once connected, a "Push to Books" button appears on paid insurer obligations.
+            </p>
+          </div>
+
+          {/* Setup notice if client IDs not configured */}
+          {(!QBO_CLIENT_ID && !CLIO_CLIENT_ID) && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 flex gap-3">
+              <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5 text-amber-600" />
+              <div>
+                <p className="font-semibold mb-1">Developer setup required</p>
+                <p>Add <code className="font-mono bg-amber-100 px-1 rounded">VITE_QBO_CLIENT_ID</code> / <code className="font-mono bg-amber-100 px-1 rounded">VITE_CLIO_CLIENT_ID</code> to your Netlify environment variables, and the corresponding secrets to Supabase Edge Functions. See migration 014 for the full list.</p>
+              </div>
+            </div>
+          )}
+
+          {/* QuickBooks card */}
+          {[
+            {
+              key:         'quickbooks',
+              name:        'QuickBooks Online',
+              description: 'Pushes each paid obligation as a Deposit transaction to your QBO company.',
+              docsUrl:     'https://developer.intuit.com/app/developer/qbo/docs/get-started',
+              conn:        qboConn,
+              canConnect:  !!QBO_CLIENT_ID,
+              iconBg:      'bg-emerald-50',
+              iconColor:   'text-emerald-700',
+              accentColor: 'border-emerald-200',
+            },
+            {
+              key:         'clio',
+              name:        'Clio',
+              description: 'Creates a payment note in Clio under the linked matter when an obligation is paid.',
+              docsUrl:     'https://app.clio.com/api/v4/documentation',
+              conn:        clioConn,
+              canConnect:  !!CLIO_CLIENT_ID,
+              iconBg:      'bg-blue-50',
+              iconColor:   'text-blue-700',
+              accentColor: 'border-blue-200',
+            },
+          ].map(({ key, name, description, docsUrl, conn, canConnect, iconBg, iconColor, accentColor }) => (
+            <div key={key} className={`card p-5 border ${conn ? accentColor : 'border-slate-200'}`}>
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}>
+                    <Plug className={`h-5 w-5 ${iconColor}`} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-slate-900">{name}</p>
+                      {conn ? (
+                        <span className="flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
+                          <CheckCircle2 className="h-3 w-3" /> Connected
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Not connected</span>
+                      )}
+                    </div>
+                    <p className="text-sm text-slate-500 mt-0.5">{description}</p>
+                    {conn && (
+                      <p className="text-xs text-slate-400 mt-1">
+                        Connected {format(parseISO(conn.connected_at), 'MMM d, yyyy')}
+                        {conn.realm_id ? ` · ID: ${conn.realm_id}` : ''}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <a href={docsUrl} target="_blank" rel="noopener noreferrer"
+                    className="btn-secondary text-xs py-1.5 px-3">
+                    <ExternalLink className="h-3.5 w-3.5" /> Docs
+                  </a>
+                  {conn ? (
+                    <button onClick={() => disconnectProvider(key)}
+                      className="btn-secondary text-xs py-1.5 px-3 text-red-600 border-red-200 hover:bg-red-50">
+                      Disconnect
+                    </button>
+                  ) : canConnect ? (
+                    <a href={buildOAuthURL(key, profile?.org_id)} className="btn-primary text-xs py-1.5 px-3">
+                      <Plug className="h-3.5 w-3.5" /> Connect
+                    </a>
+                  ) : (
+                    <button disabled className="btn-secondary text-xs py-1.5 px-3 opacity-50 cursor-not-allowed">
+                      Setup required
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Post-connect settings */}
+              {conn && (
+                <IntegrationSettingsForm
+                  conn={conn}
+                  onSaved={() => qc.invalidateQueries({ queryKey: ['accounting-connections'] })}
+                />
+              )}
+            </div>
+          ))}
+
+          {/* Setup guide */}
+          <details className="card p-5 cursor-pointer">
+            <summary className="font-medium text-slate-700 flex items-center gap-2 select-none">
+              <Settings2 className="h-4 w-4 text-slate-400" />
+              Developer setup guide
+            </summary>
+            <div className="mt-4 space-y-4 text-sm text-slate-600">
+              <div>
+                <p className="font-semibold text-slate-800 mb-1">QuickBooks Online</p>
+                <ol className="list-decimal ml-4 space-y-1">
+                  <li>Create an app at <a href="https://developer.intuit.com" target="_blank" className="text-brand-600 hover:underline">developer.intuit.com</a></li>
+                  <li>Add <code className="font-mono bg-slate-100 px-1 rounded">{`{SUPABASE_URL}/functions/v1/accounting-oauth-callback`}</code> as a Redirect URI</li>
+                  <li>Copy Client ID → Netlify env: <code className="font-mono bg-slate-100 px-1 rounded">VITE_QBO_CLIENT_ID</code></li>
+                  <li>Copy Client Secret + Client ID → Supabase secrets: <code className="font-mono bg-slate-100 px-1 rounded">QBO_CLIENT_ID</code>, <code className="font-mono bg-slate-100 px-1 rounded">QBO_CLIENT_SECRET</code>, <code className="font-mono bg-slate-100 px-1 rounded">QBO_REDIRECT_URI</code></li>
+                  <li>Set <code className="font-mono bg-slate-100 px-1 rounded">QBO_ENVIRONMENT</code> to <code className="font-mono bg-slate-100 px-1 rounded">sandbox</code> or <code className="font-mono bg-slate-100 px-1 rounded">production</code></li>
+                  <li>Also set <code className="font-mono bg-slate-100 px-1 rounded">VITE_QBO_REDIRECT_URI</code> in Netlify</li>
+                </ol>
+              </div>
+              <div>
+                <p className="font-semibold text-slate-800 mb-1">Clio</p>
+                <ol className="list-decimal ml-4 space-y-1">
+                  <li>Create an app at <a href="https://app.clio.com/settings/developer_applications" target="_blank" className="text-brand-600 hover:underline">Clio Developer Settings</a></li>
+                  <li>Add the same callback URL as redirect URI</li>
+                  <li>Copy Client ID → Netlify: <code className="font-mono bg-slate-100 px-1 rounded">VITE_CLIO_CLIENT_ID</code></li>
+                  <li>Copy both to Supabase: <code className="font-mono bg-slate-100 px-1 rounded">CLIO_CLIENT_ID</code>, <code className="font-mono bg-slate-100 px-1 rounded">CLIO_CLIENT_SECRET</code>, <code className="font-mono bg-slate-100 px-1 rounded">CLIO_REDIRECT_URI</code></li>
+                </ol>
+              </div>
+            </div>
+          </details>
         </div>
       )}
 
