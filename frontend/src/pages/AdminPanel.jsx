@@ -1162,7 +1162,7 @@ export default function AdminPanel() {
                           <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">DB Admin</th>
                         )}
                         <th className="hidden md:table-cell text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Joined</th>
-                        <th className="px-4 py-3" />
+                        {isPlatformAdmin && <th className="px-4 py-3" />}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1195,16 +1195,22 @@ export default function AdminPanel() {
                       </td>
                     )}
                     <td className="px-4 py-4">
-                      <select
-                        value={u.role}
-                        onChange={e => changeRole(u.id, e.target.value)}
-                        disabled={u.id === profile?.id}
-                        className={`badge border-0 cursor-pointer ${roleColors[u.role] || 'bg-slate-100 text-slate-600'}`}
-                      >
-                        <option value="admin">Admin</option>
-                        <option value="client">Client</option>
-                        <option value="user">User</option>
-                      </select>
+                      {isPlatformAdmin ? (
+                        <select
+                          value={u.role}
+                          onChange={e => changeRole(u.id, e.target.value)}
+                          disabled={u.id === profile?.id}
+                          className={`badge border-0 cursor-pointer ${roleColors[u.role] || 'bg-slate-100 text-slate-600'}`}
+                        >
+                          <option value="admin">Admin</option>
+                          <option value="client">Client</option>
+                          <option value="user">User</option>
+                        </select>
+                      ) : (
+                        <span className={`badge ${roleColors[u.role] || 'bg-slate-100 text-slate-600'}`}>
+                          {u.role}
+                        </span>
+                      )}
                     </td>
                     {isClientTab && (
                       <td className="hidden sm:table-cell px-4 py-4">
@@ -1243,14 +1249,16 @@ export default function AdminPanel() {
                     <td className="hidden md:table-cell px-4 py-4 text-sm text-slate-400">
                       {u.created_at ? format(parseISO(u.created_at), 'MM/dd/yyyy') : '—'}
                     </td>
-                    <td className="px-4 py-4">
-                      <button
-                        onClick={() => toast('Remove user via Supabase dashboard for now.')}
-                        disabled={u.id === profile?.id}
-                        className="text-slate-300 hover:text-red-500 disabled:opacity-30 transition-colors">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </td>
+                    {isPlatformAdmin && (
+                      <td className="px-4 py-4">
+                        <button
+                          onClick={() => toast('Remove user via Supabase dashboard for now.')}
+                          disabled={u.id === profile?.id}
+                          className="text-slate-300 hover:text-red-500 disabled:opacity-30 transition-colors">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                       ))}
                     </tbody>
