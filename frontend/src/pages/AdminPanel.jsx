@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw, CreditCard, Zap, Star, Building, ChevronRight, Loader2, Key, Copy, Eye, EyeOff, Code, Terminal, Palette, Globe, Image } from 'lucide-react'
+import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw, CreditCard, Zap, Star, Building, ChevronRight, Loader2, Key, Copy, Eye, EyeOff, Code, Terminal, Palette, Globe, Image, TrendingUp, BarChart3, FileText, Activity, DollarSign } from 'lucide-react'
 import { applyPalette } from '../context/BrandingContext.jsx'
 import { formatCurrency } from '../lib/calculations.js'
 import { format, parseISO } from 'date-fns'
@@ -11,12 +11,13 @@ import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
 
 const TABS = [
-  { key: 'users',        label: 'Users',         icon: Users      },
-  { key: 'orgs',         label: 'Organizations', icon: Building2  },
-  { key: 'integrations', label: 'Integrations',  icon: Plug       },
-  { key: 'billing',      label: 'Billing',        icon: CreditCard },
-  { key: 'api',          label: 'API',            icon: Key        },
-  { key: 'branding',     label: 'Branding',       icon: Palette    },
+  { key: 'users',        label: 'Users',         icon: Users,      dbAdminOnly: false },
+  { key: 'orgs',         label: 'Organizations', icon: Building2,  dbAdminOnly: false },
+  { key: 'integrations', label: 'Integrations',  icon: Plug,       dbAdminOnly: false },
+  { key: 'billing',      label: 'Billing',        icon: CreditCard, dbAdminOnly: false },
+  { key: 'api',          label: 'API',            icon: Key,        dbAdminOnly: false },
+  { key: 'branding',     label: 'Branding',       icon: Palette,    dbAdminOnly: false },
+  { key: 'financials',   label: 'Financials',     icon: BarChart3,  dbAdminOnly: true  },
 ]
 
 // ── QBO / Clio OAuth URLs (client_id goes in frontend — it's not a secret) ───
@@ -894,6 +895,51 @@ export default function AdminPanel() {
     },
   })
 
+  const { data: financialStats } = useQuery({
+    queryKey: ['platform-financial-stats'],
+    enabled:  isPlatformAdmin,
+    queryFn:  async () => {
+      const [
+        invoicesRes,
+        apportionmentsRes,
+        mattersRes,
+        clientsRes,
+        apportRunsRes,
+        allApportionmentsRes,
+      ] = await Promise.all([
+        supabase.from('la_invoices').select('total_amount, status'),
+        supabase.from('la_insurer_apportionments').select('amount_owed, amount_paid, payment_status'),
+        supabase.from('la_matters').select('id', { count: 'exact', head: true }),
+        supabase.from('la_profiles').select('id', { count: 'exact', head: true }).eq('role', 'client'),
+        supabase.from('la_apportionments').select('id', { count: 'exact', head: true }),
+        supabase.from('la_insurer_apportionments').select('amount_owed, payment_status'),
+      ])
+
+      const invoices      = invoicesRes.data       || []
+      const obligations   = apportionmentsRes.data || []
+      const allObligs     = allApportionmentsRes.data || []
+
+      const totalBilled   = invoices.reduce((s, r) => s + Number(r.total_amount || 0), 0)
+      const totalReceived = obligations.filter(r => r.payment_status === 'paid').reduce((s, r) => s + Number(r.amount_paid || 0), 0)
+      const totalOwed     = allObligs.reduce((s, r) => s + Number(r.amount_owed || 0), 0)
+      const totalOutstanding = allObligs.filter(r => r.payment_status !== 'paid').reduce((s, r) => s + Number(r.amount_owed || 0), 0)
+      const collectRate   = totalOwed > 0 ? (totalReceived / totalOwed) * 100 : 0
+
+      return {
+        totalBilled,
+        totalReceived,
+        lexallocRevenue: totalReceived * 0.03,
+        totalOwed,
+        totalOutstanding,
+        collectRate,
+        matterCount:     mattersRes.count      ?? 0,
+        clientCount:     clientsRes.count      ?? 0,
+        apportRunCount:  apportRunsRes.count   ?? 0,
+        invoiceCount:    invoices.length,
+      }
+    },
+  })
+
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
       {/* Header */}
@@ -930,39 +976,9 @@ export default function AdminPanel() {
         )}
       </div>
 
-      {/* ── Platform revenue KPIs (DB Admin only) ── */}
-      {isPlatformAdmin && (
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center flex-shrink-0 shadow-sm">
-              <CreditCard className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Total Received</p>
-              <p className="text-2xl font-bold text-slate-900">
-                {paymentStats ? formatCurrency(paymentStats.total) : '—'}
-              </p>
-              <p className="text-xs text-slate-400 mt-0.5">All paid obligations platform-wide</p>
-            </div>
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-400 to-violet-600 flex items-center justify-center flex-shrink-0 shadow-sm">
-              <Zap className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">LexAlloc Revenue <span className="normal-case font-normal">(3%)</span></p>
-              <p className="text-2xl font-bold text-violet-700">
-                {paymentStats ? formatCurrency(paymentStats.fee) : '—'}
-              </p>
-              <p className="text-xs text-slate-400 mt-0.5">Platform fee on processed payments</p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Tabs */}
       <div className="flex gap-1 border-b border-slate-200 mb-6">
-        {TABS.map(({ key, label, icon: Icon }) => (
+        {TABS.filter(t => !t.dbAdminOnly || isPlatformAdmin).map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setTab(key)}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               tab === key ? 'border-brand-600 text-brand-600' : 'border-transparent text-slate-500 hover:text-slate-700'
@@ -1914,6 +1930,130 @@ export default function AdminPanel() {
               </p>
             </div>
           </details>
+        </div>
+      )}
+
+      {/* ── Financials Tab (DB Admin only) ── */}
+      {tab === 'financials' && isPlatformAdmin && (
+        <div className="space-y-8">
+          <div>
+            <h2 className="font-semibold text-slate-900">Platform Financials</h2>
+            <p className="text-sm text-slate-500 mt-0.5">Platform-wide financial overview. Visible to DB Admins only.</p>
+          </div>
+
+          {/* Revenue KPIs */}
+          <div>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Revenue</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <CreditCard className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Total Received</p>
+                  <p className="text-2xl font-bold text-slate-900">{financialStats ? formatCurrency(financialStats.totalReceived) : '—'}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">All paid obligations platform-wide</p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-400 to-violet-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <Zap className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">LexAlloc Revenue <span className="normal-case font-normal">(3%)</span></p>
+                  <p className="text-2xl font-bold text-violet-700">{financialStats ? formatCurrency(financialStats.lexallocRevenue) : '—'}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Platform fee on processed payments</p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <DollarSign className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Total Billed</p>
+                  <p className="text-2xl font-bold text-slate-900">{financialStats ? formatCurrency(financialStats.totalBilled) : '—'}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Sum of all invoice amounts</p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <TrendingUp className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Total Outstanding</p>
+                  <p className="text-2xl font-bold text-amber-700">{financialStats ? formatCurrency(financialStats.totalOutstanding) : '—'}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Unpaid insurer obligations</p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <Activity className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Total Owed (all time)</p>
+                  <p className="text-2xl font-bold text-slate-900">{financialStats ? formatCurrency(financialStats.totalOwed) : '—'}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">All apportionment obligations ever created</p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <BarChart3 className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Collection Rate</p>
+                  <p className="text-2xl font-bold text-teal-700">{financialStats ? `${financialStats.collectRate.toFixed(1)}%` : '—'}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Received vs. total owed</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Activity KPIs */}
+          <div>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Platform Activity</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <ArrowRightLeft className="h-4 w-4 text-slate-400" />
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Apportionment Runs</p>
+                </div>
+                <p className="text-3xl font-bold text-slate-900">{financialStats ? financialStats.apportRunCount.toLocaleString() : '—'}</p>
+                <p className="text-xs text-slate-400 mt-1">Total apportionments calculated</p>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <FileText className="h-4 w-4 text-slate-400" />
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Total Invoices</p>
+                </div>
+                <p className="text-3xl font-bold text-slate-900">{financialStats ? financialStats.invoiceCount.toLocaleString() : '—'}</p>
+                <p className="text-xs text-slate-400 mt-1">Invoices processed platform-wide</p>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <Building2 className="h-4 w-4 text-slate-400" />
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Total Matters</p>
+                </div>
+                <p className="text-3xl font-bold text-slate-900">{financialStats ? financialStats.matterCount.toLocaleString() : '—'}</p>
+                <p className="text-xs text-slate-400 mt-1">Active and closed matters</p>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <Users className="h-4 w-4 text-slate-400" />
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Total Clients</p>
+                </div>
+                <p className="text-3xl font-bold text-slate-900">{financialStats ? financialStats.clientCount.toLocaleString() : '—'}</p>
+                <p className="text-xs text-slate-400 mt-1">Client portal users</p>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
