@@ -22,6 +22,7 @@ import TwoFactorChallenge from './pages/TwoFactorChallenge.jsx'
 import PrivacyPolicy     from './pages/PrivacyPolicy.jsx'
 import TermsOfService    from './pages/TermsOfService.jsx'
 import Financials        from './pages/Financials.jsx'
+import Reports           from './pages/Reports.jsx'
 import SetPassword       from './pages/SetPassword.jsx'
 
 // Requires a logged-in session (aal1 is fine) — used for /2fa-challenge itself
@@ -107,6 +108,7 @@ export default function App() {
           <Route path="/matters/:matterId" element={<MatterDetail />} />
           <Route path="/matters/:matterId/invoices/:invoiceId" element={<InvoiceDetail />} />
           <Route path="/matters/:matterId/apportionments/:apportionmentId" element={<Apportionment />} />
+          <Route path="/reports"    element={<Reports />} />
           <Route path="/insurers"   element={<InsurerDirectory />} />
           <Route path="/settings"   element={<Settings />} />
           <Route path="/admin"       element={<ProtectedRoute requiredRole="admin"><AdminPanel /></ProtectedRoute>} />

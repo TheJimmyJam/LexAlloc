@@ -3,13 +3,14 @@ import { useAuth } from '../hooks/useAuth.jsx'
 import { useBranding } from '../context/BrandingContext.jsx'
 import {
   LayoutDashboard, FolderOpen, Settings, LogOut,
-  Shield, Menu, UserCircle, ShieldCheck, Database, BookOpen, BarChart3
+  Shield, Menu, UserCircle, ShieldCheck, Database, BookOpen, BarChart3, FileBarChart
 } from 'lucide-react'
 import { useState } from 'react'
 
 const staffNavItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/matters',   icon: FolderOpen,      label: 'Matters' },
+  { to: '/reports',   icon: FileBarChart,    label: 'Reports' },
   { to: '/settings',  icon: Settings,        label: 'Settings' },
 ]
 
