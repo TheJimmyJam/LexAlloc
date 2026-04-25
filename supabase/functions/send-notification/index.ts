@@ -177,6 +177,18 @@ Deno.serve(async (req: Request) => {
     if (!type || !org_id)
       return new Response(JSON.stringify({ error: 'type and org_id are required' }), { status: 400 })
 
+    // party_info_request sends to external emails — skip org recipient lookup
+    if (type === 'party_info_request') {
+      const matterName = await getMatterName(matter_id)
+      const result = buildPartyInfoRequest(matterName, details, matter_id)
+      if (!result.toEmails?.length)
+        return new Response(JSON.stringify({ error: 'to_emails is required for party_info_request' }), { status: 400 })
+      await sendEmail(result.toEmails, result.subject, result.html)
+      return new Response(JSON.stringify({ sent: result.toEmails.length }), {
+        status: 200, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      })
+    }
+
     const [recipients, matterName] = await Promise.all([
       getOrgRecipients(org_id),
       getMatterName(matter_id),
