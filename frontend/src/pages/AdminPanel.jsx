@@ -125,17 +125,17 @@ const DEMO_LINE_DESCS = [
 ]
 
 // Build 4–10 realistic line items for one invoice, returning rows and total
-function buildDemoLineItems(invoiceId, orgId, matterId, baseYear) {
-  const count     = rand(4, 10)
-  const picked    = pickN(DEMO_LINE_DESCS, count)
+function buildDemoLineItems(invoiceId, baseYear) {
+  const count       = rand(4, 10)
+  const picked      = pickN(DEMO_LINE_DESCS, count)
   const invoiceYear = baseYear + rand(1, 3)
   const rows = []
   let total = 0
   picked.forEach(([desc, category, stdHours]) => {
-    const tk     = DEMO_TIMEKEEPERS[rand(0, DEMO_TIMEKEEPERS.length - 1)]
-    const month  = rand(0, 11)
-    const day    = rand(1, 28)
-    const dos    = `${invoiceYear}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    const tk    = DEMO_TIMEKEEPERS[rand(0, DEMO_TIMEKEEPERS.length - 1)]
+    const month = rand(0, 11)
+    const day   = rand(1, 28)
+    const dos   = `${invoiceYear}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
     let hours = null, rate = null, amount = 0
     if (category === 'fees') {
       hours  = parseFloat(((stdHours || 1) + (Math.random() - 0.3)).toFixed(1))
@@ -148,15 +148,13 @@ function buildDemoLineItems(invoiceId, orgId, matterId, baseYear) {
     total += amount
     rows.push({
       invoice_id:      invoiceId,
-      org_id:          orgId,
-      matter_id:       matterId,
       date_of_service: dos,
       description:     desc,
       timekeeper:      category === 'fees' ? tk.name : null,
-      hours:           hours,
-      rate:            rate,
-      amount:          amount,
-      category:        category,
+      hours,
+      rate,
+      amount,
+      category,
     })
   })
   return { rows, total: parseFloat(total.toFixed(2)) }
@@ -935,7 +933,7 @@ export default function AdminPanel() {
       const invoiceTotals   = {}
       invoices.forEach((inv, idx) => {
         const baseYear = invoiceRows[idx]?._baseYear || 2015
-        const { rows, total } = buildDemoLineItems(inv.id, orgId, inv.matter_id, baseYear)
+        const { rows, total } = buildDemoLineItems(inv.id, baseYear)
         allLineItemRows.push(...rows)
         invoiceTotals[inv.id] = total
       })
@@ -1048,7 +1046,11 @@ export default function AdminPanel() {
       await supabase.from('la_parties').delete().in('matter_id', mIds)
 
       // ── Invoices, line items & matters ──────────────────────────────────
-      await supabase.from('la_invoice_line_items').delete().in('matter_id', mIds)
+      const { data: demoInvs } = await supabase.from('la_invoices').select('id').in('matter_id', mIds)
+      if (demoInvs?.length) {
+        const invIds = demoInvs.map(i => i.id)
+        await supabase.from('la_invoice_line_items').delete().in('invoice_id', invIds)
+      }
       await supabase.from('la_invoices').delete().in('matter_id', mIds)
       await supabase.from('la_matters').delete().in('id', mIds)
 
