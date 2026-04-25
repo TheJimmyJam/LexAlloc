@@ -10,7 +10,24 @@
 // SVG is not safe in email; we use an HTML table-based wordmark instead.
 // The indigo square + "LexAlloc" wordmark in white is the brand anchor.
 
-const LOGO_HTML = `<a href="https://lexalloc.app" style="text-decoration:none;display:inline-block;"><img src="https://raw.githubusercontent.com/TheJimmyJam/LexAlloc/main/frontend/public/logo-email.png" alt="LexAlloc" width="280" style="display:block;height:auto;border:0;outline:none;" /></a>`
+const LOGO_HTML = `
+<table cellpadding="0" cellspacing="0" role="presentation">
+  <tr>
+    <td style="vertical-align:middle;padding-right:14px;">
+      <img src="https://raw.githubusercontent.com/TheJimmyJam/LexAlloc/main/frontend/public/logo-icon.png"
+           alt="" width="60" height="60" style="display:block;border:0;border-radius:50%;" />
+    </td>
+    <td style="vertical-align:middle;">
+      <span style="
+        color:#ffffff;
+        font-size:22px;
+        font-weight:700;
+        letter-spacing:-0.5px;
+        font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+      ">LexAlloc</span>
+    </td>
+  </tr>
+</table>`
 
 // ── Badge / chip ──────────────────────────────────────────────────────────────
 

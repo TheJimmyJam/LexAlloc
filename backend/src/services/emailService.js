@@ -42,7 +42,16 @@ function layout(title, badge, badgeColor, body) {
             <table width="100%" cellpadding="0" cellspacing="0">
               <tr>
                 <td align="left" style="vertical-align:middle;">
-                  <img src="https://raw.githubusercontent.com/TheJimmyJam/LexAlloc/main/frontend/public/logo-email.png" alt="LexAlloc" width="280" style="display:block;height:auto;border:0;" />
+                  <table cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td style="vertical-align:middle;padding-right:14px;">
+                        <img src="https://raw.githubusercontent.com/TheJimmyJam/LexAlloc/main/frontend/public/logo-icon.png" alt="" width="60" height="60" style="display:block;border:0;border-radius:50%;" />
+                      </td>
+                      <td style="vertical-align:middle;">
+                        <span style="color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.5px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">LexAlloc</span>
+                      </td>
+                    </tr>
+                  </table>
                 </td>
                 <td align="right" style="vertical-align:middle;white-space:nowrap;">
                   <span style="background:${badgeColor};color:#fff;font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;letter-spacing:0.5px;text-transform:uppercase;">
