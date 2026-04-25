@@ -2087,23 +2087,16 @@ export default function MatterDetail() {
                     <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Total</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Method</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Calculated</th>
-                    <th />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {apportionments.map(a => (
-                    <tr key={a.id} className="hover:bg-slate-50">
+                    <tr key={a.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => navigate(`/matters/${matterId}/apportionments/${a.id}`)}>
                       <td className="px-5 py-4 font-medium text-slate-800">{a.invoices?.invoice_number || 'Invoice'}</td>
                       <td className="px-4 py-4 text-right font-semibold">{formatCurrency(a.invoices?.total_amount)}</td>
                       <td className="px-4 py-4 text-sm text-slate-500 capitalize">{a.calculation_method?.replace('_', ' ')}</td>
                       <td className="px-4 py-4 text-sm text-slate-400">
                         {a.calculated_at ? format(parseISO(a.calculated_at), 'MM/dd/yyyy HH:mm') : '—'}
-                      </td>
-                      <td className="px-4 py-4">
-                        <Link to={`/matters/${matterId}/apportionments/${a.id}`}
-                          className="text-slate-400 hover:text-brand-600 transition-colors">
-                          <ChevronRight className="h-4 w-4" />
-                        </Link>
                       </td>
                     </tr>
                   ))}
