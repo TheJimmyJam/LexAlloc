@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase.js'
 import { formatCurrency, formatPercent, exhaustionInfo } from '../lib/calculations.js'
 import { generateDemandLetterBlob, getDemandLetterFilename } from '../lib/generateDemandLetter.js'
+import { generateApportionmentReport } from '../lib/generateApportionmentReport.js'
 import DemandLetterModal from '../components/DemandLetterModal.jsx'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2, AlertTriangle, Mail, FileDown } from 'lucide-react'
@@ -187,16 +188,11 @@ export default function Apportionment() {
   const handlePrint = () => window.print()
 
   const handleDownloadPDF = () => {
-    // Set the document title so the browser uses it as the default filename
-    const prev = document.title
-    const matter = apport.matters?.name || 'Matter'
-    const inv    = invoice.invoice_number || 'Invoice'
-    const date   = apport.calculated_at
-      ? format(parseISO(apport.calculated_at), 'yyyy-MM-dd')
-      : format(new Date(), 'yyyy-MM-dd')
-    document.title = `LexAlloc Apportionment — ${matter} — ${inv} — ${date}`
-    window.print()
-    document.title = prev
+    try {
+      generateApportionmentReport(apport)
+    } catch (err) {
+      toast.error('PDF generation failed: ' + err.message)
+    }
   }
 
   const openLetterModal = (pa, ia) => {
@@ -354,7 +350,7 @@ export default function Apportionment() {
                 : <><FileDown className="h-4 w-4" /> Generate All Letters</>}
             </button>
             <button onClick={handlePrint} className="btn-secondary"><Printer className="h-4 w-4" /> Print</button>
-            <button onClick={handleDownloadPDF} className="btn-primary"><Download className="h-4 w-4" /> Download PDF</button>
+            <button onClick={handleDownloadPDF} className="btn-primary"><Download className="h-4 w-4" /> Export Report (PDF)</button>
           </div>
         </div>
       </div>
