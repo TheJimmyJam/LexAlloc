@@ -72,7 +72,7 @@ export default function TwoFactorChallenge() {
   }
 
   // Allow pasting 6-digit code and auto-submitting
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e) => {
     const val = e.target.value.replace(/\D/g, '').slice(0, 6)
     setCode(val)
     if (val.length === 6) {
