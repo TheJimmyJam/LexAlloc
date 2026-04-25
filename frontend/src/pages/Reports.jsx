@@ -56,7 +56,29 @@ const TABS = [
 // ═══════════════════════════════════════════════════════════════════════════════
 // PDF export helper
 // ═══════════════════════════════════════════════════════════════════════════════
-function exportPDF({ title, dateLabel, kpis = [], columns, rows, filename }) {
+
+// Module-level logo cache — fetched once per session
+let _logoDataUrl = null
+async function getLogoDataUrl() {
+  if (_logoDataUrl) return _logoDataUrl
+  try {
+    const res  = await fetch('/logo-icon.png')
+    const blob = await res.blob()
+    _logoDataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload  = () => resolve(reader.result)
+      reader.onerror = reject
+      reader.readAsDataURL(blob)
+    })
+  } catch {
+    _logoDataUrl = null
+  }
+  return _logoDataUrl
+}
+
+async function exportPDF({ title, dateLabel, kpis = [], columns, rows, filename }) {
+  const logoDataUrl = await getLogoDataUrl()
+
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'letter' })
   const W   = doc.internal.pageSize.getWidth()
 
@@ -64,14 +86,18 @@ function exportPDF({ title, dateLabel, kpis = [], columns, rows, filename }) {
   doc.setFillColor(...BRAND)
   doc.rect(0, 0, W, 22, 'F')
 
-  // Logo mark
-  doc.setFillColor(...WHITE)
-  doc.setDrawColor(...BRAND)
-  doc.roundedRect(6, 5, 11, 11, 2, 2, 'F')
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(6)
-  doc.setTextColor(...BRAND)
-  doc.text('LA', 11.5, 12, { align: 'center' })
+  // Logo image (circle icon) or fallback drawn mark
+  if (logoDataUrl) {
+    doc.addImage(logoDataUrl, 'PNG', 5, 4, 13, 13)
+  } else {
+    doc.setFillColor(...WHITE)
+    doc.setDrawColor(...BRAND)
+    doc.roundedRect(6, 5, 11, 11, 2, 2, 'F')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(6)
+    doc.setTextColor(...BRAND)
+    doc.text('LA', 11.5, 12, { align: 'center' })
+  }
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(13)
@@ -286,7 +312,7 @@ function OutstandingReport({ data, dateLabel }) {
     { label: 'Carriers Owing',     value: totals.insurers                    },
   ]
 
-  const handlePDF = () => exportPDF({
+  const handlePDF = async () => exportPDF({
     title:     'Outstanding Obligations by Carrier',
     dateLabel,
     kpis,
@@ -410,7 +436,7 @@ function VelocityReport({ data, dateLabel }) {
     { label: 'Slowest Carrier',  value: overall?.slowest ?? '—' },
   ]
 
-  const handlePDF = () => exportPDF({
+  const handlePDF = async () => exportPDF({
     title:     'Payment Velocity by Carrier',
     dateLabel,
     kpis,
@@ -516,7 +542,7 @@ function CategoriesReport({ data, dateLabel }) {
     { label: 'Categories',    value: data.length                      },
   ]
 
-  const handlePDF = () => exportPDF({
+  const handlePDF = async () => exportPDF({
     title:     'Invoice Category Breakdown',
     dateLabel,
     kpis,
@@ -660,7 +686,7 @@ function AgingReport({ data, dateLabel }) {
     { label: 'Total Outstanding', value: formatCurrency(totalOutstanding)                              },
   ]
 
-  const handlePDF = () => exportPDF({
+  const handlePDF = async () => exportPDF({
     title:     'Matter Aging Report (90+ Days)',
     dateLabel,
     kpis,
@@ -787,7 +813,7 @@ function SettlementReport({ data }) {
     { label: 'Total Savings',     value: formatCurrency(totals.savings)         },
   ]
 
-  const handlePDF = () => exportPDF({
+  const handlePDF = async () => exportPDF({
     title:    'Settlement Comparison',
     dateLabel: 'All time',
     kpis,
