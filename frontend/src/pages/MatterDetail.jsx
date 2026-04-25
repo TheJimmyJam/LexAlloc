@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.jsx'
@@ -8,7 +8,8 @@ import { formatCurrency, exhaustionInfo } from '../lib/calculations.js'
 import {
   ArrowLeft, Plus, Trash2, X, Upload, FileText,
   Users, Shield, Calculator, ChevronRight, Edit2, Check, TrendingUp, AlertTriangle,
-  Paperclip, Download, ExternalLink, LayoutTemplate, Copy, BookOpen, Search
+  Paperclip, Download, ExternalLink, LayoutTemplate, Copy, BookOpen, Search,
+  Bell, RefreshCcw, Loader2
 } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays, addDays, startOfYear, addYears } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -906,6 +907,51 @@ export default function MatterDetail() {
     }
   })
 
+  // Policy limit alert log — which thresholds have already been alerted
+  const { data: limitAlerts = [], refetch: refetchLimitAlerts } = useQuery({
+    queryKey: ['policy-limit-alerts', matterId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('la_policy_limit_alerts')
+        .select('policy_period_id, threshold, alerted_at, pct_exhausted')
+        .eq('matter_id', matterId)
+      return data || []
+    },
+    enabled: !!matterId,
+  })
+
+  // Map: policy_period_id → Set of alerted thresholds
+  const alertedThresholds = useMemo(() => {
+    const map: Record<string, Set<number>> = {}
+    for (const a of limitAlerts) {
+      if (!map[a.policy_period_id]) map[a.policy_period_id] = new Set()
+      map[a.policy_period_id].add(a.threshold)
+    }
+    return map
+  }, [limitAlerts])
+
+  const [checkingLimits, setCheckingLimits] = useState(false)
+  const checkLimitsNow = async () => {
+    setCheckingLimits(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('check-policy-limits', {
+        body: { matter_id: matterId },
+      })
+      if (error) throw new Error(error.message)
+      const fired = data?.alerts_fired?.length ?? 0
+      if (fired > 0) {
+        toast.success(`${fired} new alert${fired !== 1 ? 's' : ''} sent`)
+      } else {
+        toast.success('All limits checked — no new thresholds crossed')
+      }
+      refetchLimitAlerts()
+    } catch (err: any) {
+      toast.error('Check failed: ' + (err.message || 'Unknown error'))
+    } finally {
+      setCheckingLimits(false)
+    }
+  }
+
   const { data: invoices = [] } = useQuery({
     queryKey: ['matter-invoices', matterId],
     queryFn: async () => {
@@ -956,6 +1002,7 @@ export default function MatterDetail() {
             parties:la_parties(name),
             insurer_apportionments:la_insurer_apportionments(
               id, amount, amount_paid, payment_status, demanded_at, payment_date,
+              insurer_policy_period_id,
               insurers:la_insurers(id, name, policy_number)
             )
           )
@@ -1053,6 +1100,20 @@ export default function MatterDetail() {
       })
     })
   })
+
+  // Cumulative obligated amount keyed by policy_period_id (more precise — each period has its own limit)
+  const obligatedByPeriodId = useMemo(() => {
+    const map: Record<string, number> = {}
+    ;(financialRows || []).forEach((appt: any) => {
+      ;(appt.party_apportionments || []).forEach((pa: any) => {
+        ;(pa.insurer_apportionments || []).forEach((ia: any) => {
+          const key = ia.insurer_policy_period_id
+          if (key) map[key] = (map[key] || 0) + (Number(ia.amount) || 0)
+        })
+      })
+    })
+    return map
+  }, [financialRows])
 
   const totalPartyPct = parties.reduce((s, p) => s + (p.share_percentage || 0), 0)
   const statusColors = {
@@ -1591,9 +1652,23 @@ export default function MatterDetail() {
         <div>
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-slate-900">Insurers & Policy Periods</h2>
-            <button onClick={() => setShowAddInsurer(true)} className="btn-primary" disabled={parties.length === 0}>
-              <Plus className="h-4 w-4" /> Add Insurer
-            </button>
+            <div className="flex gap-2">
+              {insurerPeriods.some(pp => pp.policy_limit) && (
+                <button
+                  onClick={checkLimitsNow}
+                  disabled={checkingLimits}
+                  className="btn-secondary"
+                  title="Check all policy limits and send alerts for new threshold crossings"
+                >
+                  {checkingLimits
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Checking…</>
+                    : <><Bell className="h-4 w-4" /> Check Limits</>}
+                </button>
+              )}
+              <button onClick={() => setShowAddInsurer(true)} className="btn-primary" disabled={parties.length === 0}>
+                <Plus className="h-4 w-4" /> Add Insurer
+              </button>
+            </div>
           </div>
 
           <PolicyTimeline insurerPeriods={insurerPeriods} invoices={invoices} parties={parties} />
@@ -1625,11 +1700,13 @@ export default function MatterDetail() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {insurerPeriods.map(pp => {
-                    const owed = owedByInsurerId[pp.insurer_id] || 0
-                    const xPct = pp.policy_limit && owed > 0 ? (owed / Number(pp.policy_limit)) * 100 : null
-                    const info = xPct !== null ? exhaustionInfo(xPct) : null
+                    const obligated   = obligatedByPeriodId[pp.id] || 0
+                    const xPct        = pp.policy_limit && obligated > 0 ? (obligated / Number(pp.policy_limit)) * 100 : null
+                    const info        = xPct !== null ? exhaustionInfo(xPct) : null
+                    const alerted     = alertedThresholds[pp.id] || new Set()
+                    const isExhausted = xPct !== null && xPct >= 100
                     return (
-                    <tr key={pp.id} className="hover:bg-slate-50">
+                    <tr key={pp.id} className={`hover:bg-slate-50 ${isExhausted ? 'bg-red-50/40' : ''}`}>
                       <td className="px-5 py-4 font-medium text-slate-800">{pp.insurers?.name}</td>
                       <td className="px-4 py-4 text-sm font-mono text-slate-500">{pp.insurers?.policy_number || '—'}</td>
                       <td className="px-4 py-4 text-sm font-mono text-slate-600">{pp.claim_number || '—'}</td>
@@ -1655,14 +1732,41 @@ export default function MatterDetail() {
                       </td>
                       <td className="px-4 py-4">
                         {xPct !== null ? (
-                          <div className="flex items-center gap-2">
-                            <div className="w-16 bg-slate-100 rounded-full h-1.5">
-                              <div className={`${info.barColor} h-1.5 rounded-full`} style={{ width: `${Math.min(xPct, 100)}%` }} />
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                              <div className="w-20 bg-slate-100 rounded-full h-2">
+                                <div className={`${info.barColor} h-2 rounded-full`} style={{ width: `${Math.min(xPct, 100)}%` }} />
+                              </div>
+                              <span className={`text-xs font-bold ${info.color}`}>{xPct.toFixed(1)}%</span>
                             </div>
-                            <span className={`text-xs font-medium ${info.color}`}>{xPct.toFixed(0)}%</span>
-                            {xPct >= 70 && <span className={`badge ${info.badge} text-xs`}>{info.label}</span>}
+                            <div className="flex flex-wrap gap-1">
+                              {xPct >= 70 && (
+                                <span className={`badge ${info.badge} text-xs`}>
+                                  <AlertTriangle className="h-3 w-3 inline mr-0.5" />
+                                  {info.label}
+                                </span>
+                              )}
+                              {alerted.has(80) && (
+                                <span className="badge bg-amber-100 text-amber-700 text-xs" title="80% alert sent">
+                                  ⚠️ 80% alerted
+                                </span>
+                              )}
+                              {alerted.has(95) && (
+                                <span className="badge bg-orange-100 text-orange-700 text-xs" title="95% alert sent">
+                                  🚨 95% alerted
+                                </span>
+                              )}
+                              {alerted.has(100) && (
+                                <span className="badge bg-red-100 text-red-700 text-xs" title="Exhaustion alert sent">
+                                  🔴 Exhausted
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-400">
+                              {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(obligated)} obligated
+                            </p>
                           </div>
-                        ) : <span className="text-xs text-slate-300">—</span>}
+                        ) : <span className="text-xs text-slate-300">No limit set</span>}
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex items-center gap-2">

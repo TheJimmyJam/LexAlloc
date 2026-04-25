@@ -175,6 +175,7 @@ export default function Apportionment() {
             insurer_apportionments:la_insurer_apportionments(
               id, days_on_risk, total_days, percentage, amount,
               payment_status, amount_paid, payment_date, demanded_at, payment_notes,
+              insurer_policy_period_id,
               insurers:la_insurers(name, policy_number),
               insurer_policy_periods:la_insurer_policy_periods(policy_start, policy_end, policy_limit, deductible, claim_number, claims_rep_name, claims_rep_email, billing_address)
             )
@@ -272,6 +273,57 @@ export default function Apportionment() {
   })
 
   const availableProviders = accountingConns.map(c => c.provider)
+
+  // Cumulative obligated per policy_period_id across ALL invoices on this matter
+  // (not just this apportionment — so the limit column shows total exposure)
+  const { data: cumulativeByPeriod = {} } = useQuery({
+    queryKey: ['matter-cumulative-limits', matterId],
+    queryFn: async () => {
+      // Fetch all apportionment IDs for this matter first
+      const { data: appts } = await supabase
+        .from('la_apportionments')
+        .select('id')
+        .eq('matter_id', matterId)
+      const apptIds = (appts ?? []).map(a => a.id)
+      if (!apptIds.length) return {}
+
+      const { data: iaRows } = await supabase
+        .from('la_insurer_apportionments')
+        .select('insurer_policy_period_id, amount')
+        .in('apportionment_id', apptIds)
+
+      const map: Record<string, number> = {}
+      for (const r of iaRows ?? []) {
+        if (r.insurer_policy_period_id) {
+          map[r.insurer_policy_period_id] = (map[r.insurer_policy_period_id] || 0) + (Number(r.amount) || 0)
+        }
+      }
+      return map
+    },
+    enabled: !!matterId,
+  })
+
+  // Policy limit alerts for this matter
+  const { data: limitAlerts = [] } = useQuery({
+    queryKey: ['policy-limit-alerts', matterId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('la_policy_limit_alerts')
+        .select('policy_period_id, threshold, alerted_at')
+        .eq('matter_id', matterId)
+      return data || []
+    },
+    enabled: !!matterId,
+  })
+
+  const alertedThresholds = useMemo(() => {
+    const map: Record<string, Set<number>> = {}
+    for (const a of limitAlerts) {
+      if (!map[a.policy_period_id]) map[a.policy_period_id] = new Set()
+      map[a.policy_period_id].add(a.threshold)
+    }
+    return map
+  }, [limitAlerts])
 
   const pushToBooks = async (ia, provider) => {
     const iaId = `${ia.id}:${provider}`
@@ -668,18 +720,39 @@ export default function Apportionment() {
                           <td className="py-3 text-right font-bold text-slate-900">{formatCurrency(ia.amount)}</td>
                           <td className="py-3 text-right">
                             {pp?.policy_limit ? (() => {
-                              const xPct = (ia.amount / Number(pp.policy_limit)) * 100
-                              const info = exhaustionInfo(xPct)
+                              const limit      = Number(pp.policy_limit)
+                              const cumulative = cumulativeByPeriod[ia.insurer_policy_period_id] || ia.amount
+                              const cumPct     = (cumulative / limit) * 100
+                              const thisPct    = (ia.amount / limit) * 100
+                              const info       = exhaustionInfo(cumPct)
+                              const alerted    = alertedThresholds[ia.insurer_policy_period_id] || new Set()
                               return (
-                                <div className="flex flex-col items-end gap-0.5">
-                                  <span className="text-sm text-slate-700">{formatCurrency(pp.policy_limit)}</span>
-                                  {xPct >= 70 ? (
+                                <div className="flex flex-col items-end gap-1">
+                                  <span className="text-sm font-medium text-slate-700">{formatCurrency(limit)}</span>
+                                  {/* Cumulative progress bar */}
+                                  <div className="flex items-center gap-1.5">
+                                    <div className="w-14 bg-slate-100 rounded-full h-1.5">
+                                      <div className={`${info.barColor} h-1.5 rounded-full`} style={{ width: `${Math.min(cumPct, 100)}%` }} />
+                                    </div>
+                                    <span className={`text-xs font-bold ${info.color}`}>{cumPct.toFixed(0)}%</span>
+                                  </div>
+                                  {cumPct >= 70 ? (
                                     <span className={`badge ${info.badge} text-xs`}>
                                       <AlertTriangle className="h-3 w-3 inline mr-0.5" />
-                                      {xPct.toFixed(0)}% this inv
+                                      {info.label}
                                     </span>
                                   ) : (
-                                    <span className="text-xs text-slate-400">{xPct.toFixed(0)}% of limit</span>
+                                    <span className="text-xs text-slate-400">{thisPct.toFixed(0)}% this inv</span>
+                                  )}
+                                  {/* Alert badges */}
+                                  {alerted.has(100) && (
+                                    <span className="badge bg-red-100 text-red-700 text-xs">🔴 Exhausted</span>
+                                  )}
+                                  {!alerted.has(100) && alerted.has(95) && (
+                                    <span className="badge bg-orange-100 text-orange-700 text-xs">🚨 95% alerted</span>
+                                  )}
+                                  {!alerted.has(95) && alerted.has(80) && (
+                                    <span className="badge bg-amber-100 text-amber-700 text-xs">⚠️ 80% alerted</span>
                                   )}
                                 </div>
                               )
