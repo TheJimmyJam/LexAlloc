@@ -4,11 +4,12 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { useForm } from 'react-hook-form'
-import { Plus, Search, FolderOpen, X, ChevronRight, Filter, Upload, Copy, LayoutTemplate, Trash2, Download } from 'lucide-react'
+import { Plus, Search, FolderOpen, X, ChevronRight, Filter, Upload, Copy, LayoutTemplate, Trash2, Download, FileText } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
 import ImportMatterModal from '../components/ImportMatterModal.jsx'
+import CreateMatterFromInvoiceModal from '../components/CreateMatterFromInvoiceModal.jsx'
 import { logAudit } from '../lib/audit.js'
 
 // ── Create / New Template Modal ───────────────────────────────────────────────
@@ -235,6 +236,7 @@ export default function Matters() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
   const [showImport, setShowImport] = useState(false)
+  const [showFromInvoice, setShowFromInvoice] = useState(false)
   const [uploadMatterId, setUploadMatterId] = useState(null)
   const [useTemplate, setUseTemplate] = useState(null) // template object
 
@@ -318,6 +320,11 @@ export default function Matters() {
           {view === 'matters' && availablePmsProviders.length > 0 && (
             <button onClick={() => setShowImport(true)} className="btn-secondary">
               <Download className="h-4 w-4" /> Import
+            </button>
+          )}
+          {view === 'matters' && (
+            <button onClick={() => setShowFromInvoice(true)} className="btn-secondary">
+              <FileText className="h-4 w-4" /> From Invoice
             </button>
           )}
           <button onClick={() => setShowModal(true)} className="btn-primary">
@@ -552,6 +559,11 @@ export default function Matters() {
         <ImportMatterModal
           availableProviders={availablePmsProviders}
           onClose={() => setShowImport(false)}
+        />
+      )}
+      {showFromInvoice && (
+        <CreateMatterFromInvoiceModal
+          onClose={() => setShowFromInvoice(false)}
         />
       )}
     </div>
