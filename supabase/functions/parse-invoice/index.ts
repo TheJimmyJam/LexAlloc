@@ -1,11 +1,11 @@
 // Supabase Edge Function: parse-invoice
-// Uses OpenAI (GPT-4o vision) to extract structured data from a legal invoice PDF or image.
+// Uses Anthropic Claude to extract structured data from a legal invoice PDF or image.
 //
 // POST body: { fileUrl: string, fileType: string }
 // Returns: { invoice_number, invoice_date, billing_firm, matter_name, matter_number,
 //             total_amount, service_start, service_end, line_items: [...] }
 
-const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') ?? ''
+const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY') ?? ''
 
 const corsHeaders = {
   'Access-Control-Allow-Origin':  '*',
@@ -46,15 +46,26 @@ Rules:
 - For costs/expenses, hours and rate may be null.
 - If the document contains multiple invoices, parse only the FIRST invoice.`
 
+// Safe base64 encoding for large files (avoids call stack overflow)
+function toBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const chunkSize = 8192
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+  }
+  return btoa(binary)
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    if (!OPENAI_API_KEY) {
+    if (!ANTHROPIC_API_KEY) {
       return new Response(
-        JSON.stringify({ error: 'OPENAI_API_KEY not configured' }),
+        JSON.stringify({ error: 'ANTHROPIC_API_KEY not configured' }),
         { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
@@ -68,7 +79,7 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Download the file and base64-encode it (chunked to avoid call stack overflow on large files)
+    // Download and base64-encode the file
     const fileResp = await fetch(fileUrl)
     if (!fileResp.ok) {
       return new Response(
@@ -76,70 +87,64 @@ Deno.serve(async (req) => {
         { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
-    const fileBytes = await fileResp.arrayBuffer()
-    const bytes     = new Uint8Array(fileBytes)
-    let binary      = ''
-    const chunkSize = 8192
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
-    }
-    const base64Data = btoa(binary)
-
-    // Detect whether this is a PDF or an image
+    const fileBytes  = await fileResp.arrayBuffer()
+    const base64Data = toBase64(fileBytes)
     const mimeType   = fileType || fileResp.headers.get('content-type') || 'application/octet-stream'
     const isPdf      = mimeType.includes('pdf')
 
-    // Build the file content block for OpenAI
+    // Build the content block — Claude supports PDFs natively as "document" type
     const fileContentBlock = isPdf
       ? {
-          type: 'file',
-          file: {
-            filename: 'invoice.pdf',
-            file_data: `data:application/pdf;base64,${base64Data}`,
+          type: 'document',
+          source: {
+            type:       'base64',
+            media_type: 'application/pdf',
+            data:       base64Data,
           },
         }
       : {
-          type: 'image_url',
-          image_url: {
-            url:    `data:${mimeType};base64,${base64Data}`,
-            detail: 'high',
+          type: 'image',
+          source: {
+            type:       'base64',
+            media_type: mimeType,
+            data:       base64Data,
           },
         }
 
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type':  'application/json',
+        'x-api-key':         ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type':      'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model:      'claude-sonnet-4-6',
+        max_tokens: 4096,
+        system:     SYSTEM_PROMPT,
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
           {
             role: 'user',
             content: [
-              { type: 'text', text: 'Parse this legal invoice and return the structured JSON:' },
               fileContentBlock,
+              { type: 'text', text: 'Parse this legal invoice and return the structured JSON:' },
             ],
           },
         ],
-        temperature: 0,
-        max_tokens:  4096,
       }),
     })
 
     if (!resp.ok) {
       const errBody = await resp.text()
       return new Response(
-        JSON.stringify({ error: `OpenAI error: ${resp.status} ${errBody}` }),
+        JSON.stringify({ error: `Anthropic error: ${resp.status} ${errBody}` }),
         { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    const json    = await resp.json()
-    const raw     = json.choices?.[0]?.message?.content || '{}'
-    const clean   = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+    const json  = await resp.json()
+    const raw   = json.content?.[0]?.text || '{}'
+    const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
 
     let result
     try {
