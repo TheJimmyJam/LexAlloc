@@ -50,22 +50,6 @@ export default function Layout() {
           {label}
         </NavLink>
       ))}
-      {profile?.role === 'admin' && (
-        <NavLink
-          to="/admin"
-          className={({ isActive }) =>
-            `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
-              isActive
-                ? 'bg-brand-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-100 hover:bg-white/8'
-            }`
-          }
-          onClick={() => setSidebarOpen(false)}
-        >
-          <Shield className="h-4 w-4 flex-shrink-0" />
-          Admin
-        </NavLink>
-      )}
       {profile?.is_platform_admin && (
         <NavLink
           to="/financials"
@@ -80,6 +64,22 @@ export default function Layout() {
         >
           <BarChart3 className="h-4 w-4 flex-shrink-0" />
           Financials
+        </NavLink>
+      )}
+      {profile?.role === 'admin' && (
+        <NavLink
+          to="/admin"
+          className={({ isActive }) =>
+            `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
+              isActive
+                ? 'bg-brand-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-100 hover:bg-white/8'
+            }`
+          }
+          onClick={() => setSidebarOpen(false)}
+        >
+          <Shield className="h-4 w-4 flex-shrink-0" />
+          Admin
         </NavLink>
       )}
     </>
