@@ -29,7 +29,7 @@ const features = [
     icon: Building2,
     color: 'bg-green-500/20 text-green-400',
     title: 'Insurer Breakdowns',
-    desc: 'Per-insurer obligation reports showing policy period overlaps, days-on-risk, claim numbers, and dollar obligations — ready for demand letters.',
+    desc: 'Per-insurer obligation reports showing policy period overlaps, days-on-risk, claim numbers, and dollar obligations — ready for invoicing.',
   },
   {
     icon: Shield,
