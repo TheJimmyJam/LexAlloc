@@ -1454,11 +1454,12 @@ export default function MatterDetail() {
               {Object.keys(byInsurer).length === 0 ? (
                 <div className="p-8 text-center text-slate-400 text-sm">No apportionments run yet.</div>
               ) : (
+                <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50">
                       <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Insurer</th>
-                      <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Policy #</th>
+                      <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Policy #</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Total Owed</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Paid</th>
                       <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Outstanding</th>
@@ -1473,7 +1474,7 @@ export default function MatterDetail() {
                       return (
                         <tr key={i} className="hover:bg-slate-50">
                           <td className="px-5 py-4 font-medium text-slate-800">{ins.name}</td>
-                          <td className="px-4 py-4 text-sm font-mono text-slate-500">{ins.policy_number || '—'}</td>
+                          <td className="hidden sm:table-cell px-4 py-4 text-sm font-mono text-slate-500">{ins.policy_number || '—'}</td>
                           <td className="px-4 py-4 text-right font-semibold text-slate-800">{formatCurrency(ins.owed)}</td>
                           <td className="px-4 py-4 text-right font-semibold text-green-700">{formatCurrency(ins.paid)}</td>
                           <td className="px-4 py-4 text-right">
@@ -1513,6 +1514,7 @@ export default function MatterDetail() {
                     </tr>
                   </tfoot>
                 </table>
+                </div>
               )}
             </div>
 
@@ -1522,6 +1524,7 @@ export default function MatterDetail() {
                 <div className="p-5 border-b border-slate-100">
                   <h2 className="font-semibold text-slate-900">By Party</h2>
                 </div>
+                <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50">
@@ -1546,6 +1549,7 @@ export default function MatterDetail() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             )}
 
@@ -2084,13 +2088,14 @@ export default function MatterDetail() {
                 <p className="text-xs mt-1">Upload an invoice, then run an apportionment from the invoice detail page.</p>
               </div>
             ) : (
+              <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
                     <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Invoice</th>
                     <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Total</th>
-                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Method</th>
-                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Calculated</th>
+                    <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Method</th>
+                    <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Calculated</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -2098,14 +2103,15 @@ export default function MatterDetail() {
                     <tr key={a.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => navigate(`/matters/${matterId}/apportionments/${a.id}`)}>
                       <td className="px-5 py-4 font-medium text-slate-800">{a.invoices?.invoice_number || 'Invoice'}</td>
                       <td className="px-4 py-4 text-right font-semibold">{formatCurrency(a.invoices?.total_amount)}</td>
-                      <td className="px-4 py-4 text-sm text-slate-500 capitalize">{a.calculation_method?.replace('_', ' ')}</td>
-                      <td className="px-4 py-4 text-sm text-slate-400">
+                      <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-500 capitalize">{a.calculation_method?.replace('_', ' ')}</td>
+                      <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-400">
                         {a.calculated_at ? format(parseISO(a.calculated_at), 'MM/dd/yyyy HH:mm') : '—'}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         </div>
