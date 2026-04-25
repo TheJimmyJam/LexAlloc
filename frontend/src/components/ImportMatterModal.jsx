@@ -105,7 +105,6 @@ export default function ImportMatterModal({ availableProviders = [], onClose }) 
           matter_id:        matter.id,
           org_id:           profile.org_id,
           name:             p.name,
-          type:             'defendant',   // default — user can change after import
           share_percentage: i === partyCount - 1 ? lastShare : equalShare,
         }))
         const { error: pErr } = await supabase.from('la_parties').insert(partyRows)
