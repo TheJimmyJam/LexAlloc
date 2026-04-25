@@ -11,32 +11,11 @@
 // The indigo square + "LexAlloc" wordmark in white is the brand anchor.
 
 const LOGO_HTML = `
-<table cellpadding="0" cellspacing="0" role="presentation">
-  <tr>
-    <td style="
-      background:#4f46e5;
-      width:36px;height:36px;
-      border-radius:8px;
-      text-align:center;
-      vertical-align:middle;
-      font-family:Georgia,'Times New Roman',serif;
-      font-size:20px;
-      font-weight:900;
-      color:#ffffff;
-      line-height:36px;
-      mso-line-height-rule:exactly;
-    ">L</td>
-    <td style="padding-left:10px;vertical-align:middle;">
-      <span style="
-        color:#ffffff;
-        font-size:20px;
-        font-weight:700;
-        letter-spacing:-0.3px;
-        font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
-      ">LexAlloc</span>
-    </td>
-  </tr>
-</table>`
+<a href="https://lexalloc.app" style="text-decoration:none;display:block;">
+  <img src="https://raw.githubusercontent.com/TheJimmyJam/LexAlloc/main/frontend/public/logo-email.png"
+       alt="LexAlloc" width="440"
+       style="display:block;height:auto;border:0;outline:none;max-width:100%;" />
+</a>`
 
 // ── Badge / chip ──────────────────────────────────────────────────────────────
 
@@ -230,7 +209,7 @@ export function layout(opts: LayoutOptions): string {
                   <td>
                     <!-- Footer logo -->
                     <div style="margin-bottom:12px;">
-                      <img src="https://raw.githubusercontent.com/TheJimmyJam/LexAlloc/main/frontend/public/logo-email.png" alt="LexAlloc" width="120" style="display:block;height:auto;opacity:0.6;" />
+                      <img src="https://raw.githubusercontent.com/TheJimmyJam/LexAlloc/main/frontend/public/logo-email.png" alt="LexAlloc" width="200" style="display:block;height:auto;opacity:0.6;" />
                     </div>
 
                     <p style="

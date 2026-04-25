@@ -42,7 +42,7 @@ function layout(title, badge, badgeColor, body) {
             <table width="100%" cellpadding="0" cellspacing="0">
               <tr>
                 <td>
-                  <img src="https://raw.githubusercontent.com/TheJimmyJam/LexAlloc/main/frontend/public/logo-email.png" alt="LexAlloc" width="180" style="display:block;height:auto;border:0;" />
+                  <img src="https://raw.githubusercontent.com/TheJimmyJam/LexAlloc/main/frontend/public/logo-email.png" alt="LexAlloc" width="360" style="display:block;height:auto;border:0;max-width:100%;" />
                 </td>
                 <td align="right">
                   <span style="background:${badgeColor};color:#fff;font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;letter-spacing:0.5px;text-transform:uppercase;">
@@ -66,7 +66,7 @@ function layout(title, badge, badgeColor, body) {
         <tr>
           <td style="background:#f1f5f9;border-radius:0 0 12px 12px;border:1px solid #e2e8f0;border-top:none;padding:20px 32px;">
             <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.5;">
-              <img src="https://raw.githubusercontent.com/TheJimmyJam/LexAlloc/main/frontend/public/logo-email.png" alt="LexAlloc" width="100" style="display:block;height:auto;margin-bottom:8px;opacity:0.6;" />
+              <img src="https://raw.githubusercontent.com/TheJimmyJam/LexAlloc/main/frontend/public/logo-email.png" alt="LexAlloc" width="180" style="display:block;height:auto;margin-bottom:8px;opacity:0.6;" />
               This notification was sent by <strong>LexAlloc</strong> — Legal Invoice Apportionment Platform.<br>
               You are receiving this because you are a member of your organization's LexAlloc account.
             </p>
