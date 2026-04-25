@@ -120,7 +120,7 @@ export default function Landing() {
       {/* ── Nav ─────────────────────────────────────────────────────────────── */}
       <nav className="sticky top-0 z-50 flex items-center justify-between px-6 lg:px-16 py-4 bg-slate-950/90 backdrop-blur border-b border-white/5">
         <div className="flex items-center">
-          <img src="/logo.svg" alt="LexAlloc" className="h-14 w-auto" />
+          <img src="/logo-icon.png" alt="LexAlloc" className="rounded-full" style={{ width: '44px', height: '44px', objectFit: 'cover' }} />
         </div>
         <div className="flex items-center gap-3">
           <Link to="/login" className="text-slate-300 hover:text-white text-sm font-medium transition-colors px-3 py-1.5">
