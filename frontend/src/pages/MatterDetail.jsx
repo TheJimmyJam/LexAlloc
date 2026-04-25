@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
-import { useForm } from 'react-hook-form'
+import { useForm, Controller } from 'react-hook-form'
 import { formatCurrency, exhaustionInfo } from '../lib/calculations.js'
 import {
   ArrowLeft, Plus, Trash2, X, Upload, FileText,
@@ -520,8 +520,38 @@ function AddPartyModal({ matterId, existingParties = [], onClose }) {
   )
 }
 
+// ── Currency input — formats as $x,xxx,xxx while typing ──────────────────────
+function CurrencyInput({ value, onChange, onBlur, placeholder }) {
+  const fmt = (raw) => {
+    const digits = String(raw ?? '').replace(/[^0-9]/g, '')
+    if (!digits) return ''
+    return '$' + parseInt(digits, 10).toLocaleString('en-US')
+  }
+  const [display, setDisplay] = useState(() => fmt(value))
+
+  const handleChange = (e) => {
+    const digits = e.target.value.replace(/[^0-9]/g, '')
+    if (!digits) { setDisplay(''); onChange(''); return }
+    const num = parseInt(digits, 10)
+    setDisplay('$' + num.toLocaleString('en-US'))
+    onChange(String(num))
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      className="form-input"
+      value={display}
+      onChange={handleChange}
+      onBlur={onBlur}
+      placeholder={placeholder || '$0'}
+    />
+  )
+}
+
 // ── Shared insurer policy period fields (used by Add and Edit modals) ────────
-function InsurerPolicyFields({ register }) {
+function InsurerPolicyFields({ register, control }) {
   return (
     <>
       <div className="grid grid-cols-2 gap-4">
@@ -536,14 +566,18 @@ function InsurerPolicyFields({ register }) {
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="form-label">Policy Limit ($)</label>
-          <input type="number" step="0.01" className="form-input" placeholder="1,000,000"
-            {...register('policy_limit')} />
+          <label className="form-label">Policy Limit</label>
+          <Controller name="policy_limit" control={control} defaultValue=""
+            render={({ field }) => (
+              <CurrencyInput value={field.value} onChange={field.onChange} onBlur={field.onBlur} placeholder="$1,000,000" />
+            )} />
         </div>
         <div>
-          <label className="form-label">Deductible ($)</label>
-          <input type="number" step="0.01" className="form-input" placeholder="10,000"
-            {...register('deductible')} />
+          <label className="form-label">Deductible</label>
+          <Controller name="deductible" control={control} defaultValue=""
+            render={({ field }) => (
+              <CurrencyInput value={field.value} onChange={field.onChange} onBlur={field.onBlur} placeholder="$10,000" />
+            )} />
         </div>
       </div>
       <div className="border-t border-slate-100 pt-4">
@@ -579,12 +613,12 @@ function InsurerPolicyFields({ register }) {
 // ── Edit Insurer Modal ────────────────────────────────────────────────────────
 function EditInsurerModal({ pp, matterId, onClose }) {
   const qc = useQueryClient()
-  const { register, handleSubmit, formState: { isSubmitting } } = useForm({
+  const { register, control, handleSubmit, formState: { isSubmitting } } = useForm({
     defaultValues: {
       policy_start:      pp.policy_start,
       policy_end:        pp.policy_end,
-      policy_limit:      pp.policy_limit      || '',
-      deductible:        pp.deductible        || '',
+      policy_limit:      pp.policy_limit      ? String(Math.round(pp.policy_limit))      : '',
+      deductible:        pp.deductible        ? String(Math.round(pp.deductible))        : '',
       claim_number:      pp.claim_number      || '',
       claims_rep_name:   pp.claims_rep_name   || '',
       claims_rep_email:  pp.claims_rep_email  || '',
@@ -620,7 +654,7 @@ function EditInsurerModal({ pp, matterId, onClose }) {
           <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
-          <InsurerPolicyFields register={register} />
+          <InsurerPolicyFields register={register} control={control} />
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
             <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
@@ -637,7 +671,7 @@ function EditInsurerModal({ pp, matterId, onClose }) {
 function AddInsurerModal({ matterId, parties, onClose }) {
   const { profile } = useAuth()
   const qc = useQueryClient()
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm()
+  const { register, control, handleSubmit, formState: { errors, isSubmitting } } = useForm()
 
   const onSubmit = async (values) => {
     // Create or find insurer
@@ -709,7 +743,7 @@ function AddInsurerModal({ matterId, parties, onClose }) {
             </select>
             {errors.party_id && <p className="text-red-500 text-xs mt-1">{errors.party_id.message}</p>}
           </div>
-          <InsurerPolicyFields register={register} />
+          <InsurerPolicyFields register={register} control={control} />
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
             <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
