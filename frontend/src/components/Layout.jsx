@@ -1,5 +1,6 @@
 import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
+import { useBranding } from '../context/BrandingContext.jsx'
 import {
   LayoutDashboard, FolderOpen, Settings, LogOut,
   Shield, Menu, X, UserCircle, ShieldCheck, Database, BookOpen
@@ -20,8 +21,12 @@ const clientNavItems = [
 
 export default function Layout() {
   const { profile, signOut, isProfileIncomplete } = useAuth()
+  const { brandName, logoUrl } = useBranding()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  const appName = brandName || 'LexAlloc'
+  const logoSrc = logoUrl  || '/logo.svg'
 
   const handleSignOut = async () => { await signOut(); navigate('/login') }
 
@@ -72,7 +77,7 @@ export default function Layout() {
       <aside className={`fixed inset-y-0 left-0 z-30 w-60 bg-white border-r border-slate-200 flex flex-col transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:flex ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         {/* Logo */}
         <div className="flex items-center px-4 h-20 border-b border-slate-800 flex-shrink-0 bg-slate-900">
-          <img src="/logo.svg" alt="LexAlloc" className="h-14 w-auto" />
+          <img src={logoSrc} alt={appName} className="h-14 w-auto" />
         </div>
 
         {/* Org badge */}
@@ -121,7 +126,7 @@ export default function Layout() {
           <button onClick={() => setSidebarOpen(true)} className="p-1">
             <Menu className="h-5 w-5 text-slate-300" />
           </button>
-          <img src="/logo.svg" alt="LexAlloc" className="h-12 w-auto" />
+          <img src={logoSrc} alt={appName} className="h-12 w-auto" />
         </header>
 
         {isProfileIncomplete && (
