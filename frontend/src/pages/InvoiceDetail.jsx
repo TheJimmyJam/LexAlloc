@@ -277,8 +277,8 @@ export default function InvoiceDetail() {
 
       {/* Calculation Method Selector */}
       <div className="card p-5 mb-6">
-        <h2 className="font-semibold text-slate-900 mb-1">Calculation Method</h2>
-        <p className="text-sm text-slate-400 mb-4">Choose how carrier obligations are allocated within each party's share.</p>
+        <h2 className="font-semibold text-slate-900 mb-1">Insurer Allocation Method</h2>
+        <p className="text-sm text-slate-400 mb-4">Each active party receives an equal share of the invoice. Choose how that share is then split across the party's insurer policy periods.</p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {METHODS.map((m) => (
             <button
@@ -492,18 +492,26 @@ export default function InvoiceDetail() {
       </div>
 
       {/* Parties summary */}
-      {parties.length > 0 && (
+      {partiesWithPolicies.length > 0 && (
         <div className="mt-6 card p-5">
-          <h2 className="font-semibold text-slate-900 mb-3">Party Shares (configured)</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-slate-900">Active Party Shares</h2>
+            <span className="text-xs text-slate-400">Split equally among {partiesWithPolicies.length} active {partiesWithPolicies.length === 1 ? 'party' : 'parties'}</span>
+          </div>
           <div className="flex flex-wrap gap-3">
-            {parties.map(p => (
+            {partiesWithPolicies.map(p => (
               <div key={p.id} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
                 <span className="font-medium text-slate-800 text-sm">{p.name}</span>
-                <span className="text-brand-600 font-semibold text-sm">{p.share_percentage}%</span>
+                <span className="text-brand-600 font-semibold text-sm">{p.share_percentage.toFixed(2)}%</span>
                 <span className="text-slate-400 text-xs">→ {formatCurrency((p.share_percentage / 100) * invoice.total_amount)}</span>
               </div>
             ))}
           </div>
+          {excludedParties.length > 0 && (
+            <p className="text-xs text-slate-400 mt-3">
+              Excluded (outside responsible dates): {excludedParties.map(p => p.name).join(', ')}
+            </p>
+          )}
         </div>
       )}
     </div>
