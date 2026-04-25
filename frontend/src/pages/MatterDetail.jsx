@@ -349,7 +349,6 @@ function EditPartyModal({ party, matterId, onClose }) {
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({
     defaultValues: {
       name:             party.name,
-      type:             party.type,
       share_percentage: party.share_percentage,
       notes:            party.notes || '',
     }
@@ -358,7 +357,6 @@ function EditPartyModal({ party, matterId, onClose }) {
   const onSubmit = async (values) => {
     const { error } = await supabase.from('la_parties').update({
       name:             values.name,
-      type:             values.type,
       share_percentage: parseFloat(values.share_percentage),
       notes:            values.notes,
     }).eq('id', party.id)
@@ -381,15 +379,6 @@ function EditPartyModal({ party, matterId, onClose }) {
             <input className="form-input" placeholder="Acme Corporation"
               {...register('name', { required: 'Name is required' })} />
             {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
-          </div>
-          <div>
-            <label className="form-label">Type</label>
-            <select className="form-input" {...register('type')}>
-              <option value="defendant">Defendant</option>
-              <option value="plaintiff">Plaintiff</option>
-              <option value="third_party">Third Party</option>
-              <option value="cross_defendant">Cross-Defendant</option>
-            </select>
           </div>
           <div>
             <label className="form-label">Share Percentage (%)</label>
@@ -431,7 +420,6 @@ function AddPartyModal({ matterId, existingParties = [], onClose }) {
       matter_id:        matterId,
       org_id:           profile.org_id,
       name:             values.name,
-      type:             values.type,
       share_percentage: parseFloat(values.share_percentage) || 0,
       notes:            values.notes,
     }).select().single()
@@ -469,15 +457,6 @@ function AddPartyModal({ matterId, existingParties = [], onClose }) {
             <input className="form-input" placeholder="Acme Corporation"
               {...register('name', { required: 'Name is required' })} />
             {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
-          </div>
-          <div>
-            <label className="form-label">Type</label>
-            <select className="form-input" {...register('type')}>
-              <option value="defendant">Defendant</option>
-              <option value="plaintiff">Plaintiff</option>
-              <option value="third_party">Third Party</option>
-              <option value="cross_defendant">Cross-Defendant</option>
-            </select>
           </div>
 
           {/* Only show % field if equalize is off */}
@@ -570,21 +549,12 @@ function InsurerPolicyFields({ register, control }) {
           <input type="date" className="form-input" {...register('policy_end', { required: 'Required' })} />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="form-label">Policy Limit</label>
-          <Controller name="policy_limit" control={control} defaultValue=""
-            render={({ field }) => (
-              <CurrencyInput value={field.value} onChange={field.onChange} onBlur={field.onBlur} placeholder="$1,000,000" />
-            )} />
-        </div>
-        <div>
-          <label className="form-label">Deductible</label>
-          <Controller name="deductible" control={control} defaultValue=""
-            render={({ field }) => (
-              <CurrencyInput value={field.value} onChange={field.onChange} onBlur={field.onBlur} placeholder="$10,000" />
-            )} />
-        </div>
+      <div>
+        <label className="form-label">Policy Limit</label>
+        <Controller name="policy_limit" control={control} defaultValue=""
+          render={({ field }) => (
+            <CurrencyInput value={field.value} onChange={field.onChange} onBlur={field.onBlur} placeholder="$1,000,000" />
+          )} />
       </div>
       <div className="border-t border-slate-100 pt-4">
         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Contact Info</p>
@@ -625,7 +595,6 @@ function EditInsurerModal({ pp, matterId, onClose }) {
       policy_start:      pp.policy_start,
       policy_end:        pp.policy_end,
       policy_limit:      pp.policy_limit      ? String(Math.round(pp.policy_limit))      : '',
-      deductible:        pp.deductible        ? String(Math.round(pp.deductible))        : '',
       claim_number:      pp.claim_number      || '',
       claims_rep_name:   pp.claims_rep_name   || '',
       claims_rep_email:  pp.claims_rep_email  || '',
@@ -638,7 +607,6 @@ function EditInsurerModal({ pp, matterId, onClose }) {
       policy_start:     values.policy_start,
       policy_end:       values.policy_end,
       policy_limit:     values.policy_limit     ? parseFloat(values.policy_limit)     : null,
-      deductible:       values.deductible       ? parseFloat(values.deductible)       : null,
       claim_number:     values.claim_number     || null,
       claims_rep_name:  values.claims_rep_name  || null,
       claims_rep_email: values.claims_rep_email || null,
@@ -758,7 +726,6 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
       policy_start:     values.policy_start,
       policy_end:       values.policy_end,
       policy_limit:     values.policy_limit     ? parseFloat(values.policy_limit)     : null,
-      deductible:       values.deductible       ? parseFloat(values.deductible)       : null,
       claim_number:     values.claim_number     || null,
       claims_rep_name:  values.claims_rep_name  || null,
       claims_rep_email: values.claims_rep_email || null,
@@ -1669,7 +1636,6 @@ export default function MatterDetail() {
                   <tr className="border-b border-slate-100 bg-slate-50">
                     <th className="w-9" />
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Name</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Type</th>
                     <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Share %</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Insurers</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Notes</th>
@@ -1692,9 +1658,6 @@ export default function MatterDetail() {
                             <ChevronRight className={`h-4 w-4 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} />
                           </td>
                           <td className="px-4 py-4 font-medium text-slate-800">{p.name}</td>
-                          <td className="px-4 py-4">
-                            <span className="badge bg-slate-100 text-slate-600 capitalize">{p.type?.replace('_', ' ')}</span>
-                          </td>
                           <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
                             {editingPct[p.id] !== undefined ? (
                               <div className="flex items-center justify-end gap-1">
@@ -1751,7 +1714,7 @@ export default function MatterDetail() {
                         {/* ── Expanded insurer sub-section ── */}
                         {isExpanded && (
                           <tr className="border-b border-slate-100">
-                            <td colSpan={7} className="px-0 py-0 bg-slate-50/60">
+                            <td colSpan={6} className="px-0 py-0 bg-slate-50/60">
                               <div className="pl-12 pr-5 py-4">
                                 {partyInsurers.length === 0 ? (
                                   <p className="text-sm text-slate-400 mb-3 flex items-center gap-2">
@@ -1851,7 +1814,7 @@ export default function MatterDetail() {
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-slate-200 bg-slate-50">
-                    <td colSpan={3} className="px-5 py-3 text-sm font-semibold text-slate-700">Total</td>
+                    <td colSpan={2} className="px-5 py-3 text-sm font-semibold text-slate-700">Total</td>
                     <td className={`px-4 py-3 text-right font-bold text-sm ${
                       isExact ? 'text-green-600' : isOver ? 'text-red-600' : 'text-amber-600'
                     }`}>
