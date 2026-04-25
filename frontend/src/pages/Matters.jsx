@@ -9,7 +9,7 @@ import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
 import ImportMatterModal from '../components/ImportMatterModal.jsx'
-import CreateMatterFromInvoiceModal from '../components/CreateMatterFromInvoiceModal.jsx'
+import BulkCreateMattersModal from '../components/BulkCreateMattersModal.jsx'
 import { logAudit } from '../lib/audit.js'
 
 // ── Create / New Template Modal ───────────────────────────────────────────────
@@ -580,7 +580,7 @@ export default function Matters() {
         />
       )}
       {showFromInvoice && (
-        <CreateMatterFromInvoiceModal
+        <BulkCreateMattersModal
           onClose={() => setShowFromInvoice(false)}
         />
       )}
