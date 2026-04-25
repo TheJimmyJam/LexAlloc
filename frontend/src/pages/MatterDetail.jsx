@@ -258,6 +258,7 @@ function EditMatterModal({ matter, onClose }) {
     defaultValues: {
       name:          matter.name,
       matter_number: matter.matter_number || '',
+      firm_name:     matter.firm_name     || '',
       description:   matter.description  || '',
       status:        matter.status,
     }
@@ -267,6 +268,7 @@ function EditMatterModal({ matter, onClose }) {
     const { error } = await supabase.from('la_matters').update({
       name:          values.name,
       matter_number: values.matter_number || null,
+      firm_name:     values.firm_name     || null,
       description:   values.description  || null,
       status:        values.status,
       updated_at:    new Date().toISOString(),
@@ -297,15 +299,20 @@ function EditMatterModal({ matter, onClose }) {
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
           <div>
+            <label className="form-label">Firm Name</label>
+            <input className="form-input" placeholder="ABC Legal, LLP"
+              {...register('firm_name')} />
+          </div>
+          <div>
+            <label className="form-label">Matter Number</label>
+            <input className="form-input" placeholder="2025-MDN-0047"
+              {...register('matter_number')} />
+          </div>
+          <div>
             <label className="form-label">Matter Name *</label>
             <input className="form-input"
               {...register('name', { required: 'Matter name is required' })} />
             {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
-          </div>
-          <div>
-            <label className="form-label">Matter Number</label>
-            <input className="form-input" placeholder="2024-001"
-              {...register('matter_number')} />
           </div>
           <div>
             <label className="form-label">Description</label>
@@ -1255,6 +1262,7 @@ export default function MatterDetail() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900">{matter.name}</h1>
             <p className="text-slate-500 text-sm mt-1">
+              {matter.firm_name && <span className="mr-3 font-medium text-slate-600">{matter.firm_name}</span>}
               {matter.matter_number && <span className="mr-3">#{matter.matter_number}</span>}
               {matter.description}
             </p>
