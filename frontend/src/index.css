@@ -113,8 +113,9 @@
 .dark { color-scheme: dark; }
 
 /* Core surfaces */
-.dark .bg-white    { background-color: theme('colors.slate.900'); }
-.dark .bg-slate-50 { background-color: theme('colors.slate.800'); }
+.dark .bg-white     { background-color: theme('colors.slate.900'); }
+.dark .bg-slate-50  { background-color: theme('colors.slate.800'); }
+.dark .bg-slate-100 { background-color: theme('colors.slate.800'); }
 
 /* Borders */
 .dark .border-slate-200     { border-color: theme('colors.slate.700'); }
@@ -131,11 +132,11 @@
 .dark .hover\:bg-slate-100:hover { background-color: theme('colors.slate.700'); }
 .dark .hover\:bg-white:hover     { background-color: theme('colors.slate.800'); }
 
-/* Text — scoped to main content only so the always-dark sidebar is unaffected */
-.dark main .text-slate-900 { color: theme('colors.slate.100'); }
-.dark main .text-slate-800 { color: theme('colors.slate.200'); }
-.dark main .text-slate-700 { color: theme('colors.slate.300'); }
-.dark main .text-slate-600 { color: theme('colors.slate.400'); }
+/* Text — sidebar only uses slate-200/400/500 so these are safe to apply globally */
+.dark .text-slate-900 { color: theme('colors.slate.100'); }
+.dark .text-slate-800 { color: theme('colors.slate.200'); }
+.dark .text-slate-700 { color: theme('colors.slate.300'); }
+.dark .text-slate-600 { color: theme('colors.slate.400'); }
 
 /* Select / dropdown in dark */
 .dark select.form-input,
