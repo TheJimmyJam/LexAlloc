@@ -1656,9 +1656,25 @@ export default function AdminPanel() {
                           className="form-input text-xs py-1 px-2 h-auto min-w-[160px]"
                         >
                           <option value="">— unassigned —</option>
-                          {insurersForOrg(u.org_id).map(ins => (
-                            <option key={ins.id} value={ins.id}>{ins.name}</option>
-                          ))}
+                          {isPlatformAdmin ? (
+                            // DB Admins see all insurers across every org, grouped by org
+                            orgs.map(org => {
+                              const orgInsurers = insurers.filter(i => i.org_id === org.id)
+                              if (orgInsurers.length === 0) return null
+                              return (
+                                <optgroup key={org.id} label={org.name}>
+                                  {orgInsurers.map(ins => (
+                                    <option key={ins.id} value={ins.id}>{ins.name}</option>
+                                  ))}
+                                </optgroup>
+                              )
+                            })
+                          ) : (
+                            // Org admins see only their own org's insurers
+                            insurersForOrg(u.org_id).map(ins => (
+                              <option key={ins.id} value={ins.id}>{ins.name}</option>
+                            ))
+                          )}
                         </select>
                       </td>
                     )}
