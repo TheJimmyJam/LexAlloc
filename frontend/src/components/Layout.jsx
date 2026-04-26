@@ -153,9 +153,9 @@ export default function Layout() {
             </button>
           </div>
           <div className="flex justify-center gap-3 mt-2">
-            <Link to="/privacy" className="text-slate-600 hover:text-slate-400 text-xs transition-colors">Privacy</Link>
-            <span className="text-slate-700 text-xs">·</span>
-            <Link to="/terms" className="text-slate-600 hover:text-slate-400 text-xs transition-colors">Terms</Link>
+            <Link to="/privacy" className="text-slate-500 hover:text-slate-300 text-xs transition-colors">Privacy</Link>
+            <span className="text-slate-500 text-xs">·</span>
+            <Link to="/terms" className="text-slate-500 hover:text-slate-300 text-xs transition-colors">Terms</Link>
           </div>
         </div>
       </aside>
