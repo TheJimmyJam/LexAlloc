@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import {
   Users, Shield, ArrowRight, Upload, Cpu,
   BarChart3, Building2, Clock, ChevronRight,
-  CheckCircle, DollarSign, Percent, CreditCard,
+  CheckCircle,
 } from 'lucide-react'
 
 const features = [
@@ -149,61 +149,6 @@ export default function Landing() {
                 <p className="text-slate-400 text-sm leading-relaxed">{desc}</p>
               </div>
             ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Pricing ─────────────────────────────────────────────────────────── */}
-      <section className="px-6 lg:px-16 py-20 max-w-6xl mx-auto">
-        <div className="text-center mb-14">
-          <p className="text-brand-400 text-sm font-semibold uppercase tracking-widest mb-3">Pricing</p>
-          <h2 className="text-3xl lg:text-4xl font-bold text-white">Free to use. We only win when you collect.</h2>
-          <p className="text-slate-400 text-lg mt-4 max-w-2xl mx-auto">
-            No subscriptions. No seat fees. No monthly bills. LexAlloc is free for everyone — law firms, insurers, and adjusters. We earn a 3% fee on payments collected through the platform.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-12">
-          {[
-            {
-              icon: DollarSign,
-              color: 'bg-emerald-500/20 text-emerald-400',
-              title: 'Free to Use',
-              desc: 'Create matters, upload invoices, run apportionments, and generate demand letters — all at no cost. Unlimited users, unlimited matters.',
-            },
-            {
-              icon: Percent,
-              color: 'bg-brand-500/20 text-brand-400',
-              title: '3% Collection Fee',
-              desc: 'LexAlloc takes 3% of each payment processed through the platform. That\'s it. No fee means no payment — our incentives are perfectly aligned with yours.',
-            },
-            {
-              icon: CreditCard,
-              color: 'bg-violet-500/20 text-violet-400',
-              title: 'Insurers Pay Here',
-              desc: 'Carriers receive demand notices and pay their apportionment obligations directly through LexAlloc. Payments are tracked, receipted, and reconciled automatically.',
-            },
-          ].map(({ icon: Icon, color, title, desc }) => (
-            <div key={title} className="bg-white/4 hover:bg-white/8 border border-white/8 rounded-2xl p-7 transition-all">
-              <div className={`w-11 h-11 rounded-xl flex items-center justify-center mb-4 ${color}`}>
-                <Icon className="h-5 w-5" />
-              </div>
-              <h3 className="text-white font-semibold text-lg mb-2">{title}</h3>
-              <p className="text-slate-400 text-sm leading-relaxed">{desc}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Example callout */}
-        <div className="rounded-2xl bg-gradient-to-r from-brand-900/50 to-slate-900 border border-brand-500/20 p-8 flex flex-col sm:flex-row items-center gap-6 text-center sm:text-left">
-          <div className="w-16 h-16 rounded-2xl bg-brand-500/20 flex items-center justify-center flex-shrink-0 mx-auto sm:mx-0">
-            <Percent className="h-8 w-8 text-brand-400" />
-          </div>
-          <div>
-            <p className="text-white font-semibold text-lg mb-1">Example: $250,000 invoice collected</p>
-            <p className="text-slate-300 text-sm leading-relaxed">
-              LexAlloc earns <span className="text-brand-300 font-semibold">$7,500</span> (3%). The law firm and insurers pay nothing to use the platform. Everyone gets paid, we get our cut — only when it clears.
-            </p>
           </div>
         </div>
       </section>
