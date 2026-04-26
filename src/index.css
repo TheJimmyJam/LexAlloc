@@ -2,10 +2,66 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Brand color tokens (LexAlloc defaults — overridden at runtime for white-label) ── */
+:root {
+  --brand-50:  #eef2ff;
+  --brand-100: #e0e7ff;
+  --brand-200: #c7d2fe;
+  --brand-300: #a5b4fc;
+  --brand-400: #818cf8;
+  --brand-500: #6366f1;
+  --brand-600: #4f46e5;
+  --brand-700: #4338ca;
+  --brand-800: #3730a3;
+  --brand-900: #312e81;
+}
+
+/* ── Dark mode custom component variants ─────────────────────────────────── */
+.dark .card {
+  background-color: theme('colors.slate.900');
+  border-color: rgba(51, 65, 85, 0.7);
+}
+.dark .form-input {
+  background-color: theme('colors.slate.800');
+  border-color: theme('colors.slate.700');
+  color: theme('colors.slate.100');
+}
+.dark .form-input::placeholder { color: theme('colors.slate.500'); }
+.dark .form-input:disabled {
+  background-color: theme('colors.slate.850');
+  color: theme('colors.slate.500');
+}
+.dark .form-label { color: theme('colors.slate.300'); }
+.dark .btn-secondary {
+  background-color: theme('colors.slate.800');
+  border-color: theme('colors.slate.700');
+  color: theme('colors.slate.200');
+}
+.dark .btn-secondary:hover {
+  background-color: theme('colors.slate.700');
+  border-color: theme('colors.slate.600');
+  color: theme('colors.slate.100');
+}
+
+/* ── Global print styles ──────────────────────────────────────────────────── */
+@media print {
+  aside, header, nav, [data-print="hide"] { display: none !important; }
+  body, html { background: white !important; }
+  .flex.h-screen { display: block !important; }
+  main { overflow: visible !important; }
+  @page { size: letter portrait; margin: 0.75in 0.75in 0.9in 0.75in; }
+}
+
 @layer base {
   html { @apply antialiased; }
   body { @apply bg-slate-50 text-slate-900 font-sans; }
   * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+}
+
+@layer base {
+  .dark body {
+    @apply bg-slate-950 text-slate-100;
+  }
 }
 
 @layer components {
@@ -36,7 +92,7 @@
   .form-input {
     @apply block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
            placeholder-slate-400 text-slate-900
-           focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-400
+           focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-400
            disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed
            transition-colors duration-150;
   }
@@ -48,12 +104,44 @@
   .badge {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium tracking-tight;
   }
-
-  /* Page-level headings */
-  .page-title {
-    @apply text-2xl font-semibold tracking-tight text-slate-900;
-  }
-  .page-subtitle {
-    @apply text-sm text-slate-500 mt-0.5;
-  }
 }
+
+/* ── Dark mode cascade overrides ──────────────────────────────────────────────
+   Placed after @tailwind utilities so these selectors (specificity 0-2-0+)
+   beat the generated utility classes (specificity 0-1-0).                   */
+
+.dark { color-scheme: dark; }
+
+/* Core surfaces */
+.dark .bg-white    { background-color: theme('colors.slate.900'); }
+.dark .bg-slate-50 { background-color: theme('colors.slate.800'); }
+
+/* Borders */
+.dark .border-slate-200     { border-color: theme('colors.slate.700'); }
+.dark .border-slate-100     { border-color: theme('colors.slate.800'); }
+.dark .border-slate-200\/80 { border-color: rgba(51, 65, 85, 0.7); }
+
+/* Dividers */
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: theme('colors.slate.700'); }
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: theme('colors.slate.800'); }
+.dark .divide-y > :not([hidden]) ~ :not([hidden])         { border-color: theme('colors.slate.800'); }
+
+/* Row / card hover states */
+.dark .hover\:bg-slate-50:hover  { background-color: theme('colors.slate.800'); }
+.dark .hover\:bg-slate-100:hover { background-color: theme('colors.slate.700'); }
+.dark .hover\:bg-white:hover     { background-color: theme('colors.slate.800'); }
+
+/* Text */
+.dark .text-slate-900 { color: theme('colors.slate.100'); }
+.dark .text-slate-800 { color: theme('colors.slate.200'); }
+.dark .text-slate-700 { color: theme('colors.slate.300'); }
+.dark .text-slate-600 { color: theme('colors.slate.400'); }
+
+/* Select / dropdown in dark */
+.dark select.form-input,
+.dark select.badge { background-color: theme('colors.slate.800'); color: theme('colors.slate.100'); }
+
+/* Scrollbar (webkit) */
+.dark ::-webkit-scrollbar-track { background: theme('colors.slate.900'); }
+.dark ::-webkit-scrollbar-thumb { background: theme('colors.slate.700'); border-radius: 4px; }
+.dark ::-webkit-scrollbar-thumb:hover { background: theme('colors.slate.600'); }

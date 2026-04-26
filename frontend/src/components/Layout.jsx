@@ -3,9 +3,11 @@ import { useAuth } from '../hooks/useAuth.jsx'
 import { useBranding } from '../context/BrandingContext.jsx'
 import {
   LayoutDashboard, FolderOpen, Settings, LogOut,
-  Shield, Menu, UserCircle, ShieldCheck, Database, BookOpen, BarChart3, FileBarChart
+  Shield, Menu, UserCircle, ShieldCheck, Database, BookOpen, BarChart3, FileBarChart,
+  Moon, Sun
 } from 'lucide-react'
 import { useState } from 'react'
+import { useTheme } from '../context/ThemeContext.jsx'
 
 const staffNavItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -22,6 +24,7 @@ const clientNavItems = [
 export default function Layout() {
   const { profile, signOut, isProfileIncomplete } = useAuth()
   const { brandName, logoUrl } = useBranding()
+  const { dark, toggle: toggleDark } = useTheme()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
@@ -87,7 +90,7 @@ export default function Layout() {
   )
 
   return (
-    <div className="flex h-screen bg-slate-100">
+    <div className="flex h-screen bg-slate-100 dark:bg-slate-950">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-20 bg-black/50 backdrop-blur-sm lg:hidden" onClick={() => setSidebarOpen(false)} />
@@ -134,12 +137,21 @@ export default function Layout() {
               </div>
             </div>
           </div>
-          <button
-            onClick={handleSignOut}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-xs font-medium transition-all duration-150"
-          >
-            <LogOut className="h-3 w-3" /> Sign out
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleSignOut}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-xs font-medium transition-all duration-150"
+            >
+              <LogOut className="h-3 w-3" /> Sign out
+            </button>
+            <button
+              onClick={toggleDark}
+              title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+              className="flex items-center justify-center px-2.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-all duration-150"
+            >
+              {dark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            </button>
+          </div>
           <div className="flex justify-center gap-3 mt-2">
             <Link to="/privacy" className="text-slate-600 hover:text-slate-400 text-xs transition-colors">Privacy</Link>
             <span className="text-slate-700 text-xs">·</span>
