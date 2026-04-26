@@ -20,8 +20,9 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Vite timestamps
+# Vite timestamps (any subdirectory)
 vite.config.js.timestamp-*
+**/vite.config.js.timestamp-*
 
 # Editor
 .vscode/
