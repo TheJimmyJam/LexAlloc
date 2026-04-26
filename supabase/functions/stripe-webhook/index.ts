@@ -171,7 +171,7 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // Send payment receipt email
+      // Send payment receipt email to the client
       if (customerEmail) {
         await sendPaymentReceiptEmail({
           to:              customerEmail,
@@ -183,6 +183,35 @@ Deno.serve(async (req: Request) => {
           paymentIntentId: paymentIntent,
           receiptUrl,
         })
+      }
+
+      // Notify org admins that a payment was received
+      const orgId    = session.metadata?.org_id    ?? ''
+      const matterId = session.metadata?.matter_id ?? ''
+      if (orgId && matterId) {
+        try {
+          await fetch(`${SUPABASE_URL}/functions/v1/send-notification`, {
+            method:  'POST',
+            headers: {
+              'Content-Type':  'application/json',
+              'Authorization': `Bearer ${SERVICE_KEY}`,
+            },
+            body: JSON.stringify({
+              type:      'payment_status_updated',
+              org_id:    orgId,
+              matter_id: matterId,
+              details: {
+                insurer_name:   session.metadata?.insurer_name   ?? 'Insurer',
+                new_status:     isFullyPaid ? 'paid' : 'partially_paid',
+                amount:         `$${(paidCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                invoice_number: session.metadata?.invoice_number ?? '',
+              },
+            }),
+          })
+        } catch (notifErr: any) {
+          // Non-fatal — log but don't fail the webhook response
+          console.error('Failed to send admin payment notification:', notifErr.message)
+        }
       }
     }
 
