@@ -39,6 +39,146 @@ function fmtCur(v) {
 function fmtPct(v) { return `${(v || 0).toFixed(2)}%` }
 function fmtDate(d) { return d ? format(parseISO(d), 'MM/dd/yyyy') : '—' }
 
+// ── Sankey diagram helpers ────────────────────────────────────────────────────
+const SANKEY_COLORS = ['#4f46e5','#0891b2','#059669','#d97706','#dc2626','#7c3aed','#db2777','#0d9488']
+
+function esc(s) {
+  return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+function trunc(s, n = 24) { return !s ? '' : s.length > n ? s.slice(0, n - 1) + '…' : s }
+
+function buildSankeySVG(partyApps, totalAmount) {
+  const W = 720, H = 390, nodeW = 18, vGap = 10, padY = 44, padBottom = 20
+  const usableH = H - padY - padBottom
+  const total = totalAmount || 1
+  const c0x = 20, c1x = 240, c2x = 480
+
+  const carrierColors = {}
+  let ci = 0
+  partyApps.forEach(pa =>
+    (pa.insurer_apportionments || []).forEach(ia => {
+      const n = ia.insurers?.name
+      if (n && !carrierColors[n]) carrierColors[n] = SANKEY_COLORS[ci++ % SANKEY_COLORS.length]
+    })
+  )
+
+  const inv = { x: c0x, y: padY, h: usableH }
+
+  const partyGaps  = Math.max(0, partyApps.length - 1) * vGap
+  const partyScale = (usableH - partyGaps) / total
+  const partyNodes = []
+  let pCur = padY
+  partyApps.forEach((pa, i) => {
+    const h = Math.max(6, pa.amount * partyScale)
+    partyNodes.push({ x: c1x, y: pCur, h, color: SANKEY_COLORS[i % SANKEY_COLORS.length], pa })
+    pCur += h + vGap
+  })
+
+  const flatIns  = partyApps.flatMap((pa, pi) => (pa.insurer_apportionments || []).map(ia => ({ ia, pi })))
+  const insGaps  = Math.max(0, flatIns.length - 1) * vGap
+  const insScale = flatIns.length ? (usableH - insGaps) / total : 1
+  const insNodes = []
+  let iCur = padY
+  flatIns.forEach(({ ia, pi }) => {
+    const h = Math.max(6, ia.amount * insScale)
+    insNodes.push({ x: c2x, y: iCur, h, color: carrierColors[ia.insurers?.name] || SANKEY_COLORS[pi % SANKEY_COLORS.length], ia })
+    iCur += h + vGap
+  })
+
+  const ipLinks = [], piLinks = []
+  let invCur = padY
+  partyNodes.forEach(pn => {
+    const sh = inv.h * (pn.pa.amount / total)
+    ipLinks.push({ sx: c0x + nodeW, sy: invCur, sh, tx: c1x, ty: pn.y, th: pn.h, color: pn.color })
+    invCur += sh
+  })
+  let insIdx = 0
+  partyNodes.forEach(pn => {
+    let pOut = pn.y
+    ;(pn.pa.insurer_apportionments || []).forEach(ia => {
+      const iNode = insNodes[insIdx]
+      if (!iNode) return
+      const sh = pn.h * (ia.amount / (pn.pa.amount || 1))
+      piLinks.push({ sx: c1x + nodeW, sy: pOut, sh, tx: c2x, ty: iNode.y, th: iNode.h, color: iNode.color })
+      pOut += sh; insIdx++
+    })
+  })
+
+  const bandPath = ({ sx, sy, sh, tx, ty, th }) => {
+    const mx = (sx + tx) / 2
+    return `M${sx},${sy} C${mx},${sy} ${mx},${ty} ${tx},${ty} L${tx},${ty+th} C${mx},${ty+th} ${mx},${sy+sh} ${sx},${sy+sh} Z`
+  }
+  const ff = 'font-family="Helvetica, Arial, sans-serif"'
+  const db = 'dominant-baseline="middle"'
+
+  let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`
+  s += `<rect width="${W}" height="${H}" fill="white"/>`
+
+  // Column headers
+  s += `<text x="${c0x + nodeW/2}" y="${padY - 16}" text-anchor="middle" font-size="9" fill="#94a3b8" font-weight="600" ${ff}>INVOICE</text>`
+  s += `<text x="${c1x + nodeW/2}" y="${padY - 16}" text-anchor="middle" font-size="9" fill="#94a3b8" font-weight="600" ${ff}>PARTIES</text>`
+  s += `<text x="${c2x + nodeW/2}" y="${padY - 16}" text-anchor="middle" font-size="9" fill="#94a3b8" font-weight="600" ${ff}>CARRIERS</text>`
+
+  // Bands
+  for (const l of [...ipLinks, ...piLinks])
+    s += `<path d="${bandPath(l)}" fill="${l.color}" opacity="0.22"/>`
+
+  // Invoice node
+  s += `<rect x="${inv.x}" y="${inv.y}" width="${nodeW}" height="${inv.h}" rx="4" fill="#6366f1"/>`
+  s += `<text x="${inv.x + nodeW + 9}" y="${inv.y + inv.h/2 - 8}" font-size="11" fill="#1e293b" font-weight="700" ${db} ${ff}>Invoice Total</text>`
+  s += `<text x="${inv.x + nodeW + 9}" y="${inv.y + inv.h/2 + 8}" font-size="10" fill="#64748b" ${db} ${ff}>${esc(fmtCur(total))}</text>`
+
+  // Party nodes
+  for (const n of partyNodes) {
+    s += `<rect x="${n.x}" y="${n.y}" width="${nodeW}" height="${n.h}" rx="3" fill="${n.color}"/>`
+    if (n.h >= 24) {
+      s += `<text x="${n.x+nodeW+9}" y="${n.y+n.h/2-7}" font-size="10" fill="#1e293b" font-weight="600" ${db} ${ff}>${esc(trunc(n.pa.parties?.name))}</text>`
+      s += `<text x="${n.x+nodeW+9}" y="${n.y+n.h/2+7}" font-size="9" fill="#64748b" ${db} ${ff}>${esc(fmtCur(n.pa.amount))} · ${(n.pa.percentage||0).toFixed(1)}%</text>`
+    } else {
+      s += `<text x="${n.x+nodeW+9}" y="${n.y+n.h/2}" font-size="10" fill="#1e293b" font-weight="600" ${db} ${ff}>${esc(trunc(n.pa.parties?.name))}</text>`
+    }
+  }
+
+  // Insurer nodes
+  for (const n of insNodes) {
+    s += `<rect x="${n.x}" y="${n.y}" width="${nodeW}" height="${n.h}" rx="3" fill="${n.color}"/>`
+    if (n.h >= 24) {
+      s += `<text x="${n.x+nodeW+9}" y="${n.y+n.h/2-7}" font-size="10" fill="#1e293b" font-weight="600" ${db} ${ff}>${esc(trunc(n.ia.insurers?.name))}</text>`
+      s += `<text x="${n.x+nodeW+9}" y="${n.y+n.h/2+7}" font-size="9" fill="#64748b" ${db} ${ff}>${esc(fmtCur(n.ia.amount))}</text>`
+    } else {
+      s += `<text x="${n.x+nodeW+9}" y="${n.y+n.h/2}" font-size="10" fill="#1e293b" font-weight="600" ${db} ${ff}>${esc(trunc(n.ia.insurers?.name))}</text>`
+    }
+  }
+
+  s += '</svg>'
+  return s
+}
+
+async function sankeyToPng(partyApps, totalAmount) {
+  if (!partyApps || partyApps.length === 0) return null
+  try {
+    const svgStr = buildSankeySVG(partyApps, totalAmount)
+    const blob   = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' })
+    const url    = URL.createObjectURL(blob)
+    return await new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        const scale = 2, sw = 720, sh = 390
+        const canvas = document.createElement('canvas')
+        canvas.width = sw * scale; canvas.height = sh * scale
+        const ctx = canvas.getContext('2d')
+        ctx.scale(scale, scale)
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, sw, sh)
+        ctx.drawImage(img, 0, 0, sw, sh)
+        URL.revokeObjectURL(url)
+        resolve(canvas.toDataURL('image/png'))
+      }
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(null) }
+      img.src = url
+    })
+  } catch { return null }
+}
+
 // ── Fetch logo as base64 data URL ────────────────────────────────────────────
 async function loadLogo() {
   try {
@@ -135,7 +275,10 @@ function payColor(status) {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 export async function generateApportionmentReport(apport) {
-  const logoDataUrl = await loadLogo()
+  const [logoDataUrl, sankeyPng] = await Promise.all([
+    loadLogo(),
+    sankeyToPng(apport.party_apportionments || [], apport.invoices?.total_amount),
+  ])
   const doc      = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
   const W        = doc.internal.pageSize.getWidth()
   const invoice  = apport.invoices || {}
@@ -202,6 +345,16 @@ export async function generateApportionmentReport(apport) {
   doc.setLineWidth(0.5)
   doc.line(10, y, W - 10, y)
   y += 6
+
+  // ── Sankey Flow Diagram ─────────────────────────────────────────────────────
+  if (sankeyPng) {
+    const imgW = W - 20
+    const imgH = Math.round(imgW * 390 / 720)
+    if (y + imgH + 14 > doc.internal.pageSize.getHeight() - 15) { doc.addPage(); y = 18 }
+    y = sectionHeading(doc, y, 'Allocation Flow: Invoice → Parties → Carriers')
+    doc.addImage(sankeyPng, 'PNG', 10, y, imgW, imgH)
+    y += imgH + 6
+  }
 
   // ── Section 1: Party Summary ────────────────────────────────────────────────
   y = sectionHeading(doc, y, '1. Party Apportionment Summary')
