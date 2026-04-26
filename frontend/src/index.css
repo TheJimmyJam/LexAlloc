@@ -28,7 +28,7 @@
 }
 .dark .form-input::placeholder { color: theme('colors.slate.500'); }
 .dark .form-input:disabled {
-  background-color: theme('colors.slate.850');
+  background-color: theme('colors.slate.900');
   color: theme('colors.slate.500');
 }
 .dark .form-label { color: theme('colors.slate.300'); }
