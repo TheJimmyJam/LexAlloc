@@ -1329,7 +1329,7 @@ export default function MatterDetail() {
             }
             {!isTemplate && (
               <button
-                onClick={() => generateMatterSummaryReport({ matter, parties, insurerPeriods, invoices, financialRows })}
+                onClick={() => generateMatterSummaryReport({ matter, parties, insurerPeriods, invoices, financialRows }).catch(err => console.error('PDF error', err))}
                 className="btn-secondary text-sm"
                 title="Export Matter Summary PDF"
               >
