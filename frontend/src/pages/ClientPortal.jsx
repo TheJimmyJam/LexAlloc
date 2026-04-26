@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
@@ -6,11 +6,13 @@ import { formatCurrency } from '../lib/calculations.js'
 import {
   DollarSign, FileText, TrendingUp, AlertCircle, CheckCircle,
   Clock, Shield, CreditCard, X, ChevronDown, ChevronRight,
-  Calendar, Hash, AlertTriangle, Loader2, ChevronUp, Receipt
+  Calendar, Hash, AlertTriangle, Loader2, ChevronUp, Receipt,
+  Upload, MessageSquare, Download, Paperclip,
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
+import jsPDF from 'jspdf'
 
 // ── Status config ─────────────────────────────────────────────────────────────
 const STATUS = {
@@ -20,6 +22,17 @@ const STATUS = {
   partially_paid: { label: 'Partial Pay',  bg: 'bg-blue-50',    text: 'text-blue-700',   dot: 'bg-blue-500'   },
   disputed:       { label: 'Disputed',     bg: 'bg-red-50',     text: 'text-red-700',    dot: 'bg-red-500'    },
 }
+
+const DISPUTE_REASONS = [
+  'Coverage dispute',
+  'Calculation error',
+  'Policy not in effect during service period',
+  'Amount incorrect',
+  'Duplicate billing',
+  'Settlement already reached',
+  'Policy limit exceeded',
+  'Other',
+]
 
 function StatusBadge({ status }) {
   const s = STATUS[status] || STATUS.pending
@@ -63,11 +76,6 @@ function ExpandedLineItems({ invoiceId, invoice }) {
       return data || []
     },
   })
-
-  const fees    = lineItems.filter(l => l.category === 'fees')
-  const costs   = lineItems.filter(l => l.category !== 'fees' && l.category != null && l.category !== 'fees')
-  const feeTotal  = fees.reduce((s, l)  => s + Number(l.amount || 0), 0)
-  const costTotal = lineItems.filter(l => l.category !== 'fees').reduce((s, l) => s + Number(l.amount || 0), 0)
 
   return (
     <div className="bg-slate-50 border-t border-slate-100 px-5 py-5">
@@ -144,9 +152,507 @@ function ExpandedLineItems({ invoiceId, invoice }) {
   )
 }
 
+// ── Dispute modal ─────────────────────────────────────────────────────────────
+function DisputeModal({ obligation, onClose, onSuccess }) {
+  const [reason, setReason]       = useState('')
+  const [notes, setNotes]         = useState('')
+  const [files, setFiles]         = useState([])
+  const [submitting, setSubmitting] = useState(false)
+  const fileRef = useRef(null)
+
+  const outstanding = (obligation.amount || 0) - (obligation.amount_paid || 0)
+
+  const handleSubmit = async () => {
+    if (!reason) { toast.error('Please select a dispute reason'); return }
+    setSubmitting(true)
+    try {
+      // Upload supporting documents to Supabase Storage
+      const fileRefs = []
+      for (const file of files) {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+        const path = `${obligation.id}/${Date.now()}-${safeName}`
+        const { error: uploadError } = await supabase.storage
+          .from('portal-disputes')
+          .upload(path, file, { upsert: false })
+        if (!uploadError) {
+          const { data: urlData } = supabase.storage.from('portal-disputes').getPublicUrl(path)
+          fileRefs.push({ name: file.name, url: urlData.publicUrl })
+        } else {
+          console.warn('File upload skipped:', uploadError.message)
+        }
+      }
+
+      const disputePayload = JSON.stringify({
+        dispute_reason:   reason,
+        dispute_notes:    notes,
+        dispute_filed_at: new Date().toISOString(),
+        dispute_files:    fileRefs,
+      })
+
+      const { error } = await supabase
+        .from('la_insurer_apportionments')
+        .update({ payment_status: 'disputed', payment_notes: disputePayload })
+        .eq('id', obligation.id)
+
+      if (error) throw error
+      toast.success('Dispute filed successfully')
+      onSuccess()
+      onClose()
+    } catch (err) {
+      toast.error(err.message || 'Failed to file dispute')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 relative">
+        <button onClick={onClose} disabled={submitting} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors">
+          <X className="h-5 w-5" />
+        </button>
+
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center flex-shrink-0">
+            <MessageSquare className="h-5 w-5 text-red-600" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">File a Dispute</h2>
+            <p className="text-sm text-slate-500">
+              {obligation.invoice?.invoice_number || 'Invoice'} · {formatCurrency(outstanding)} outstanding
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {/* Reason */}
+          <div>
+            <label className="form-label">Dispute Reason <span className="text-red-500">*</span></label>
+            <select value={reason} onChange={e => setReason(e.target.value)} className="form-input">
+              <option value="">Select a reason…</option>
+              {DISPUTE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="form-label">Additional Notes</label>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              rows={3}
+              placeholder="Describe the basis for your dispute in detail…"
+              className="form-input resize-none"
+            />
+          </div>
+
+          {/* File upload */}
+          <div>
+            <label className="form-label">Supporting Documents</label>
+            <div
+              onClick={() => fileRef.current?.click()}
+              className="border-2 border-dashed border-slate-200 rounded-xl p-5 text-center cursor-pointer hover:border-brand-400 hover:bg-brand-50/30 transition-colors"
+            >
+              <Upload className="h-6 w-6 text-slate-300 mx-auto mb-2" />
+              <p className="text-sm text-slate-500">Click to attach files</p>
+              <p className="text-xs text-slate-400 mt-0.5">PDF, images, or documents</p>
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={e => setFiles(Array.from(e.target.files || []))}
+            />
+            {files.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {files.map((f, i) => (
+                  <li key={i} className="flex items-center gap-2 text-sm text-slate-600 bg-slate-50 rounded-lg px-3 py-1.5">
+                    <Paperclip className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                    <span className="truncate flex-1">{f.name}</span>
+                    <span className="text-slate-400 text-xs ml-auto whitespace-nowrap">{(f.size / 1024).toFixed(0)} KB</span>
+                    <button
+                      type="button"
+                      onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
+                      className="text-slate-300 hover:text-red-400 transition-colors ml-1"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button onClick={onClose} disabled={submitting} className="btn-secondary flex-1">Cancel</button>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting || !reason}
+            className="btn-danger flex-1"
+          >
+            {submitting
+              ? <><Loader2 className="h-4 w-4 animate-spin" /> Filing…</>
+              : 'File Dispute'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Partial payment modal ─────────────────────────────────────────────────────
+function PartialPaymentModal({ obligation, onClose, onSuccess }) {
+  const outstanding = (obligation.amount || 0) - (obligation.amount_paid || 0)
+  const [amount, setAmount]       = useState('')
+  const [payDate, setPayDate]     = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [notes, setNotes]         = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const parsed    = parseFloat(amount) || 0
+  const remaining = outstanding - parsed
+  const isValid   = parsed > 0 && parsed <= outstanding
+
+  const handleSubmit = async () => {
+    if (!isValid) { toast.error('Enter a valid payment amount'); return }
+    setSubmitting(true)
+    try {
+      const newPaid      = (obligation.amount_paid || 0) + parsed
+      const fullyPaid    = newPaid >= (obligation.amount || 0)
+      const noteText     = notes.trim() ||
+        `Partial payment of ${formatCurrency(parsed)} recorded ${payDate}`
+
+      const { error } = await supabase
+        .from('la_insurer_apportionments')
+        .update({
+          amount_paid:    newPaid,
+          payment_status: fullyPaid ? 'paid' : 'partially_paid',
+          payment_date:   payDate,
+          payment_notes:  noteText,
+        })
+        .eq('id', obligation.id)
+
+      if (error) throw error
+      toast.success(`Payment of ${formatCurrency(parsed)} recorded`)
+      onSuccess()
+      onClose()
+    } catch (err) {
+      toast.error(err.message || 'Failed to record payment')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 relative">
+        <button onClick={onClose} disabled={submitting} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors">
+          <X className="h-5 w-5" />
+        </button>
+
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+            <DollarSign className="h-5 w-5 text-blue-600" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Record Partial Payment</h2>
+            <p className="text-sm text-slate-500">{obligation.invoice?.invoice_number || 'Invoice'}</p>
+          </div>
+        </div>
+
+        {/* Balance strip */}
+        <div className="bg-slate-50 rounded-xl p-4 mb-5 border border-slate-100">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-slate-400 uppercase tracking-wide mb-0.5">Outstanding Balance</p>
+              <p className="text-2xl font-bold text-amber-600">{formatCurrency(outstanding)}</p>
+            </div>
+            {parsed > 0 && (
+              <div className="text-right">
+                <p className="text-xs text-slate-400 uppercase tracking-wide mb-0.5">After This Payment</p>
+                <p className={`text-2xl font-bold ${remaining <= 0 ? 'text-green-600' : 'text-slate-700'}`}>
+                  {remaining <= 0 ? '✓ Paid in full' : formatCurrency(remaining)}
+                </p>
+              </div>
+            )}
+          </div>
+          {parsed > 0 && remaining > 0 && (
+            <div className="mt-3">
+              <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="bg-blue-500 h-1.5 rounded-full transition-all duration-200"
+                  style={{ width: `${Math.min(100, (parsed / outstanding) * 100)}%` }}
+                />
+              </div>
+              <p className="text-xs text-slate-400 mt-1 text-right">
+                {((parsed / outstanding) * 100).toFixed(0)}% of outstanding
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="form-label">Payment Amount <span className="text-red-500">*</span></label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">$</span>
+              <input
+                type="number"
+                min="0.01"
+                max={outstanding}
+                step="0.01"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="form-input pl-7"
+              />
+            </div>
+            {parsed > outstanding && (
+              <p className="text-xs text-red-500 mt-1">
+                Cannot exceed outstanding balance of {formatCurrency(outstanding)}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="form-label">Payment Date <span className="text-red-500">*</span></label>
+            <input
+              type="date"
+              value={payDate}
+              onChange={e => setPayDate(e.target.value)}
+              className="form-input"
+            />
+          </div>
+
+          <div>
+            <label className="form-label">Reference / Notes</label>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              rows={2}
+              placeholder="Check number, wire reference, etc."
+              className="form-input resize-none"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button onClick={onClose} disabled={submitting} className="btn-secondary flex-1">Cancel</button>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting || !isValid}
+            className="btn-primary flex-1"
+          >
+            {submitting
+              ? <><Loader2 className="h-4 w-4 animate-spin" /> Recording…</>
+              : 'Record Payment'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Receipt PDF generator ─────────────────────────────────────────────────────
+async function loadLogoBase64() {
+  return new Promise(resolve => {
+    fetch('/logo-icon.png')
+      .then(r => r.blob())
+      .then(blob => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result)
+        reader.onerror   = () => resolve(null)
+        reader.readAsDataURL(blob)
+      })
+      .catch(() => resolve(null))
+  })
+}
+
+async function generatePortalReceipt(obligation, insurerName) {
+  const logoDataUrl = await loadLogoBase64()
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
+
+  const W       = doc.internal.pageSize.getWidth()
+  const receiptNum = `RCP-${obligation.id.toString().slice(-8).toUpperCase()}`
+  const paidAmt = obligation.amount_paid || obligation.amount || 0
+  const owed    = obligation.amount || 0
+  const remaining = owed - paidAmt
+  const isFullPaid = remaining <= 0
+
+  // ── Header band ─────────────────────────────────────────────────────────────
+  doc.setFillColor(30, 41, 59) // slate-900
+  doc.rect(0, 0, W, 28, 'F')
+
+  // Logo
+  if (logoDataUrl) {
+    doc.addImage(logoDataUrl, 'PNG', 10, 5, 18, 18)
+  } else {
+    doc.setFillColor(79, 70, 229)
+    doc.roundedRect(10, 5, 18, 18, 3, 3, 'F')
+    doc.setFontSize(9)
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
+    doc.text('LA', 19, 16.5, { align: 'center' })
+  }
+
+  doc.setFontSize(14)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(255, 255, 255)
+  doc.text('Payment Receipt', 34, 12)
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(148, 163, 184) // slate-400
+  doc.text('LexAlloc Legal Cost Management', 34, 18)
+
+  // Receipt # top right
+  doc.setFontSize(8)
+  doc.setTextColor(148, 163, 184)
+  doc.text(`Receipt #${receiptNum}`, W - 10, 12, { align: 'right' })
+  doc.text(format(new Date(), 'MMMM d, yyyy'), W - 10, 18, { align: 'right' })
+
+  // ── Status ribbon ────────────────────────────────────────────────────────────
+  const ribbonColor = isFullPaid ? [22, 163, 74] : [37, 99, 235] // green-600 / blue-600
+  doc.setFillColor(...ribbonColor)
+  doc.rect(0, 28, W, 8, 'F')
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(255, 255, 255)
+  doc.text(isFullPaid ? '✓  PAYMENT CONFIRMED — PAID IN FULL' : '◑  PARTIAL PAYMENT RECORDED', W / 2, 33.5, { align: 'center' })
+
+  // ── Body ─────────────────────────────────────────────────────────────────────
+  let y = 46
+  const col1 = 14, col2 = W / 2 + 4
+
+  const section = (title) => {
+    doc.setFontSize(7)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(100, 116, 139) // slate-500
+    doc.text(title.toUpperCase(), col1, y)
+    doc.setDrawColor(226, 232, 240)
+    doc.line(col1, y + 1.5, W - col1, y + 1.5)
+    y += 7
+  }
+
+  const field = (label, value, x = col1, colWidth = W / 2 - 18) => {
+    doc.setFontSize(7.5)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(100, 116, 139)
+    doc.text(label, x, y)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(15, 23, 42)
+    const lines = doc.splitTextToSize(value || '—', colWidth)
+    doc.text(lines, x, y + 5)
+    return y + 5 + (lines.length - 1) * 5
+  }
+
+  // ── Parties ──────────────────────────────────────────────────────────────────
+  section('Parties')
+  const yAfterParties = Math.max(
+    field('From (Insurer)', insurerName || 'Unknown Insurer', col1),
+    field('Managed by', 'LexAlloc Legal Cost Management', col2)
+  )
+  y = yAfterParties + 8
+
+  // ── Matter & Invoice ─────────────────────────────────────────────────────────
+  section('Matter & Invoice')
+  const yAfterMatter = Math.max(
+    field('Matter', obligation.matter?.name || '—', col1),
+    field('Matter #', obligation.matter?.matter_number || '—', col2)
+  )
+  y = yAfterMatter + 6
+
+  const yAfterInvoice = Math.max(
+    field('Invoice #', obligation.invoice?.invoice_number || '—', col1),
+    field('Invoice Date', obligation.invoice?.invoice_date
+      ? format(parseISO(obligation.invoice.invoice_date), 'MMMM d, yyyy')
+      : '—', col2)
+  )
+  y = yAfterInvoice + 6
+
+  if (obligation.policy_period?.claim_number || obligation.policy_period?.policy_start) {
+    const yAfterPolicy = Math.max(
+      field('Claim #', obligation.policy_period?.claim_number || '—', col1),
+      field('Policy Period', obligation.policy_period?.policy_start && obligation.policy_period?.policy_end
+        ? `${format(parseISO(obligation.policy_period.policy_start), 'MM/dd/yyyy')} – ${format(parseISO(obligation.policy_period.policy_end), 'MM/dd/yyyy')}`
+        : '—', col2)
+    )
+    y = yAfterPolicy + 6
+  }
+
+  // ── Payment summary box ───────────────────────────────────────────────────────
+  y += 4
+  section('Payment Summary')
+
+  // Summary table
+  const rows = [
+    ['Total Obligation', formatCurrency(owed)],
+    ['Amount Paid', formatCurrency(paidAmt)],
+  ]
+  if (!isFullPaid) rows.push(['Remaining Balance', formatCurrency(remaining)])
+  if (obligation.payment_date) rows.push(['Payment Date', format(parseISO(obligation.payment_date), 'MMMM d, yyyy')])
+
+  const tableTop = y
+  const rowH = 9
+  rows.forEach(([label, val], i) => {
+    const rowY = tableTop + i * rowH
+    if (i % 2 === 0) {
+      doc.setFillColor(248, 250, 252)
+      doc.rect(col1 - 2, rowY - 4, W - col1 * 2 + 4, rowH, 'F')
+    }
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(71, 85, 105)
+    doc.text(label, col1, rowY)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(15, 23, 42)
+    doc.text(val, W - col1, rowY, { align: 'right' })
+  })
+
+  y = tableTop + rows.length * rowH + 4
+
+  // Total paid highlight box
+  doc.setFillColor(...ribbonColor)
+  doc.roundedRect(col1 - 2, y, W - col1 * 2 + 4, 12, 2, 2, 'F')
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(255, 255, 255)
+  doc.text(isFullPaid ? 'Total Paid' : 'Amount Paid This Payment', col1 + 2, y + 8)
+  doc.setFontSize(12)
+  doc.text(formatCurrency(paidAmt), W - col1 - 2, y + 8, { align: 'right' })
+
+  y += 20
+
+  // Payment notes if present
+  if (obligation.payment_notes && !obligation.payment_notes.startsWith('{')) {
+    section('Payment Notes')
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(71, 85, 105)
+    const noteLines = doc.splitTextToSize(obligation.payment_notes, W - col1 * 2)
+    doc.text(noteLines, col1, y)
+    y += noteLines.length * 5 + 8
+  }
+
+  // ── Footer ────────────────────────────────────────────────────────────────────
+  const pageH = doc.internal.pageSize.getHeight()
+  doc.setFillColor(248, 250, 252)
+  doc.rect(0, pageH - 18, W, 18, 'F')
+  doc.setDrawColor(226, 232, 240)
+  doc.line(0, pageH - 18, W, pageH - 18)
+  doc.setFontSize(7)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(148, 163, 184)
+  doc.text(`Receipt #${receiptNum}  ·  Generated ${format(new Date(), 'MMM d, yyyy h:mm a')}`, W / 2, pageH - 10, { align: 'center' })
+  doc.text('LexAlloc Legal Cost Management  ·  This document is a record of payment on file', W / 2, pageH - 5, { align: 'center' })
+
+  const filename = `receipt-${receiptNum}-${(insurerName || 'insurer').replace(/\s+/g, '-')}.pdf`
+  doc.save(filename)
+}
+
 // ── Matter card ───────────────────────────────────────────────────────────────
-function MatterCard({ matter, rows, insurerName, onPay, payingId }) {
-  const [expanded, setExpanded]       = useState(true)
+function MatterCard({ matter, rows, insurerName, onPay, payingId, onDispute, onPartialPay, onDownloadReceipt }) {
+  const [expanded, setExpanded]           = useState(true)
   const [expandedRowId, setExpandedRowId] = useState(null)
   const mOwed        = rows.reduce((s, r) => s + (r.amount      || 0), 0)
   const mPaid        = rows.reduce((s, r) => s + (r.amount_paid || 0), 0)
@@ -176,7 +682,6 @@ function MatterCard({ matter, rows, insurerName, onPay, payingId }) {
         </div>
 
         <div className="flex items-center gap-6">
-          {/* Summary numbers */}
           <div className="hidden sm:flex items-center gap-6 text-right">
             <div>
               <p className="text-xs text-slate-400">Total Owed</p>
@@ -193,7 +698,6 @@ function MatterCard({ matter, rows, insurerName, onPay, payingId }) {
               </p>
             </div>
           </div>
-
           {expanded ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
         </div>
       </div>
@@ -218,8 +722,12 @@ function MatterCard({ matter, rows, insurerName, onPay, payingId }) {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {rows.map(row => {
-                  const payable    = row.payment_status !== 'paid' && (row.amount || 0) > (row.amount_paid || 0)
-                  const isExpanded = expandedRowId === row.id
+                  const outstanding = (row.amount || 0) - (row.amount_paid || 0)
+                  const payable     = row.payment_status !== 'paid' && outstanding > 0
+                  const isDisputed  = row.payment_status === 'disputed'
+                  const hasReceipt  = row.payment_status === 'paid' || (row.payment_status === 'partially_paid' && (row.amount_paid || 0) > 0)
+                  const isExpanded  = expandedRowId === row.id
+
                   return (
                     <>
                       <tr
@@ -230,7 +738,7 @@ function MatterCard({ matter, rows, insurerName, onPay, payingId }) {
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-2">
                             {isExpanded
-                              ? <ChevronUp   className="h-3.5 w-3.5 text-brand-500 flex-shrink-0" />
+                              ? <ChevronUp    className="h-3.5 w-3.5 text-brand-500 flex-shrink-0" />
                               : <ChevronRight className="h-3.5 w-3.5 text-slate-300 flex-shrink-0" />}
                             <div>
                               <p className="text-sm font-semibold text-slate-800">{row.invoice?.invoice_number || '—'}</p>
@@ -270,22 +778,68 @@ function MatterCard({ matter, rows, insurerName, onPay, payingId }) {
                             <p className="text-xs text-slate-400 mt-1">{format(parseISO(row.payment_date), 'MM/dd/yyyy')}</p>
                           )}
                         </td>
-                        <td className="px-4 py-4 text-right" onClick={e => e.stopPropagation()}>
-                          {payable ? (
-                            <button
-                              onClick={() => onPay(row)}
-                              disabled={payingId === row.id}
-                              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-brand-600 hover:bg-brand-500 disabled:opacity-60 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shadow-sm"
-                            >
-                              {payingId === row.id
-                                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Processing…</>
-                                : <><CreditCard className="h-3.5 w-3.5" /> Pay Now</>}
-                            </button>
-                          ) : row.payment_status === 'paid' ? (
-                            <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium">
-                              <CheckCircle className="h-3.5 w-3.5" /> Paid
-                            </span>
-                          ) : null}
+
+                        {/* ── Action buttons ── */}
+                        <td className="px-4 py-4" onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1.5 flex-wrap">
+
+                            {/* Pay Now — for payable non-disputed rows */}
+                            {payable && !isDisputed && (
+                              <button
+                                onClick={() => onPay(row)}
+                                disabled={payingId === row.id}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-500 disabled:opacity-60 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shadow-sm"
+                              >
+                                {payingId === row.id
+                                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Processing…</>
+                                  : <><CreditCard className="h-3.5 w-3.5" /> Pay</>}
+                              </button>
+                            )}
+
+                            {/* Partial Pay — for payable non-disputed rows */}
+                            {payable && !isDisputed && (
+                              <button
+                                onClick={() => onPartialPay(row)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap border border-blue-200"
+                              >
+                                <DollarSign className="h-3.5 w-3.5" /> Partial
+                              </button>
+                            )}
+
+                            {/* Dispute — for payable non-disputed rows */}
+                            {payable && !isDisputed && (
+                              <button
+                                onClick={() => onDispute(row)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-red-50 text-slate-500 hover:text-red-600 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap border border-slate-200 hover:border-red-200"
+                              >
+                                <MessageSquare className="h-3.5 w-3.5" /> Dispute
+                              </button>
+                            )}
+
+                            {/* Under review badge for disputed rows */}
+                            {isDisputed && (
+                              <span className="inline-flex items-center gap-1 text-xs text-red-600 font-medium bg-red-50 px-2.5 py-1.5 rounded-lg border border-red-100">
+                                <AlertCircle className="h-3.5 w-3.5" /> Under Review
+                              </span>
+                            )}
+
+                            {/* Receipt download for paid / partially_paid */}
+                            {hasReceipt && (
+                              <button
+                                onClick={() => onDownloadReceipt(row)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-50 hover:bg-green-100 text-green-700 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap border border-green-200"
+                              >
+                                <Download className="h-3.5 w-3.5" /> Receipt
+                              </button>
+                            )}
+
+                            {/* Fully paid indicator (no actions) */}
+                            {row.payment_status === 'paid' && !hasReceipt && (
+                              <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium">
+                                <CheckCircle className="h-3.5 w-3.5" /> Paid
+                              </span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                       {isExpanded && (
@@ -347,7 +901,6 @@ function PaymentSuccessModal({ obligation, onClose }) {
           <X className="h-5 w-5" />
         </button>
 
-        {/* Icon */}
         <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-5">
           <CheckCircle className="h-9 w-9 text-green-500" />
         </div>
@@ -355,7 +908,6 @@ function PaymentSuccessModal({ obligation, onClose }) {
         <h2 className="text-xl font-bold text-center text-slate-900 mb-1">Payment Successful</h2>
         <p className="text-center text-slate-500 text-sm mb-6">Your payment has been received. A confirmation email has been sent to you.</p>
 
-        {/* Payment details */}
         {obligation && (
           <div className="bg-slate-50 rounded-xl p-4 space-y-3 mb-6 border border-slate-100">
             {obligation.matter?.name && (
@@ -377,7 +929,6 @@ function PaymentSuccessModal({ obligation, onClose }) {
           </div>
         )}
 
-        {/* Countdown bar */}
         <div className="space-y-1.5">
           <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
             <div
@@ -396,12 +947,14 @@ function PaymentSuccessModal({ obligation, onClose }) {
 export default function ClientPortal() {
   const { profile } = useAuth()
   const qc = useQueryClient()
-  const [payingId, setPayingId] = useState(null)
-  const [paymentBanner, setPaymentBanner] = useState(null)
-  const [successSessionId, setSuccessSessionId] = useState(null)
+  const [payingId,        setPayingId]        = useState(null)
+  const [paymentBanner,   setPaymentBanner]   = useState(null)
+  const [successSessionId,setSuccessSessionId]= useState(null)
+  const [disputeTarget,   setDisputeTarget]   = useState(null)
+  const [partialTarget,   setPartialTarget]   = useState(null)
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
+    const params    = new URLSearchParams(window.location.search)
     const result    = params.get('payment')
     const sessionId = params.get('session_id')
     if (result === 'success') {
@@ -469,6 +1022,19 @@ export default function ClientPortal() {
     }
   }
 
+  const handleObligationRefresh = () => {
+    qc.invalidateQueries({ queryKey: ['client-obligations'] })
+  }
+
+  const handleDownloadReceipt = async (obligation) => {
+    try {
+      await generatePortalReceipt(obligation, insurer?.name)
+    } catch (err) {
+      toast.error('Could not generate receipt')
+      console.error(err)
+    }
+  }
+
   // ── No insurer assigned ────────────────────────────────────────────────────
   if (!profile?.insurer_id) {
     return (
@@ -504,15 +1070,29 @@ export default function ClientPortal() {
   return (
     <div className="min-h-screen bg-slate-50">
 
-      {/* ── Payment success modal ──────────────────────────────────────────── */}
+      {/* ── Modals ─────────────────────────────────────────────────────────────── */}
       {successSessionId && (
         <PaymentSuccessModal
           obligation={successObligation}
           onClose={() => setSuccessSessionId(null)}
         />
       )}
+      {disputeTarget && (
+        <DisputeModal
+          obligation={disputeTarget}
+          onClose={() => setDisputeTarget(null)}
+          onSuccess={handleObligationRefresh}
+        />
+      )}
+      {partialTarget && (
+        <PartialPaymentModal
+          obligation={partialTarget}
+          onClose={() => setPartialTarget(null)}
+          onSuccess={handleObligationRefresh}
+        />
+      )}
 
-      {/* ── Portal header ──────────────────────────────────────────────────── */}
+      {/* ── Portal header ──────────────────────────────────────────────────────── */}
       <div className="bg-slate-900 border-b border-slate-800">
         <div className="max-w-7xl mx-auto px-6 lg:px-8 py-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -578,6 +1158,9 @@ export default function ClientPortal() {
                 insurerName={insurer?.name}
                 onPay={handlePayOnline}
                 payingId={payingId}
+                onDispute={setDisputeTarget}
+                onPartialPay={setPartialTarget}
+                onDownloadReceipt={handleDownloadReceipt}
               />
             ))}
           </div>
