@@ -51,9 +51,16 @@ export default function Dashboard() {
 
   // ── Wizard state ────────────────────────────────────────────────────────────
   const [showWizard,          setShowWizard]          = useState(false)
-  const [checklistDismissed,  setChecklistDismissed]  = useState(
-    () => orgId ? !!localStorage.getItem(checklistKey(orgId)) : false
-  )
+  const [checklistDismissed,  setChecklistDismissed]  = useState(false)
+
+  // ── Sync checklist dismissed state once orgId is available ──────────────────
+  // useState initializer runs before profile loads (orgId is undefined), so we
+  // re-read localStorage as soon as we have a real orgId.
+  useEffect(() => {
+    if (orgId) {
+      setChecklistDismissed(!!localStorage.getItem(checklistKey(orgId)))
+    }
+  }, [orgId])
 
   // ── Dashboard stats (includes parties for checklist) ────────────────────────
   const { data: stats, isSuccess: statsLoaded } = useQuery({
