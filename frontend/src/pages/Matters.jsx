@@ -253,6 +253,8 @@ export default function Matters() {
   const [showFromInvoice, setShowFromInvoice] = useState(false)
   const [uploadMatterId, setUploadMatterId] = useState(null)
   const [useTemplate, setUseTemplate] = useState(null) // template object
+  const [deleteConfirm, setDeleteConfirm] = useState(null) // matter object to delete
+  const [deleting, setDeleting] = useState(false)
 
   // Which PMS providers are connected (Clio via accounting, FileVine via pm_connections)
   const { data: availablePmsProviders = [] } = useQuery({
@@ -301,6 +303,19 @@ export default function Matters() {
     active:  'bg-green-100 text-green-700',
     closed:  'bg-slate-100 text-slate-600',
     pending: 'bg-yellow-100 text-yellow-700',
+  }
+
+  const handleDeleteMatter = async () => {
+    if (!deleteConfirm) return
+    setDeleting(true)
+    const { error } = await supabase.from('la_matters').delete().eq('id', deleteConfirm.id)
+    setDeleting(false)
+    if (error) { toast.error(error.message); return }
+    qc.invalidateQueries({ queryKey: ['matters', profile?.org_id] })
+    qc.invalidateQueries({ queryKey: ['dashboard-stats'] })
+    qc.invalidateQueries({ queryKey: ['recent-matters'] })
+    toast.success(`"${deleteConfirm.name}" deleted`)
+    setDeleteConfirm(null)
   }
 
   const quickUpdateStatus = async (matterId, status) => {
@@ -541,6 +556,13 @@ export default function Matters() {
                         <Upload className="h-3.5 w-3.5" />
                         Add Invoice
                       </button>
+                      <button
+                        onClick={() => setDeleteConfirm(m)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        title="Delete matter"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                       <ChevronRight className="h-4 w-4 text-slate-400" />
                     </div>
                   </td>
@@ -583,6 +605,45 @@ export default function Matters() {
         <BulkCreateMattersModal
           onClose={() => setShowFromInvoice(false)}
         />
+      )}
+
+      {/* Delete confirmation modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="p-6">
+              <div className="flex items-start gap-4">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                  <Trash2 className="h-5 w-5 text-red-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h2 className="font-semibold text-slate-900 text-lg">Delete matter?</h2>
+                  <p className="text-slate-500 text-sm mt-1">
+                    <span className="font-medium text-slate-700">"{deleteConfirm.name}"</span> and all its invoices, parties, insurers, and apportionments will be permanently deleted. This cannot be undone.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 px-6 pb-6">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deleting}
+                className="btn-secondary flex-1 justify-center"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteMatter}
+                disabled={deleting}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-medium text-sm transition-colors disabled:opacity-60"
+              >
+                {deleting
+                  ? <><span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full" /> Deleting…</>
+                  : <><Trash2 className="h-4 w-4" /> Delete Matter</>}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
