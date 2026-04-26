@@ -24,12 +24,23 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    // Get the calling user's email from their JWT so we can pre-fill it in Stripe
+    let customerEmail: string | undefined
+    const authHeader = req.headers.get('authorization') ?? ''
+    const jwt = authHeader.replace(/^Bearer\s+/i, '')
+    if (jwt) {
+      const userClient = createClient(SUPABASE_URL, SERVICE_KEY)
+      const { data: { user } } = await userClient.auth.getUser(jwt)
+      customerEmail = user?.email ?? undefined
+    }
+
     const { obligation_id } = await req.json()
     if (!obligation_id) {
       return json({ error: 'obligation_id is required' }, 400)
     }
 
     // Fetch the obligation with matter + invoice + insurer context
+    // Also pull org_id from la_matters so we can notify admins via webhook
     const { data: ia, error: iaErr } = await db
       .from('la_insurer_apportionments')
       .select(`
@@ -39,7 +50,7 @@ Deno.serve(async (req: Request) => {
         party_apportionment:la_party_apportionments(
           apportionment:la_apportionments(
             matter_id,
-            matters:la_matters(name),
+            matters:la_matters(name, org_id),
             invoices:la_invoices(invoice_number)
           )
         )
@@ -55,6 +66,7 @@ Deno.serve(async (req: Request) => {
     const invoiceNumber = apportionment?.invoices?.invoice_number ?? ''
     const insurerName   = ia.insurers?.name ?? 'Insurer'
     const matterId      = apportionment?.matter_id ?? ''
+    const orgId         = apportionment?.matters?.org_id ?? ''
 
     // Amount already paid (partial), so charge the remainder
     const amountOwed    = Math.round((ia.amount ?? 0) * 100)           // cents
@@ -73,6 +85,8 @@ Deno.serve(async (req: Request) => {
     const session = await stripe.checkout.sessions.create({
       mode:        'payment',
       currency:    'usd',
+      // Pre-fill client's email so the receipt goes to the right address
+      ...(customerEmail ? { customer_email: customerEmail } : {}),
       line_items: [{
         quantity: 1,
         price_data: {
@@ -87,6 +101,7 @@ Deno.serve(async (req: Request) => {
       payment_method_types: ['card', 'us_bank_account'],
       metadata: {
         obligation_id:  obligation_id,
+        org_id:         orgId,       // needed by webhook to notify org admins
         matter_id:      matterId,
         matter_name:    matterName,
         insurer_name:   insurerName,
