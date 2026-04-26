@@ -72,3 +72,67 @@
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium tracking-tight;
   }
 }
+
+/* ── Dark mode ────────────────────────────────────────────────────────────────
+   Hardcoded hex values to avoid PostCSS theme() resolution issues.
+   Text overrides scoped to `main` so the always-dark sidebar is never touched.
+   !important on text ensures they beat any Tailwind utility specificity.      */
+
+/* Page background */
+.dark body { background-color: #020617; }
+
+/* Card / surface backgrounds */
+.dark .bg-white    { background-color: #1e293b; }
+.dark .bg-slate-50 { background-color: #1e293b; }
+
+/* Borders */
+.dark .border-slate-200     { border-color: #334155; }
+.dark .border-slate-100     { border-color: #1e293b; }
+.dark .border-slate-200\/80 { border-color: rgba(51, 65, 85, 0.7); }
+
+/* Dividers */
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: #334155; }
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: #1e293b; }
+.dark .divide-y         > :not([hidden]) ~ :not([hidden]) { border-color: #1e293b; }
+
+/* Hover row states */
+.dark .hover\:bg-slate-50:hover  { background-color: #1e293b; }
+.dark .hover\:bg-slate-100:hover { background-color: #334155; }
+.dark .hover\:bg-white:hover     { background-color: #1e293b; }
+
+/* Text — scoped to main only, sidebar is unaffected */
+.dark main .text-slate-900 { color: #f1f5f9 !important; }
+.dark main .text-slate-800 { color: #e2e8f0 !important; }
+.dark main .text-slate-700 { color: #cbd5e1 !important; }
+.dark main .text-slate-600 { color: #94a3b8 !important; }
+
+/* Form inputs */
+.dark .form-input {
+  background-color: #1e293b;
+  border-color: #334155;
+  color: #f1f5f9;
+}
+.dark .form-input::placeholder { color: #64748b; }
+.dark .form-input:disabled { background-color: #0f172a; color: #64748b; }
+.dark .form-label { color: #cbd5e1; }
+
+/* Card component */
+.dark .card { background-color: #1e293b; border-color: rgba(51,65,85,0.7); }
+
+/* Secondary button */
+.dark .btn-secondary {
+  background-color: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+.dark .btn-secondary:hover { background-color: #334155; color: #f1f5f9; }
+
+/* Select dropdowns */
+.dark select.form-input { background-color: #1e293b; color: #f1f5f9; }
+
+/* Scrollbar */
+.dark ::-webkit-scrollbar-track { background: #0f172a; }
+.dark ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+.dark { color-scheme: dark; }

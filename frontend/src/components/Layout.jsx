@@ -4,24 +4,27 @@ import { useBranding } from '../context/BrandingContext.jsx'
 import {
   LayoutDashboard, FolderOpen, Settings, LogOut,
   Shield, Menu, UserCircle, ShieldCheck, Database, BarChart3, FileBarChart,
+  Moon, Sun,
 } from 'lucide-react'
 import { useState } from 'react'
+import { useTheme } from '../context/ThemeContext.jsx'
 
 const staffNavItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/matters',   icon: FolderOpen,      label: 'Matters' },
-  { to: '/reports',   icon: FileBarChart,    label: 'Reports' },
-  { to: '/settings',  icon: Settings,        label: 'Settings' },
+  { to: '/matters',   icon: FolderOpen,      label: 'Matters'   },
+  { to: '/reports',   icon: FileBarChart,    label: 'Reports'   },
+  { to: '/settings',  icon: Settings,        label: 'Settings'  },
 ]
 
 const clientNavItems = [
   { to: '/portal',   icon: ShieldCheck, label: 'My Portal' },
-  { to: '/settings', icon: Settings,    label: 'Settings' },
+  { to: '/settings', icon: Settings,    label: 'Settings'  },
 ]
 
 export default function Layout() {
   const { profile, signOut, isProfileIncomplete } = useAuth()
   const { brandName, logoUrl } = useBranding()
+  const { dark, toggle: toggleDark } = useTheme()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
@@ -87,13 +90,13 @@ export default function Layout() {
   )
 
   return (
-    <div className="flex h-screen bg-slate-100">
+    <div className="flex h-screen bg-slate-100 dark:bg-slate-950">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-20 bg-black/50 backdrop-blur-sm lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar — always dark, no dark: variants needed */}
       <aside className={`fixed inset-y-0 left-0 z-30 w-64 bg-slate-900 flex flex-col transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:flex ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
 
         {/* Logo */}
@@ -134,12 +137,21 @@ export default function Layout() {
               </div>
             </div>
           </div>
-          <button
-            onClick={handleSignOut}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-xs font-medium transition-all duration-150"
-          >
-            <LogOut className="h-3 w-3" /> Sign out
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleSignOut}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-xs font-medium transition-all duration-150"
+            >
+              <LogOut className="h-3 w-3" /> Sign out
+            </button>
+            <button
+              onClick={toggleDark}
+              title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+              className="flex items-center justify-center px-2.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-all duration-150"
+            >
+              {dark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            </button>
+          </div>
           <div className="flex justify-center gap-3 mt-2">
             <Link to="/privacy" className="text-slate-500 hover:text-slate-300 text-xs transition-colors">Privacy</Link>
             <span className="text-slate-500 text-xs">·</span>
@@ -148,8 +160,8 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* Main */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      {/* Main content — explicitly light/dark background */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-100 dark:bg-slate-950">
         {/* Top bar (mobile) */}
         <header className="lg:hidden flex items-center gap-3 px-4 h-14 bg-slate-900 border-b border-slate-800 flex-shrink-0">
           <button onClick={() => setSidebarOpen(true)} className="p-1.5 rounded-lg hover:bg-slate-800 transition-colors">
