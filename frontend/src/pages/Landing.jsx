@@ -85,12 +85,12 @@ export default function Landing() {
       </nav>
 
       {/* ── Hero ────────────────────────────────────────────────────────────── */}
-      <section className="relative px-6 lg:px-16 pt-8 pb-28 text-center overflow-hidden">
+      <section className="relative px-6 lg:px-16 pt-4 pb-28 text-center overflow-hidden">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[800px] h-[600px] bg-brand-600/20 rounded-full blur-3xl" />
         </div>
         <div className="relative max-w-4xl mx-auto">
-          <div className="flex justify-center mb-6">
+          <div className="flex justify-center mb-3">
             <img src="/logo-full.svg" alt="LexAlloc" className="h-56 lg:h-72 w-auto" />
           </div>
           <h1 className="text-5xl lg:text-7xl font-extrabold leading-tight mb-6 tracking-tight">
