@@ -9,7 +9,7 @@
  */
 
 import { supabase } from './supabase.js'
-import { generateDemandLetterBlob, getDemandLetterFilename } from './generateDemandLetter.js'
+import { generateDemandLetterBlob, getDemandLetterFilename, buildDemandLetterEmailHtml } from './generateDemandLetter.js'
 
 // ── LexAlloc invoice number (same logic as Apportionment.jsx) ─────────────────
 
@@ -137,6 +137,9 @@ export async function autoSendDemandLetters({ apportionmentId, orgName = '', dow
       const ipp         = ippByInsurer[ia.insurer_id] || ia.insurer_policy_periods || {}
       const claimsEmail = ipp.claims_rep_email || ia.insurers?.contact_email || null
 
+      // Build email HTML matching the PDF content
+      const emailHtml = buildDemandLetterEmailHtml({ apport, invoice: inv, pa, ia, orgName, lexallocInvoiceNumber })
+
       const { error: fnErr } = await supabase.functions.invoke('send-demand-letter', {
         body: {
           insurer_apportionment_id: ia.id,
@@ -146,6 +149,7 @@ export async function autoSendDemandLetters({ apportionmentId, orgName = '', dow
           claims_rep_name:          ipp.claims_rep_name || null,
           insurer_name:             ia.insurers?.name   || null,
           lexalloc_invoice_number:  lexallocInvoiceNumber,
+          email_html:               emailHtml,
         },
       })
       if (fnErr) throw new Error(fnErr.message || JSON.stringify(fnErr))
