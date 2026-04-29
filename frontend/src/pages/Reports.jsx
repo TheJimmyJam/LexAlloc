@@ -1976,55 +1976,92 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* ── Two-column layout — vertical sidebar on the left, report content
-            on the right. Stacks on small screens. Mirrors AdminPanel so the
-            navigation pattern is consistent across admin-style pages. ──── */}
-      <div className="flex flex-col lg:flex-row gap-6">
+      {(() => {
+        // The Demand Letters report has a lot of columns (the per-letter
+        // detail table inside each expanded matter has 10), so when it's the
+        // active tab we drop the sidebar and let the report use the full
+        // width. The compact horizontal tab strip above keeps navigation
+        // available without eating sidebar real estate.
+        const isFullWidth = tab === 'demand_letters'
 
-        {/* Sidebar nav */}
-        <aside className="lg:w-48 lg:flex-shrink-0">
-          <nav className="flex flex-col gap-0.5 lg:sticky lg:top-6 bg-white lg:bg-transparent border lg:border-0 border-slate-200 rounded-xl p-2 lg:p-0">
-            {TABS.map(t => {
-              const Icon = t.icon
-              const active = tab === t.key
-              return (
-                <button
-                  key={t.key}
-                  onClick={() => setTab(t.key)}
-                  className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-left transition-colors ${
-                    active
-                      ? 'bg-brand-50 text-brand-700'
-                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                  }`}
-                >
-                  <Icon className={`h-4 w-4 flex-shrink-0 ${active ? 'text-brand-600' : 'text-slate-400'}`} />
-                  <span className="flex-1 truncate">{t.label}</span>
-                </button>
-              )
-            })}
-          </nav>
-        </aside>
+        const reportContent = isLoading ? (
+          <div className="card p-16 text-center">
+            <div className="h-8 w-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+            <p className="text-slate-500 text-sm">Loading report data…</p>
+          </div>
+        ) : (
+          <>
+            {tab === 'outstanding'    && <OutstandingReport       data={outstandingByInsurer}  dateLabel={dateLabel} />}
+            {tab === 'collections'    && <CollectionsAgingReport  rows={agingRows} />}
+            {tab === 'velocity'       && <VelocityReport          data={velocityByInsurer}     dateLabel={dateLabel} />}
+            {tab === 'categories'     && <CategoriesReport        data={categoryBreakdown}     dateLabel={dateLabel} />}
+            {tab === 'aging'          && <AgingReport             data={matterAging}           dateLabel={dateLabel} />}
+            {tab === 'settlements'    && <SettlementReport         data={settlementComparison} />}
+            {tab === 'demand_letters' && <DemandLettersReport      rows={demandLetters} sendLog={sendLog} dateLabel={dateLabel} />}
+          </>
+        )
 
-        {/* Report content column */}
-        <div className="flex-1 min-w-0">
-          {isLoading ? (
-            <div className="card p-16 text-center">
-              <div className="h-8 w-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-              <p className="text-slate-500 text-sm">Loading report data…</p>
+        if (isFullWidth) {
+          return (
+            <div>
+              {/* Compact horizontal tab strip stands in for the sidebar so
+                  the user can still switch reports without losing context. */}
+              <div className="mb-6 overflow-x-auto -mx-1">
+                <nav className="flex gap-1 px-1">
+                  {TABS.map(t => {
+                    const Icon = t.icon
+                    const active = tab === t.key
+                    return (
+                      <button
+                        key={t.key}
+                        onClick={() => setTab(t.key)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 ${
+                          active
+                            ? 'bg-brand-50 text-brand-700'
+                            : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        }`}
+                      >
+                        <Icon className={`h-4 w-4 ${active ? 'text-brand-600' : 'text-slate-400'}`} />
+                        {t.label}
+                      </button>
+                    )
+                  })}
+                </nav>
+              </div>
+              {reportContent}
             </div>
-          ) : (
-            <>
-              {tab === 'outstanding'    && <OutstandingReport       data={outstandingByInsurer}  dateLabel={dateLabel} />}
-              {tab === 'collections'    && <CollectionsAgingReport  rows={agingRows} />}
-              {tab === 'velocity'       && <VelocityReport          data={velocityByInsurer}     dateLabel={dateLabel} />}
-              {tab === 'categories'     && <CategoriesReport        data={categoryBreakdown}     dateLabel={dateLabel} />}
-              {tab === 'aging'          && <AgingReport             data={matterAging}           dateLabel={dateLabel} />}
-              {tab === 'settlements'    && <SettlementReport         data={settlementComparison} />}
-              {tab === 'demand_letters' && <DemandLettersReport      rows={demandLetters} sendLog={sendLog} dateLabel={dateLabel} />}
-            </>
-          )}
-        </div>
-      </div>
+          )
+        }
+
+        // Default sidebar layout for every other report.
+        return (
+          <div className="flex flex-col lg:flex-row gap-6">
+            <aside className="lg:w-48 lg:flex-shrink-0">
+              <nav className="flex flex-col gap-0.5 lg:sticky lg:top-6 bg-white lg:bg-transparent border lg:border-0 border-slate-200 rounded-xl p-2 lg:p-0">
+                {TABS.map(t => {
+                  const Icon = t.icon
+                  const active = tab === t.key
+                  return (
+                    <button
+                      key={t.key}
+                      onClick={() => setTab(t.key)}
+                      className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-left transition-colors ${
+                        active
+                          ? 'bg-brand-50 text-brand-700'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      }`}
+                    >
+                      <Icon className={`h-4 w-4 flex-shrink-0 ${active ? 'text-brand-600' : 'text-slate-400'}`} />
+                      <span className="flex-1 truncate">{t.label}</span>
+                    </button>
+                  )
+                })}
+              </nav>
+            </aside>
+            <div className="flex-1 min-w-0">{reportContent}</div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
