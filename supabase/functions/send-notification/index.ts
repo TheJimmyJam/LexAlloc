@@ -6,7 +6,7 @@
 
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')            ?? ''
 const RESEND_FROM    = Deno.env.get('RESEND_FROM_EMAIL')         ?? 'noreply@lexalloc.app'
-const FRONTEND_URL   = Deno.env.get('FRONTEND_URL')              ?? 'https://lexalloc.netlify.app'
+const FRONTEND_URL   = Deno.env.get('FRONTEND_URL')              ?? 'https://lexalloc.com'
 const SUPABASE_URL   = Deno.env.get('SUPABASE_URL')              ?? ''
 const SERVICE_KEY    = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 
@@ -80,7 +80,7 @@ function layout(opts: { title: string; badgeText: string; badgeColor: string; bo
   <tr><td style="background:#fff;padding:20px 32px 32px;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">${body}</td></tr>
   <tr><td style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 14px 14px;padding:20px 32px;">
     <p style="margin:0;font-size:12px;color:#94a3b8;font-family:sans-serif;">
-      Legal Invoice Apportionment Platform &mdash; <a href="https://lexalloc.netlify.app" style="color:#94a3b8;">lexalloc.netlify.app</a><br>
+      Legal Invoice Apportionment Platform &mdash; <a href="https://lexalloc.com" style="color:#94a3b8;">lexalloc.com</a><br>
       You receive this email because you are a member of your organization's LexAlloc account.${footerNote ? `<br>${footerNote}` : ''}
     </p>
   </td></tr>
