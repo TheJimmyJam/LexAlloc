@@ -49,7 +49,7 @@ const DATE_PRESETS = [
 ]
 
 const TABS = [
-  { key: 'outstanding',    label: 'Outstanding Obligations', icon: AlertTriangle },
+  { key: 'outstanding',    label: 'A/R',                     icon: AlertTriangle },
   { key: 'collections',    label: 'AR Aging',                icon: Timer         },
   { key: 'velocity',       label: 'Payment Velocity',        icon: Clock         },
   { key: 'categories',     label: 'Invoice Categories',      icon: Layers        },
@@ -257,9 +257,12 @@ function exportXLSX({ sheetName, headers, rows, colWidths, currencyCols = [], fi
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
 function KpiCard({ label, value, sub, color = 'text-slate-900' }) {
+  // Reserve a fixed two-line label area so cards with longer labels don't
+  // push their value down out of alignment with sibling cards in the same
+  // grid row. text-xs * leading-tight ≈ 15px/line → 2rem fits two lines.
   return (
     <div className="card p-5">
-      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">{label}</p>
+      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide leading-tight min-h-[2rem] mb-1.5">{label}</p>
       <p className={`text-2xl font-bold ${color}`}>{value}</p>
       {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
     </div>
@@ -1979,7 +1982,7 @@ export default function Reports() {
       <div className="flex flex-col lg:flex-row gap-6">
 
         {/* Sidebar nav */}
-        <aside className="lg:w-56 lg:flex-shrink-0">
+        <aside className="lg:w-48 lg:flex-shrink-0">
           <nav className="flex flex-col gap-0.5 lg:sticky lg:top-6 bg-white lg:bg-transparent border lg:border-0 border-slate-200 rounded-xl p-2 lg:p-0">
             {TABS.map(t => {
               const Icon = t.icon
