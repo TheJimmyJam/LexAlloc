@@ -64,7 +64,15 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json()
-    const { insurer_apportionment_id, attachment_base64, attachment_filename } = body
+    const {
+      insurer_apportionment_id,
+      attachment_base64,
+      attachment_filename,
+      // Optional: passed directly from frontend to avoid re-query failures
+      claims_rep_email: passedEmail,
+      claims_rep_name:  passedRepName,
+      insurer_name:     passedInsurerName,
+    } = body
 
     if (!insurer_apportionment_id) {
       return new Response(JSON.stringify({ error: 'insurer_apportionment_id required' }), {
@@ -104,8 +112,9 @@ Deno.serve(async (req: Request) => {
     const orgId    = ia.org_id as string
     const amount   = parseFloat(ia.amount) || 0
 
-    const claimsEmail = ipp?.claims_rep_email || insurer?.contact_email || null
-    const insurerName = insurer?.name ?? 'Unknown Insurer'
+    // Prefer values passed directly from frontend (already loaded, no re-query needed)
+    const claimsEmail = passedEmail || ipp?.claims_rep_email || insurer?.contact_email || null
+    const insurerName = passedInsurerName || insurer?.name || 'Unknown Insurer'
     const matterName  = matter?.name  ?? 'Unknown Matter'
     const matterNum   = matter?.matter_number ? ` (Matter No. ${matter.matter_number})` : ''
     const invoiceNum  = invoice?.invoice_number ?? '—'
@@ -121,7 +130,8 @@ Deno.serve(async (req: Request) => {
     const orgAdminEmails = ((admins ?? []) as any[]).map((r: any) => r.email).filter(Boolean)
 
     // ── Build email ───────────────────────────────────────────────────────────
-    const salutation = ipp?.claims_rep_name ? `Dear ${ipp.claims_rep_name}:` : 'Dear Sir or Madam:'
+    const repName    = passedRepName || ipp?.claims_rep_name || null
+    const salutation = repName ? `Dear ${repName}:` : 'Dear Sir or Madam:'
     const matterUrl  = `${FRONTEND_URL}/matters/${matterId}/apportionments/${apptId}`
 
     const serviceRange = invoice?.service_start
