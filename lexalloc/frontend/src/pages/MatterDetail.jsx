@@ -256,21 +256,33 @@ const PAYMENT_STATUS_LABELS = {
 function EditMatterModal({ matter, onClose }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const { profile } = useAuth()
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({
     defaultValues: {
       name:          matter.name,
       matter_number: matter.matter_number || '',
-      firm_name:     matter.firm_name     || '',
+      firm_id:       matter.firm_id       || '',
       description:   matter.description  || '',
       status:        matter.status,
     }
   })
 
+  const { data: firms = [] } = useQuery({
+    queryKey: ['firms', profile?.org_id],
+    enabled: !!profile?.org_id,
+    queryFn: async () => {
+      const { data } = await supabase.from('la_firms').select('id, name').eq('org_id', profile.org_id).order('name')
+      return data || []
+    },
+  })
+
   const onSubmit = async (values) => {
+    const selectedFirm = firms.find(f => f.id === values.firm_id)
     const { error } = await supabase.from('la_matters').update({
       name:          values.name,
       matter_number: values.matter_number || null,
-      firm_name:     values.firm_name     || null,
+      firm_id:       values.firm_id       || null,
+      firm_name:     selectedFirm?.name   || null,
       description:   values.description  || null,
       status:        values.status,
       updated_at:    new Date().toISOString(),
@@ -280,6 +292,7 @@ function EditMatterModal({ matter, onClose }) {
     qc.invalidateQueries({ queryKey: ['matter', matter.id] })
     qc.invalidateQueries({ queryKey: ['matters'] })
     qc.invalidateQueries({ queryKey: ['recent-matters'] })
+    qc.invalidateQueries({ queryKey: ['dashboard-firms'] })
     onClose()
   }
 
@@ -301,9 +314,11 @@ function EditMatterModal({ matter, onClose }) {
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
           <div>
-            <label className="form-label">Firm Name</label>
-            <input className="form-input" placeholder="ABC Legal, LLP"
-              {...register('firm_name')} />
+            <label className="form-label">Firm</label>
+            <select className="form-input" {...register('firm_id')}>
+              <option value="">— No firm —</option>
+              {firms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+            </select>
           </div>
           <div>
             <label className="form-label">Matter Number</label>
@@ -998,7 +1013,7 @@ export default function MatterDetail() {
   const { data: matter, isLoading } = useQuery({
     queryKey: ['matter', matterId],
     queryFn: async () => {
-      const { data } = await supabase.from('la_matters').select('*').eq('id', matterId).single()
+      const { data } = await supabase.from('la_matters').select('*, la_firms(id, name)').eq('id', matterId).single()
       return data
     }
   })
@@ -1351,7 +1366,7 @@ export default function MatterDetail() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{matter.name}</h1>
             <p className="text-slate-500 text-sm mt-1">
-              {matter.firm_name && <span className="mr-3 font-medium text-slate-600">{matter.firm_name}</span>}
+              {(matter.la_firms?.name || matter.firm_name) && <span className="mr-3 font-medium text-slate-600">{matter.la_firms?.name || matter.firm_name}</span>}
               {matter.matter_number && <span className="mr-3">#{matter.matter_number}</span>}
               {matter.description}
             </p>
