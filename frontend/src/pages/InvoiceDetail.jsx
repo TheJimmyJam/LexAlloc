@@ -1,32 +1,17 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { formatCurrency, apportionInvoice } from '../lib/calculations.js'
+import { APPORTIONMENT_METHODS, buildPartiesWithPolicies, saveApportionmentToDb } from '../lib/apportionment.js'
 import { ArrowLeft, Calculator, FileText, ExternalLink, Loader2, GitCompare, ChevronDown, ChevronUp, CheckCircle2, AlertCircle, AlertTriangle, Sparkles, Info } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
 import { logAudit } from '../lib/audit.js'
 
-const METHODS = [
-  {
-    value: 'pro_rata_time_on_risk',
-    label: 'Pro-Rata TOR',
-    description: 'Days each policy was on-risk during the service period',
-  },
-  {
-    value: 'equal_shares',
-    label: 'Equal Shares',
-    description: 'Splits costs evenly across all carriers for each party',
-  },
-  {
-    value: 'limits_proportional',
-    label: 'Limits-Proportional',
-    description: 'Weighted by each policy\'s limit',
-  },
-]
+const METHODS = APPORTIONMENT_METHODS
 
 export default function InvoiceDetail() {
   const { matterId, invoiceId } = useParams()
@@ -40,10 +25,19 @@ export default function InvoiceDetail() {
   const { data: invoice, isLoading } = useQuery({
     queryKey: ['invoice', invoiceId],
     queryFn: async () => {
-      const { data } = await supabase.from('la_invoices').select('*, la_matters(name)').eq('id', invoiceId).single()
+      const { data } = await supabase
+        .from('la_invoices')
+        .select('*, la_matters(name, default_apportionment_method)')
+        .eq('id', invoiceId).single()
       return data
     }
   })
+
+  // Pre-populate method from matter default (only on first load, don't override user's selection)
+  useEffect(() => {
+    const defaultMethod = invoice?.la_matters?.default_apportionment_method
+    if (defaultMethod) setCalcMethod(defaultMethod)
+  }, [invoice?.la_matters?.default_apportionment_method])
 
   const { data: lineItems = [] } = useQuery({
     queryKey: ['invoice-lines', invoiceId],
@@ -110,59 +104,29 @@ export default function InvoiceDetail() {
 
     setCalculating(true)
     try {
-      const result = apportionInvoice(invoice, partiesWithPolicies, calcMethod)
+      const apportId = await saveApportionmentToDb({
+        invoice, invoiceId, matterId,
+        orgId:               profile.org_id,
+        profile,
+        partiesWithPolicies,
+        method:              calcMethod,
+      })
+      if (!apportId) throw new Error('Apportionment failed — check parties and policy periods.')
 
-      const methodLabel = METHODS.find(m => m.value === calcMethod)?.label || calcMethod
-
-      // Save apportionment to DB
-      const { data: apport, error: aErr } = await supabase.from('la_apportionments').insert({
-        invoice_id:         invoiceId,
-        matter_id:          matterId,
-        org_id:             profile.org_id,
-        calculation_method: calcMethod,
-        result_json:        result,
-        calculated_at:      new Date().toISOString(),
-        notes:              `Auto-calculated: ${methodLabel}`,
-      }).select().single()
-      if (aErr) throw aErr
-
-      // Save party + insurer breakdowns
-      for (const pb of result.party_breakdown) {
-        const { data: pa } = await supabase.from('la_party_apportionments').insert({
-          apportionment_id: apport.id,
-          party_id:         pb.party_id,
-          percentage:       pb.share_percentage,
-          amount:           pb.party_amount,
-        }).select().single()
-
-        for (const ins of pb.insurers) {
-          await supabase.from('la_insurer_apportionments').insert({
-            apportionment_id:       apport.id,
-            party_apportionment_id: pa.id,
-            insurer_id:             ins.insurer_id,
-            days_on_risk:           ins.days_on_risk ?? null,
-            total_days:             ins.total_coverage_days ?? null,
-            percentage:             ins.normalized_percentage,
-            amount:                 ins.amount,
-          })
-        }
-      }
-
-      // Update invoice status
-      await supabase.from('la_invoices').update({ status: 'apportioned' }).eq('id', invoiceId)
-
-      logAudit({ profile, matterId, action: 'apportionment.calculated', entityType: 'apportionment', entityId: apport.id, entityName: invoice?.invoice_number || 'Invoice', metadata: { method: calcMethod, invoice_total: invoice?.total_amount, party_count: result.party_breakdown?.length } })
+      logAudit({ profile, matterId, action: 'apportionment.calculated', entityType: 'apportionment', entityId: apportId, entityName: invoice?.invoice_number || 'Invoice', metadata: { method: calcMethod, invoice_total: invoice?.total_amount, party_count: partiesWithPolicies?.length } })
       toast.success('Apportionment calculated!')
 
       // Fire-and-forget notification
       api.sendEvent('apportionment_run', profile.org_id, matterId, {
         invoice_number:   invoice?.invoice_number,
         method:           calcMethod,
-        apportionment_id: apport.id,
+        apportionment_id: apportId,
       }).catch(() => {})
 
+      qc.invalidateQueries({ queryKey: ['invoice', invoiceId] })
+      qc.invalidateQueries({ queryKey: ['matter-invoices', matterId] })
       qc.invalidateQueries({ queryKey: ['matter-apportionments', matterId] })
-      navigate(`/matters/${matterId}/apportionments/${apport.id}`)
+      navigate(`/matters/${matterId}/apportionments/${apportId}`)
     } catch (err) {
       toast.error(err.message)
     } finally {
