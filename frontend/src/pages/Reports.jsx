@@ -7,7 +7,8 @@ import autoTable from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
 import {
   AlertTriangle, Clock, Layers, TrendingUp, BarChart3,
-  Download, FileSpreadsheet, FileText, ChevronDown, Scale, Mail,
+  Download, FileSpreadsheet, FileText, ChevronDown, Scale, Mail, Timer,
+  ArrowUpDown, ArrowUp, ArrowDown, Filter,
 } from 'lucide-react'
 import { formatCurrency } from '../lib/calculations.js'
 import {
@@ -47,12 +48,27 @@ const DATE_PRESETS = [
 
 const TABS = [
   { key: 'outstanding',    label: 'Outstanding Obligations', icon: AlertTriangle },
+  { key: 'collections',    label: 'AR Aging',                icon: Timer         },
   { key: 'velocity',       label: 'Payment Velocity',        icon: Clock         },
   { key: 'categories',     label: 'Invoice Categories',      icon: Layers        },
   { key: 'aging',          label: 'Matter Aging',            icon: TrendingUp    },
   { key: 'settlements',    label: 'Settlements',             icon: Scale         },
   { key: 'demand_letters', label: 'Demand Letters',          icon: Mail          },
 ]
+
+const AGING_BUCKETS = [
+  { key: '0-30',  label: 'Current',   sublabel: '0–30 days',  color: '#16a34a', bg: 'bg-green-50',  border: 'border-green-200', text: 'text-green-700',  badge: 'bg-green-100 text-green-700'  },
+  { key: '31-60', label: '30–60',     sublabel: '31–60 days', color: '#d97706', bg: 'bg-amber-50',  border: 'border-amber-200', text: 'text-amber-700',  badge: 'bg-amber-100 text-amber-700'  },
+  { key: '61-90', label: '60–90',     sublabel: '61–90 days', color: '#ea580c', bg: 'bg-orange-50', border: 'border-orange-200',text: 'text-orange-700', badge: 'bg-orange-100 text-orange-700'},
+  { key: '90+',   label: '90+ Days',  sublabel: 'Overdue',    color: '#dc2626', bg: 'bg-red-50',    border: 'border-red-200',   text: 'text-red-700',    badge: 'bg-red-100 text-red-700'      },
+]
+
+function agingBucket(daysSinceDemand) {
+  if (daysSinceDemand <= 30) return '0-30'
+  if (daysSinceDemand <= 60) return '31-60'
+  if (daysSinceDemand <= 90) return '61-90'
+  return '90+'
+}
 
 const DELINQUENCY_BANDS = [
   { max: 30,  label: '0–30 days',   cls: 'bg-green-100 text-green-700'  },
@@ -957,6 +973,274 @@ function SettlementReport({ data }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Report 6 — Demand Letters
 // ═══════════════════════════════════════════════════════════════════════════════
+// AR Aging / Collections tab
+// ═══════════════════════════════════════════════════════════════════════════════
+function CollectionsAgingReport({ rows }) {
+  const [groupBy,      setGroupBy]      = useState('insurer') // 'insurer' | 'firm'
+  const [filterBucket, setFilterBucket] = useState('all')
+  const [sortKey,      setSortKey]      = useState('days')
+  const [sortDir,      setSortDir]      = useState('desc')
+  const [search,       setSearch]       = useState('')
+
+  const today = useMemo(() => new Date(), [])
+
+  const enriched = useMemo(() => rows.map(r => {
+    const demanded        = r.demanded_at ? parseISO(r.demanded_at) : null
+    const daysSinceDemand = demanded ? differenceInDays(today, demanded) : 0
+    const balance         = Math.max(0, Number(r.amount || 0) - Number(r.amount_paid || 0))
+    const bucket          = agingBucket(daysSinceDemand)
+    return {
+      ...r,
+      daysSinceDemand,
+      balance,
+      bucket,
+      insurer:   r.la_insurers?.name                        || 'Unknown Insurer',
+      firm:      r.la_apportionments?.la_invoices?.billing_firm || 'Unknown Firm',
+      matter:    r.la_apportionments?.la_matters?.name      || 'Unknown Matter',
+      matterNum: r.la_apportionments?.la_matters?.matter_number || '',
+    }
+  }), [rows, today])
+
+  // ── Summary totals ────────────────────────────────────────────────────────
+  const totalOutstanding = enriched.reduce((s, r) => s + r.balance, 0)
+  const bucketSummary    = useMemo(() => AGING_BUCKETS.map(b => ({
+    ...b,
+    amount: enriched.filter(r => r.bucket === b.key).reduce((s, r) => s + r.balance, 0),
+    count:  enriched.filter(r => r.bucket === b.key).length,
+  })), [enriched])
+
+  // ── Chart data ────────────────────────────────────────────────────────────
+  const chartData = useMemo(() => {
+    const map = {}
+    enriched.forEach(r => {
+      const key = groupBy === 'insurer' ? r.insurer : r.firm
+      if (!map[key]) map[key] = { name: key, '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0, total: 0 }
+      map[key][r.bucket] += r.balance
+      map[key].total     += r.balance
+    })
+    return Object.values(map)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 12)
+      .map(d => ({ ...d, name: d.name.length > 22 ? d.name.slice(0, 20) + '…' : d.name }))
+  }, [enriched, groupBy])
+
+  // ── Table rows ────────────────────────────────────────────────────────────
+  const tableRows = useMemo(() => {
+    let rows = filterBucket === 'all' ? enriched : enriched.filter(r => r.bucket === filterBucket)
+    if (search) {
+      const q = search.toLowerCase()
+      rows = rows.filter(r =>
+        r.matter.toLowerCase().includes(q) ||
+        r.insurer.toLowerCase().includes(q) ||
+        r.firm.toLowerCase().includes(q) ||
+        (r.lexalloc_invoice_number || '').toLowerCase().includes(q)
+      )
+    }
+    return [...rows].sort((a, b) => {
+      let cmp = 0
+      if (sortKey === 'days')    cmp = b.daysSinceDemand - a.daysSinceDemand
+      if (sortKey === 'balance') cmp = b.balance - a.balance
+      if (sortKey === 'matter')  cmp = a.matter.localeCompare(b.matter)
+      if (sortKey === 'insurer') cmp = a.insurer.localeCompare(b.insurer)
+      return sortDir === 'desc' ? cmp : -cmp
+    })
+  }, [enriched, filterBucket, search, sortKey, sortDir])
+
+  function toggleSort(key) {
+    if (sortKey === key) setSortDir(d => d === 'desc' ? 'asc' : 'desc')
+    else { setSortKey(key); setSortDir('desc') }
+  }
+
+  function SortIcon({ col }) {
+    if (sortKey !== col) return <ArrowUpDown className="h-3 w-3 text-slate-300 ml-1 inline" />
+    return sortDir === 'desc'
+      ? <ArrowDown className="h-3 w-3 text-brand-600 ml-1 inline" />
+      : <ArrowUp   className="h-3 w-3 text-brand-600 ml-1 inline" />
+  }
+
+  function handleExportXLSX() {
+    exportXLSX({
+      sheetName:   'AR Aging',
+      filename:    `LexAlloc_AR_Aging_${format(new Date(), 'yyyy-MM-dd')}.xlsx`,
+      headers:     ['Matter', 'Matter No.', 'Insurer', 'Billing Firm', 'LexAlloc Invoice #', 'Amount Demanded', 'Balance Due', 'Date Demanded', 'Days Outstanding', 'Bucket', 'Status'],
+      colWidths:   [30, 14, 28, 22, 22, 16, 16, 16, 10, 10, 14],
+      currencyCols:[5, 6],
+      rows: tableRows.map(r => [
+        r.matter,
+        r.matterNum || '—',
+        r.insurer,
+        r.firm,
+        r.lexalloc_invoice_number || '—',
+        Number(r.amount || 0),
+        r.balance,
+        r.demanded_at ? format(parseISO(r.demanded_at), 'MM/dd/yyyy') : '—',
+        r.daysSinceDemand,
+        r.bucket,
+        r.payment_status || '—',
+      ]),
+    })
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="card p-16 text-center">
+        <Timer className="h-8 w-8 text-slate-300 mx-auto mb-3" />
+        <p className="text-slate-500 font-medium">No outstanding demand letters</p>
+        <p className="text-slate-400 text-sm mt-1">Send demand letters from an apportionment to start tracking collections here.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+
+      {/* ── Summary bucket cards ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {/* Total card */}
+        <div className="card p-4 sm:col-span-1 flex flex-col">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Total Outstanding</p>
+          <p className="text-2xl font-bold text-slate-900">{formatCurrency(totalOutstanding)}</p>
+          <p className="text-xs text-slate-400 mt-1">{enriched.length} demand{enriched.length !== 1 ? 's' : ''}</p>
+        </div>
+        {/* Bucket cards */}
+        {bucketSummary.map(b => (
+          <button
+            key={b.key}
+            onClick={() => setFilterBucket(filterBucket === b.key ? 'all' : b.key)}
+            className={`card p-4 text-left transition-all hover:shadow-md ${b.bg} ${b.border} border-2 ${filterBucket === b.key ? 'ring-2 ring-offset-1 ring-brand-500' : ''}`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: b.color }}>{b.label}</p>
+              <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${b.badge}`}>{b.count}</span>
+            </div>
+            <p className="text-lg font-bold text-slate-900">{formatCurrency(b.amount)}</p>
+            <p className="text-xs text-slate-400 mt-0.5">{b.sublabel}</p>
+          </button>
+        ))}
+      </div>
+
+      {/* ── Chart ── */}
+      <div className="card p-5">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <h3 className="font-semibold text-slate-900">Outstanding Balance by Aging Bucket</h3>
+          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+            {[['insurer', 'By Insurer'], ['firm', 'By Firm']].map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setGroupBy(key)}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${groupBy === key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >{label}</button>
+            ))}
+          </div>
+        </div>
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={chartData} margin={{ top: 4, right: 12, left: 8, bottom: 60 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+            <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-35} textAnchor="end" interval={0} />
+            <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} />
+            <Tooltip formatter={(v, name) => [formatCurrency(v), name]} />
+            <Legend wrapperStyle={{ paddingTop: 8, fontSize: 12 }} />
+            {AGING_BUCKETS.map(b => (
+              <Bar key={b.key} dataKey={b.key} name={b.sublabel} stackId="a" fill={b.color} radius={b.key === '90+' ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* ── Table ── */}
+      <div className="card overflow-hidden">
+        <div className="flex items-center justify-between p-4 border-b border-slate-100 flex-wrap gap-3">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <Filter className="h-4 w-4 text-slate-400 flex-shrink-0" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search matter, insurer, firm, or invoice…"
+              className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 flex-1 min-w-0 focus:outline-none focus:ring-2 focus:ring-brand-300"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            {filterBucket !== 'all' && (
+              <button onClick={() => setFilterBucket('all')} className="text-xs text-brand-600 hover:underline">
+                Clear filter
+              </button>
+            )}
+            <button onClick={handleExportXLSX} className="flex items-center gap-1.5 text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600">
+              <FileSpreadsheet className="h-3.5 w-3.5" /> Export
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50">
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  <button onClick={() => toggleSort('matter')} className="flex items-center">Matter <SortIcon col="matter" /></button>
+                </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  <button onClick={() => toggleSort('insurer')} className="flex items-center">Insurer <SortIcon col="insurer" /></button>
+                </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Firm</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell">Invoice #</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  <button onClick={() => toggleSort('balance')} className="flex items-center ml-auto">Balance <SortIcon col="balance" /></button>
+                </th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  <button onClick={() => toggleSort('days')} className="flex items-center ml-auto">Days Out <SortIcon col="days" /></button>
+                </th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Bucket</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {tableRows.length === 0 && (
+                <tr><td colSpan={8} className="text-center py-12 text-slate-400">No records match your filters.</td></tr>
+              )}
+              {tableRows.map(r => {
+                const bucket = AGING_BUCKETS.find(b => b.key === r.bucket)
+                return (
+                  <tr key={r.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-slate-800 truncate max-w-[160px]">{r.matter}</p>
+                      {r.matterNum && <p className="text-xs text-slate-400">{r.matterNum}</p>}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700 truncate max-w-[140px]">{r.insurer}</td>
+                    <td className="px-4 py-3 text-slate-500 hidden md:table-cell truncate max-w-[120px]">{r.firm}</td>
+                    <td className="px-4 py-3 text-slate-400 font-mono text-xs hidden lg:table-cell">{r.lexalloc_invoice_number || '—'}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCurrency(r.balance)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <span className={`font-bold ${r.daysSinceDemand >= 90 ? 'text-red-600' : r.daysSinceDemand >= 60 ? 'text-orange-500' : r.daysSinceDemand >= 30 ? 'text-amber-500' : 'text-slate-700'}`}>
+                        {r.daysSinceDemand}d
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${bucket?.badge || ''}`}>{bucket?.label || r.bucket}</span>
+                    </td>
+                    <td className="px-4 py-3 text-center hidden sm:table-cell">
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full capitalize ${STATUS_COLORS[r.payment_status] || 'bg-slate-100 text-slate-600'}`}>
+                        {(r.payment_status || '—').replace('_', ' ')}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-400">
+          {tableRows.length} record{tableRows.length !== 1 ? 's' : ''} ·{' '}
+          {formatCurrency(tableRows.reduce((s, r) => s + r.balance, 0))} outstanding
+          {filterBucket !== 'all' && ` · filtered to ${AGING_BUCKETS.find(b => b.key === filterBucket)?.sublabel}`}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 function DemandLettersReport({ rows, sendLog, dateLabel }) {
   // Build map: insurer_apportionment_id → sorted send events
   const sendMap = useMemo(() => {
@@ -1263,6 +1547,29 @@ export default function Reports() {
     },
   })
 
+  const { data: agingRows = [], isLoading: agingLoading } = useQuery({
+    queryKey: ['report-collections-aging'],
+    enabled:  tab === 'collections',
+    queryFn:  async () => {
+      const { data, error } = await supabase
+        .from('la_insurer_apportionments')
+        .select(`
+          id, amount, amount_paid, payment_status, demanded_at, payment_date, lexalloc_invoice_number,
+          la_insurers(id, name),
+          la_apportionments(
+            id,
+            la_invoices(billing_firm),
+            la_matters(id, name, matter_number)
+          )
+        `)
+        .not('demanded_at', 'is', null)
+        .neq('payment_status', 'paid')
+        .order('demanded_at', { ascending: true })
+      if (error) throw error
+      return data || []
+    },
+  })
+
   const { data: demandLetters = [], isLoading: dlLoading } = useQuery({
     queryKey: ['report-demand-letters'],
     enabled:  tab === 'demand_letters',
@@ -1404,6 +1711,7 @@ export default function Reports() {
   }), [settlements])
 
   const isLoading = obLoading
+    || (tab === 'collections'    && agingLoading)
     || (tab === 'categories'     && liLoading)
     || (tab === 'settlements'    && settlementLoading)
     || (tab === 'demand_letters' && (dlLoading || slLoading))
@@ -1461,7 +1769,8 @@ export default function Reports() {
         </div>
       ) : (
         <>
-          {tab === 'outstanding' && <OutstandingReport    data={outstandingByInsurer}  dateLabel={DATE_PRESETS[preset].label} />}
+          {tab === 'outstanding'    && <OutstandingReport       data={outstandingByInsurer}  dateLabel={DATE_PRESETS[preset].label} />}
+          {tab === 'collections'    && <CollectionsAgingReport  rows={agingRows} />}
           {tab === 'velocity'    && <VelocityReport      data={velocityByInsurer}     dateLabel={DATE_PRESETS[preset].label} />}
           {tab === 'categories'  && <CategoriesReport    data={categoryBreakdown}     dateLabel={DATE_PRESETS[preset].label} />}
           {tab === 'aging'       && <AgingReport         data={matterAging}           dateLabel={DATE_PRESETS[preset].label} />}
