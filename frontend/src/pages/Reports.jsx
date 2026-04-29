@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 import { differenceInDays, parseISO, subDays, format } from 'date-fns'
 import { jsPDF } from 'jspdf'
@@ -7,8 +8,8 @@ import autoTable from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
 import {
   AlertTriangle, Clock, Layers, TrendingUp, BarChart3,
-  Download, FileSpreadsheet, FileText, ChevronDown, Scale, Mail, Timer,
-  ArrowUpDown, ArrowUp, ArrowDown, Filter,
+  Download, FileSpreadsheet, FileText, ChevronDown, ChevronRight, Scale, Mail, Timer,
+  ArrowUpDown, ArrowUp, ArrowDown, Filter, FolderOpen, ExternalLink,
 } from 'lucide-react'
 import { formatCurrency } from '../lib/calculations.js'
 import {
@@ -1243,6 +1244,17 @@ function CollectionsAgingReport({ rows }) {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 function DemandLettersReport({ rows, sendLog, dateLabel }) {
+  const navigate = useNavigate()
+  // Tracks which matter rows are expanded. Starts collapsed — high-level view
+  // by default; user clicks a matter to drill into its individual letters.
+  const [expandedMatters, setExpandedMatters] = useState(new Set())
+  const toggleMatter = (id) =>
+    setExpandedMatters(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+
   // Build map: insurer_apportionment_id → sorted send events
   const sendMap = useMemo(() => {
     const m = {}
@@ -1288,6 +1300,53 @@ function DemandLettersReport({ rows, sendLog, dateLabel }) {
     delinquent:   unpaid.filter(r => r.daysOut >= 90).length,
     collected:    sorted.reduce((s, r) => s + Number(r.amount_paid || 0), 0),
   }), [sorted, unpaid])
+
+  // Group letters by matter. Each group keeps its own letter list and rolled-up
+  // stats — total demanded / outstanding / paid count / worst delinquency band.
+  const matterGroups = useMemo(() => {
+    const m = new Map()
+    for (const r of sorted) {
+      const matter   = r.la_apportionments?.la_matters
+      const matterId = matter?.id || '__unknown__'
+      if (!m.has(matterId)) {
+        m.set(matterId, {
+          matterId,
+          matterName:   matter?.name          || 'Unknown matter',
+          matterNumber: matter?.matter_number || null,
+          letters:      [],
+        })
+      }
+      m.get(matterId).letters.push(r)
+    }
+    const groups = []
+    for (const g of m.values()) {
+      const ls = g.letters
+      const unpaidLetters = ls.filter(r => !r.isPaid)
+      const maxDays = unpaidLetters.length
+        ? Math.max(...unpaidLetters.filter(r => r.daysOut != null).map(r => r.daysOut), 0)
+        : 0
+      groups.push({
+        ...g,
+        total_letters:    ls.length,
+        paid_count:       ls.filter(r => r.isPaid).length,
+        unpaid_count:     unpaidLetters.length,
+        total_demanded:   ls.reduce((s, r) => s + Number(r.amount || 0), 0),
+        total_paid:       ls.reduce((s, r) => s + Number(r.amount_paid || 0), 0),
+        total_outstanding:unpaidLetters.reduce((s, r) => s + r.balance, 0),
+        max_days_out:     maxDays,
+        delinquent_count: unpaidLetters.filter(r => (r.daysOut ?? 0) >= 90).length,
+        last_sent:        ls.reduce((latest, r) => {
+          if (!r.lastSend) return latest
+          return !latest || new Date(r.lastSend.sent_at) > new Date(latest) ? r.lastSend.sent_at : latest
+        }, null),
+      })
+    }
+    // Outstanding matters first (any unpaid), then by outstanding amount desc
+    return groups.sort((a, b) => {
+      if ((a.unpaid_count > 0) !== (b.unpaid_count > 0)) return a.unpaid_count > 0 ? -1 : 1
+      return b.total_outstanding - a.total_outstanding
+    })
+  }, [sorted])
 
   const bandData = useMemo(() => {
     return DELINQUENCY_BANDS.map(b => ({
@@ -1422,77 +1481,186 @@ function DemandLettersReport({ rows, sendLog, dateLabel }) {
         </div>
       </div>
 
-      {/* Detail table */}
+      {/* Detail table — grouped by matter, click a matter to drill in */}
       <div className="card overflow-hidden">
-        <SectionHeader title={`${sorted.length} demand letter${sorted.length !== 1 ? 's' : ''}`} onPDF={handlePDF} onExcel={handleExcel} />
+        <SectionHeader
+          title={`${matterGroups.length} matter${matterGroups.length !== 1 ? 's' : ''} · ${sorted.length} letter${sorted.length !== 1 ? 's' : ''}`}
+          onPDF={handlePDF}
+          onExcel={handleExcel}
+        />
+
+        <div className="px-5 py-2 bg-slate-50 border-b border-slate-100 text-xs text-slate-500 flex items-center gap-2">
+          <ChevronRight className="h-3 w-3" />
+          Click a matter to expand its individual demand letters. Outstanding matters are listed first.
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50 text-left">
-                {['LexAlloc Invoice No.', 'Matter', 'Insurer', 'Amount', 'Paid', 'Balance', 'Status', 'Date Demanded', 'Days Out', 'Emails', 'Last Sent'].map(h => (
-                  <th key={h} className="px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                ))}
+                <th className="w-9 pl-4" />
+                <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Matter</th>
+                <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide text-center whitespace-nowrap">Letters</th>
+                <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap text-right">Demanded</th>
+                <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap text-right">Paid</th>
+                <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap text-right">Outstanding</th>
+                <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Worst Status</th>
+                <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Last Sent</th>
+                <th className="w-9 pr-4" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {sorted.map((r, i) => {
-                const band = r.daysOut != null && !r.isPaid ? delinquencyBand(r.daysOut) : null
+              {matterGroups.map(g => {
+                const isExpanded = expandedMatters.has(g.matterId)
+                const isAllPaid  = g.unpaid_count === 0
+                const worstBand  = !isAllPaid && g.max_days_out > 0 ? delinquencyBand(g.max_days_out) : null
+                const isUnknown  = g.matterId === '__unknown__'
+
                 return (
-                  <tr key={i} className={`hover:bg-slate-50 ${r.isPaid ? 'opacity-70' : ''}`}>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-700 whitespace-nowrap">
-                      {r.lexalloc_invoice_number || <span className="text-slate-400">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-slate-800 max-w-[200px]">
-                      <p className="truncate font-medium">{r.la_apportionments?.la_matters?.name || '—'}</p>
-                      {r.la_apportionments?.la_matters?.matter_number && (
-                        <p className="text-xs text-slate-400 font-mono">{r.la_apportionments.la_matters.matter_number}</p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700 max-w-[180px]">
-                      <p className="truncate">{r.la_insurers?.name || '—'}</p>
-                    </td>
-                    <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{formatCurrency(Number(r.amount || 0))}</td>
-                    <td className="px-4 py-3 text-green-600 whitespace-nowrap">{formatCurrency(Number(r.amount_paid || 0))}</td>
-                    <td className="px-4 py-3 font-semibold whitespace-nowrap">
-                      <span className={r.isPaid ? 'text-green-600' : 'text-red-600'}>{formatCurrency(r.balance)}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`badge text-xs capitalize ${STATUS_COLORS[r.payment_status] ?? 'bg-slate-100 text-slate-600'}`}>
-                        {(r.payment_status || '—').replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                      {r.demanded_at ? format(parseISO(r.demanded_at), 'MM/dd/yyyy') : '—'}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {r.daysOut != null ? (
-                        r.isPaid
-                          ? <span className="text-green-600 font-semibold">{r.daysOut}d</span>
-                          : <span className={`font-semibold ${band?.cls?.replace('bg-', 'text-').split(' ')[0] ?? 'text-slate-700'}`}>
-                              {r.daysOut}d
-                            </span>
-                      ) : '—'}
-                      {!r.isPaid && band && (
-                        <span className={`ml-1.5 text-xs font-medium px-1.5 py-0.5 rounded-full ${band.cls}`}>{band.label}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 text-center">{r.sends.length || '—'}</td>
-                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap text-xs">
-                      {r.lastSend
-                        ? <div>
-                            <p>{format(parseISO(r.lastSend.sent_at), 'MM/dd/yyyy')}</p>
-                            {r.lastSend.email_to && <p className="text-slate-400 truncate max-w-[140px]">{r.lastSend.email_to}</p>}
+                  <Fragment key={g.matterId}>
+                    {/* Top-level matter summary row */}
+                    <tr
+                      onClick={() => toggleMatter(g.matterId)}
+                      className={`cursor-pointer transition-colors ${isExpanded ? 'bg-brand-50/40' : 'hover:bg-slate-50'} ${isAllPaid ? 'opacity-80' : ''}`}
+                    >
+                      <td className="pl-4 py-3 text-slate-400">
+                        {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      </td>
+                      <td className="px-4 py-3 max-w-[260px]">
+                        <p className="font-medium text-slate-900 truncate">{g.matterName}</p>
+                        {g.matterNumber && (
+                          <p className="text-xs text-slate-400 font-mono truncate">{g.matterNumber}</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="inline-flex items-center gap-1 text-xs">
+                          <span className="font-semibold text-slate-700">{g.total_letters}</span>
+                          {g.unpaid_count > 0 && (
+                            <span className="text-red-500">· {g.unpaid_count} unpaid</span>
+                          )}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-700 whitespace-nowrap text-right">
+                        {formatCurrency(g.total_demanded)}
+                      </td>
+                      <td className="px-4 py-3 text-green-600 whitespace-nowrap text-right">
+                        {formatCurrency(g.total_paid)}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-right font-semibold">
+                        {isAllPaid
+                          ? <span className="text-green-600">$0</span>
+                          : <span className="text-red-600">{formatCurrency(g.total_outstanding)}</span>}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {isAllPaid
+                          ? <span className="badge text-xs bg-green-100 text-green-700">All paid</span>
+                          : worstBand
+                            ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <span className={`badge text-xs ${worstBand.cls}`}>{worstBand.label}</span>
+                                <span className="text-xs text-slate-500">{g.max_days_out}d</span>
+                              </span>
+                            )
+                            : <span className="badge text-xs bg-slate-100 text-slate-600">Demanded</span>}
+                      </td>
+                      <td className="px-4 py-3 text-slate-500 whitespace-nowrap text-xs">
+                        {g.last_sent ? format(parseISO(g.last_sent), 'MM/dd/yyyy') : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="pr-4 py-3 text-right">
+                        {!isUnknown && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); navigate(`/matters/${g.matterId}`) }}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-800 hover:underline"
+                            title="Open matter"
+                          >
+                            Open <ExternalLink className="h-3 w-3" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+
+                    {/* Expanded per-letter detail */}
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={9} className="p-0 bg-slate-50/50">
+                          <div className="px-4 py-3 border-l-2 border-brand-200 ml-4">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="text-slate-500 text-left">
+                                  <th className="px-3 py-2 font-semibold uppercase tracking-wide">LexAlloc Inv #</th>
+                                  <th className="px-3 py-2 font-semibold uppercase tracking-wide">Insurer</th>
+                                  <th className="px-3 py-2 font-semibold uppercase tracking-wide text-right">Amount</th>
+                                  <th className="px-3 py-2 font-semibold uppercase tracking-wide text-right">Paid</th>
+                                  <th className="px-3 py-2 font-semibold uppercase tracking-wide text-right">Balance</th>
+                                  <th className="px-3 py-2 font-semibold uppercase tracking-wide">Status</th>
+                                  <th className="px-3 py-2 font-semibold uppercase tracking-wide whitespace-nowrap">Demanded</th>
+                                  <th className="px-3 py-2 font-semibold uppercase tracking-wide">Days Out</th>
+                                  <th className="px-3 py-2 font-semibold uppercase tracking-wide text-center">Emails</th>
+                                  <th className="px-3 py-2 font-semibold uppercase tracking-wide whitespace-nowrap">Last Sent</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 bg-white rounded-lg overflow-hidden">
+                                {g.letters.map((r, i) => {
+                                  const band = r.daysOut != null && !r.isPaid ? delinquencyBand(r.daysOut) : null
+                                  return (
+                                    <tr key={r.id || i} className={`hover:bg-slate-50/60 ${r.isPaid ? 'opacity-70' : ''}`}>
+                                      <td className="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">
+                                        {r.lexalloc_invoice_number || <span className="text-slate-400">—</span>}
+                                      </td>
+                                      <td className="px-3 py-2 text-slate-700 max-w-[180px]">
+                                        <p className="truncate">{r.la_insurers?.name || '—'}</p>
+                                      </td>
+                                      <td className="px-3 py-2 text-slate-700 whitespace-nowrap text-right">{formatCurrency(Number(r.amount || 0))}</td>
+                                      <td className="px-3 py-2 text-green-600 whitespace-nowrap text-right">{formatCurrency(Number(r.amount_paid || 0))}</td>
+                                      <td className="px-3 py-2 font-semibold whitespace-nowrap text-right">
+                                        <span className={r.isPaid ? 'text-green-600' : 'text-red-600'}>{formatCurrency(r.balance)}</span>
+                                      </td>
+                                      <td className="px-3 py-2">
+                                        <span className={`badge text-xs capitalize ${STATUS_COLORS[r.payment_status] ?? 'bg-slate-100 text-slate-600'}`}>
+                                          {(r.payment_status || '—').replace('_', ' ')}
+                                        </span>
+                                      </td>
+                                      <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
+                                        {r.demanded_at ? format(parseISO(r.demanded_at), 'MM/dd/yyyy') : '—'}
+                                      </td>
+                                      <td className="px-3 py-2 whitespace-nowrap">
+                                        {r.daysOut != null ? (
+                                          r.isPaid
+                                            ? <span className="text-green-600 font-semibold">{r.daysOut}d</span>
+                                            : <span className={`font-semibold ${band?.cls?.replace('bg-', 'text-').split(' ')[0] ?? 'text-slate-700'}`}>
+                                                {r.daysOut}d
+                                              </span>
+                                        ) : '—'}
+                                        {!r.isPaid && band && (
+                                          <span className={`ml-1.5 text-xs font-medium px-1.5 py-0.5 rounded-full ${band.cls}`}>{band.label}</span>
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-2 text-slate-600 text-center">{r.sends.length || '—'}</td>
+                                      <td className="px-3 py-2 text-slate-500 whitespace-nowrap">
+                                        {r.lastSend
+                                          ? <div>
+                                              <p>{format(parseISO(r.lastSend.sent_at), 'MM/dd/yyyy')}</p>
+                                              {r.lastSend.email_to && <p className="text-slate-400 truncate max-w-[140px]">{r.lastSend.email_to}</p>}
+                                            </div>
+                                          : <span className="text-slate-300">—</span>}
+                                      </td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
                           </div>
-                        : <span className="text-slate-300">—</span>}
-                    </td>
-                  </tr>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 )
               })}
             </tbody>
           </table>
         </div>
         <p className="text-xs text-slate-400 px-5 pb-3 pt-2">
-          Days outstanding measured from demand date. Paid rows show time from demand to payment receipt.
+          Days outstanding measured from demand date. Paid rows show time from demand to payment receipt. PDF/Excel exports include every individual letter.
         </p>
       </div>
     </div>
