@@ -80,6 +80,28 @@ AS $$
 $$;
 
 
+-- ── Auth helper used by the preview and consolidate functions ──
+-- Returns TRUE if the calling auth.uid() is allowed to consolidate
+-- duplicates inside p_org_id: either a platform admin, or an admin
+-- member of that org. Returns FALSE otherwise.
+-- Defined BEFORE the preview/consolidate functions because they reference it.
+CREATE OR REPLACE FUNCTION public.la_can_consolidate_org(p_org_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.la_profiles
+     WHERE id = auth.uid()
+       AND (is_platform_admin = TRUE
+            OR (org_id = p_org_id AND role = 'admin'))
+  );
+$$;
+
+
 -- ── Read-only preview of duplicate-matter groups ──
 -- Anyone who can read the org's matters can preview duplicates. We still
 -- fence with the same auth helper so the function returns NOTHING (rather
@@ -156,27 +178,6 @@ AS $$
     (SELECT count(*)::int FROM public.la_audit_logs            WHERE matter_id = ANY(g.all_ids[2:]))
   FROM groups g
   ORDER BY g.dup_count DESC, g.nkey;
-$$;
-
-
--- ── Auth helper used by the consolidate function ──
--- Returns TRUE if the calling auth.uid() is allowed to consolidate
--- duplicates inside p_org_id: either a platform admin, or an admin
--- member of that org. Returns FALSE otherwise.
-CREATE OR REPLACE FUNCTION public.la_can_consolidate_org(p_org_id uuid)
-RETURNS boolean
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT EXISTS (
-    SELECT 1
-      FROM public.la_profiles
-     WHERE id = auth.uid()
-       AND (is_platform_admin = TRUE
-            OR (org_id = p_org_id AND role = 'admin'))
-  );
 $$;
 
 
