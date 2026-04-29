@@ -18,22 +18,34 @@ function CreateMatterModal({ isTemplate = false, onClose }) {
   const qc = useQueryClient()
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm()
 
+  const { data: firms = [] } = useQuery({
+    queryKey: ['firms', profile?.org_id],
+    enabled: !!profile?.org_id && !isTemplate,
+    queryFn: async () => {
+      const { data } = await supabase.from('la_firms').select('id, name').eq('org_id', profile.org_id).order('name')
+      return data || []
+    },
+  })
+
   const onSubmit = async (values) => {
+    const selectedFirm = firms.find(f => f.id === values.firm_id)
     const { data: newMatter, error } = await supabase.from('la_matters').insert({
       org_id:        profile.org_id,
       name:          values.name,
       matter_number: values.matter_number || null,
-      firm_name:     values.firm_name     || null,
+      firm_id:       values.firm_id       || null,
+      firm_name:     selectedFirm?.name   || null,
       description:   values.description  || null,
       status:        'active',
       created_by:    profile.id,
       is_template:   isTemplate,
     }).select().single()
     if (error) { toast.error(error.message); return }
-    logAudit({ profile, matterId: newMatter?.id, action: 'matter.created', entityType: 'matter', entityId: newMatter?.id, entityName: values.name, metadata: { matter_number: values.matter_number || null, firm_name: values.firm_name || null, is_template: isTemplate } })
+    logAudit({ profile, matterId: newMatter?.id, action: 'matter.created', entityType: 'matter', entityId: newMatter?.id, entityName: values.name, metadata: { matter_number: values.matter_number || null, firm_name: selectedFirm?.name || null, is_template: isTemplate } })
     toast.success(isTemplate ? 'Template created!' : 'Matter created!')
     qc.invalidateQueries({ queryKey: ['matters'] })
     qc.invalidateQueries({ queryKey: ['dashboard-stats'] })
+    qc.invalidateQueries({ queryKey: ['dashboard-firms'] })
     onClose()
   }
 
@@ -56,9 +68,11 @@ function CreateMatterModal({ isTemplate = false, onClose }) {
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
           {!isTemplate && (
             <div>
-              <label className="form-label">Firm Name</label>
-              <input className="form-input" placeholder="ABC Legal, LLP"
-                {...register('firm_name')} />
+              <label className="form-label">Firm</label>
+              <select className="form-input" {...register('firm_id')}>
+                <option value="">— No firm —</option>
+                {firms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
             </div>
           )}
           {!isTemplate && (
