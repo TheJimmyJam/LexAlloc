@@ -674,7 +674,7 @@ function InsurerPolicyFields({ register, control, errors = {}, watch, partyRespo
           {errors.policy_start && <p className="text-red-500 text-xs mt-1">{errors.policy_start.message}</p>}
         </div>
         <div>
-          <label className="form-label">Coverage End <span className="text-slate-400 font-normal">(blank = still active)</span></label>
+          <label className="form-label">Coverage End <span className="text-slate-400 font-normal">(blank = active)</span></label>
           <Controller name="policy_end" control={control}
             rules={{ validate: v => !v || !policyStart || v >= policyStart || 'End date must be on or after the start date' }}
             render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} hasError={!!errors.policy_end} className="w-full" />} />
