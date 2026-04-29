@@ -179,10 +179,10 @@ Deno.serve(async (req: Request) => {
 
     // ── Fetch insurer apportionment with joins ────────────────────────────────
     const select = [
-      'id,amount,payment_status,org_id,insurer_id,insurer_policy_period_id',
+      'id,amount,payment_status,insurer_id,insurer_policy_period_id',
       'insurers:la_insurers(name,contact_email)',
       'insurer_policy_periods:la_insurer_policy_periods(claims_rep_name,claims_rep_email,claim_number,billing_address)',
-      'apportionment:la_apportionments(id,matter_id,invoice:la_invoices(invoice_number,invoice_date,billing_firm,total_amount,service_start,service_end),matters:la_matters(name,matter_number,id))',
+      'apportionment:la_apportionments(id,matter_id,invoice:la_invoices(invoice_number,invoice_date,billing_firm,total_amount,service_start,service_end),matters:la_matters(name,matter_number,id,org_id))',
     ].join(',')
 
     const iaRows = await dbGet(`la_insurer_apportionments?id=eq.${insurer_apportionment_id}&select=${encodeURIComponent(select)}&limit=1`)
@@ -194,7 +194,7 @@ Deno.serve(async (req: Request) => {
     const appt     = ia.apportionment
     const matter   = appt?.matters
     const invoice  = appt?.invoice
-    const orgId    = ia.org_id as string
+    const orgId    = matter?.org_id as string
     const amount   = parseFloat(ia.amount) || 0
 
     // ── Resolve claims rep contact ────────────────────────────────────────────
