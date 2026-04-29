@@ -102,7 +102,7 @@ function RecordPaymentModal({ ia, partyName, matterId, onClose, onSaved }) {
           )}
 
           {showPayment && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="form-label">Amount Paid ($)</label>
                 <input type="number" step="0.01" className="form-input"
@@ -411,7 +411,7 @@ function OverrideModal({ ia, partyName, invoiceTotal, matterId, onClose, onSaved
 
         <div className="p-6 space-y-5">
           {/* Calculated vs agreed comparison */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-2">
             <div className="bg-slate-50 rounded-xl p-3 text-center">
               <p className="text-xs text-slate-500 mb-1">Calculated</p>
               <p className="text-xl font-bold text-slate-700">{ia.percentage?.toFixed(2)}%</p>
