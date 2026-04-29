@@ -853,7 +853,7 @@ function EditInsurerModal({ pp, matterId, onClose }) {
 
 // ── Add Insurer Modal ─────────────────────────────────────────────────────────
 // ── Insurer combobox ──────────────────────────────────────────────────────────
-function InsurerCombobox({ orgId, value, onChange, hasError }) {
+function InsurerCombobox({ orgId, value, onChange, onSelectInsurer, hasError }) {
   const [query,    setQuery]    = useState(value || '')
   const [open,     setOpen]     = useState(false)
   const [focused,  setFocused]  = useState(false)
@@ -885,9 +885,10 @@ function InsurerCombobox({ orgId, value, onChange, hasError }) {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const select = (name) => {
-    setQuery(name)
-    onChange(name)
+  const select = (ins) => {
+    setQuery(ins.name)
+    onChange(ins.name)
+    onSelectInsurer?.(ins)
     setOpen(false)
   }
 
@@ -898,7 +899,7 @@ function InsurerCombobox({ orgId, value, onChange, hasError }) {
         className={`form-input w-full ${hasError ? 'border-red-400' : ''}`}
         placeholder="Travelers Indemnity Company"
         value={query}
-        onChange={e => { setQuery(e.target.value); onChange(e.target.value); setOpen(true) }}
+        onChange={e => { setQuery(e.target.value); onChange(e.target.value); onSelectInsurer?.(null); setOpen(true) }}
         onFocus={() => { setFocused(true); setOpen(true) }}
         onBlur={() => setFocused(false)}
         autoComplete="off"
@@ -914,7 +915,7 @@ function InsurerCombobox({ orgId, value, onChange, hasError }) {
               <button
                 key={ins.id}
                 type="button"
-                onMouseDown={() => select(ins.name)}
+                onMouseDown={() => select(ins)}
                 className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
               >
                 {ins.name}
@@ -940,7 +941,32 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
   const { register, control, watch, handleSubmit, setValue, formState: { errors, isSubmitting, dirtyFields } } = useForm({
     defaultValues: { party_id: defaultPartyId || '', insurer_name: '' },
   })
-  const [selectedInsurerId, setSelectedInsurerId] = useState(null) // known id from directory
+  const [selectedInsurerId, setSelectedInsurerId] = useState(null)
+  const [insurerReps,       setInsurerReps]       = useState([])
+  const [selectedRepId,     setSelectedRepId]     = useState('') // '' = none, 'manual' = manual entry, or rep.id
+
+  // Load reps when insurer selected from directory
+  useEffect(() => {
+    if (!selectedInsurerId) { setInsurerReps([]); setSelectedRepId(''); return }
+    supabase.from('la_insurer_claims_reps')
+      .select('*').eq('insurer_id', selectedInsurerId).order('name')
+      .then(({ data }) => setInsurerReps(data || []))
+  }, [selectedInsurerId])
+
+  // When rep chosen from dropdown, pre-fill the form fields
+  const handleRepSelect = (repId) => {
+    setSelectedRepId(repId)
+    if (repId === '' || repId === 'manual') {
+      setValue('claims_rep_name', '')
+      setValue('claims_rep_email', '')
+      return
+    }
+    const rep = insurerReps.find(r => r.id === repId)
+    if (rep) {
+      setValue('claims_rep_name',  rep.name  || '')
+      setValue('claims_rep_email', rep.email || '')
+    }
+  }
 
   // Auto-populate responsible dates from the selected party (only if user hasn't manually overridden them)
   const watchedPartyId = watch('party_id')
@@ -1029,6 +1055,7 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
                   orgId={profile?.org_id}
                   value={field.value}
                   onChange={field.onChange}
+                  onSelectInsurer={(ins) => setSelectedInsurerId(ins?.id ?? null)}
                   hasError={!!errors.insurer_name}
                 />
               )}
@@ -1056,6 +1083,28 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
               {errors.party_id && <p className="text-red-500 text-xs mt-1">{errors.party_id.message}</p>}
             </div>
           )}
+          {/* Claims rep picker — shown when a known insurer is selected */}
+          {insurerReps.length > 0 && (
+            <div className="bg-brand-50 border border-brand-200 rounded-lg px-4 py-3">
+              <label className="form-label text-brand-700 mb-1.5">
+                Claims Rep — {insurerReps.length} rep{insurerReps.length !== 1 ? 's' : ''} on file
+              </label>
+              <select
+                className="form-input"
+                value={selectedRepId}
+                onChange={e => handleRepSelect(e.target.value)}
+              >
+                <option value="">— Select a rep —</option>
+                {insurerReps.map(r => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}{r.title ? ` · ${r.title}` : ''}{r.email ? ` (${r.email})` : ''}
+                  </option>
+                ))}
+                <option value="manual">Enter manually below ↓</option>
+              </select>
+            </div>
+          )}
+
           <InsurerPolicyFields
             register={register} control={control} errors={errors} watch={watch}
             partyResponsibleStart={partyStart} partyResponsibleEnd={partyEnd} isAdmin={isAdmin}
