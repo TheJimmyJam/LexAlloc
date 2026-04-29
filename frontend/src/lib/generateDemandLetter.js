@@ -326,7 +326,7 @@ export async function generateDemandLetterBlob(data) {
       new TextRun('\t'),
       new TextRun({ text: today, font: 'Arial', size: 20, color: '555555' }),
     ],
-    tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }],
+    tabStops: [{ type: TabStopType.RIGHT, position: W }],
   }))
 
   children.push(blank(200))
