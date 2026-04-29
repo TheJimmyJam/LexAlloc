@@ -13,7 +13,7 @@ function fmt(n) {
 function fmtPct(n) { return `${(n || 0).toFixed(2)}%` }
 function fmtDate(d) {
   if (!d) return '-'
-  return format(typeof d === 'string' ? parseISO(d) : d, 'MMMM d, yyyy')
+  return format(typeof d === 'string' ? parseISO(d) : d, 'MM/dd/yyyy')
 }
 
 // US Letter with 1-inch margins = 9360 DXA content width
