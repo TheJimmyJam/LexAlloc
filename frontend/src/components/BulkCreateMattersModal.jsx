@@ -32,6 +32,11 @@ async function runWithConcurrency(tasks, limit) {
 function normalizeMatterKey(s) {
   return (s || '')
     .toLowerCase()
+    // Strip parenthesized text first — engagement qualifiers like
+    // "(coverage)", "(umbrella monitoring)", "(cumis)" are added by some
+    // firms to differentiate roles on the same matter. They make the
+    // captions look different even though it's the same litigation.
+    .replace(/\([^)]*\)/g, ' ')
     .replace(/[^a-z0-9\s-]/g, ' ')   // keep alphanumerics, spaces, hyphens
     .replace(/\s+/g, ' ')
     .trim()
