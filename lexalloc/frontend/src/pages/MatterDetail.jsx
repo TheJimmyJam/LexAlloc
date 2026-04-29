@@ -36,8 +36,9 @@ const TIMELINE_COLORS = [
 function PolicyTimeline({ insurerPeriods, invoices, parties }) {
   const [hoveredId, setHoveredId] = useState(null)
 
-  // Skip rows missing dates (template periods with no dates)
-  const rows = insurerPeriods.filter(pp => pp.policy_start && pp.policy_end)
+  // Skip rows with no start date (template periods with no dates).
+  // No policy_end = policy is still in effect; use today as the right edge.
+  const rows = insurerPeriods.filter(pp => pp.policy_start)
   if (rows.length === 0) return null
 
   // Build party → color index map
@@ -54,9 +55,9 @@ function PolicyTimeline({ insurerPeriods, invoices, parties }) {
     }))
     .sort((a, b) => a.start - b.start)
 
-  // Overall date range
+  // Overall date range — ongoing policies (no end date) use today
   const allStarts = rows.map(pp => parseISO(pp.policy_start))
-  const allEnds   = rows.map(pp => parseISO(pp.policy_end))
+  const allEnds   = rows.map(pp => pp.policy_end ? parseISO(pp.policy_end) : today)
   serviceWindows.forEach(w => { allStarts.push(w.start); allEnds.push(w.end) })
   const today = new Date()
   allEnds.push(today)
@@ -117,12 +118,13 @@ function PolicyTimeline({ insurerPeriods, invoices, parties }) {
           {/* Row area */}
           <div className="flex flex-col gap-2">
             {rows.map((pp) => {
-              const color    = partyColorMap[pp.party_id] || TIMELINE_COLORS[0]
-              const start    = parseISO(pp.policy_start)
-              const end      = parseISO(pp.policy_end)
-              const leftPct  = Math.max(toPct(start), 0)
-              const rightPct = Math.min(toPct(end), 100)
-              const widthPct = Math.max(rightPct - leftPct, 0.3)
+              const color     = partyColorMap[pp.party_id] || TIMELINE_COLORS[0]
+              const start     = parseISO(pp.policy_start)
+              const isOngoing = !pp.policy_end
+              const end       = isOngoing ? today : parseISO(pp.policy_end)
+              const leftPct   = Math.max(toPct(start), 0)
+              const rightPct  = Math.min(toPct(end), 100)
+              const widthPct  = Math.max(rightPct - leftPct, 0.3)
 
               // Is this period triggered by any invoice service window?
               const triggered = serviceWindows.some(w => start <= w.end && end >= w.start)
@@ -155,21 +157,29 @@ function PolicyTimeline({ insurerPeriods, invoices, parties }) {
 
                     {/* Policy bar */}
                     <div
-                      className="absolute inset-y-1 rounded cursor-pointer transition-all"
+                      className={`absolute inset-y-1 cursor-pointer transition-all ${isOngoing ? 'rounded-l' : 'rounded'}`}
                       style={{
                         left:            `${leftPct}%`,
                         width:           `${widthPct}%`,
                         backgroundColor: isHovered ? color.bar : color.bar + 'cc',
                         boxShadow:       isHovered ? `0 0 0 2px white, 0 0 0 3px ${color.bar}` : undefined,
+                        borderRight:     isOngoing ? `2px dashed ${color.bar}` : undefined,
                       }}
                       onMouseEnter={() => setHoveredId(pp.id)}
                       onMouseLeave={() => setHoveredId(null)}
-                      title={`${pp.insurers?.name}\n${format(start, 'MM/dd/yyyy')} – ${format(end, 'MM/dd/yyyy')}\n${differenceInCalendarDays(end, start)} days`}
+                      title={`${pp.insurers?.name}\n${format(start, 'MM/dd/yyyy')} – ${isOngoing ? 'Present (ongoing)' : format(end, 'MM/dd/yyyy')}\n${differenceInCalendarDays(end, start)} days`}
                     >
                       {/* Triggered badge */}
-                      {triggered && widthPct > 8 && (
+                      {triggered && !isOngoing && widthPct > 8 && (
                         <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-white text-xs font-semibold opacity-80">
                           ✓
+                        </span>
+                      )}
+                      {/* Ongoing pulse dot */}
+                      {isOngoing && (
+                        <span className="absolute right-1 top-1/2 -translate-y-1/2 flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-white opacity-90" />
                         </span>
                       )}
                     </div>
@@ -186,7 +196,8 @@ function PolicyTimeline({ insurerPeriods, invoices, parties }) {
                   {/* Duration label */}
                   <div style={{ width: 80, minWidth: 80 }} className="text-xs text-slate-400 flex-shrink-0">
                     {differenceInCalendarDays(end, start)}d
-                    {triggered && <span className="ml-1 text-green-600 font-semibold">triggered</span>}
+                    {isOngoing && <span className="ml-1 text-emerald-600 font-semibold">Active</span>}
+                    {!isOngoing && triggered && <span className="ml-1 text-green-600 font-semibold">triggered</span>}
                   </div>
                 </div>
               )
@@ -647,9 +658,9 @@ function InsurerPolicyFields({ register, control, errors = {}, watch }) {
           {errors.policy_start && <p className="text-red-500 text-xs mt-1">{errors.policy_start.message}</p>}
         </div>
         <div>
-          <label className="form-label">Policy End *</label>
+          <label className="form-label">Policy End <span className="text-slate-400 font-normal">(blank = still active)</span></label>
           <Controller name="policy_end" control={control}
-            rules={{ required: 'End date is required to calculate time on risk', validate: v => !policyStart || v >= policyStart || 'End date must be on or after the start date' }}
+            rules={{ validate: v => !v || !policyStart || v >= policyStart || 'End date must be on or after the start date' }}
             render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} hasError={!!errors.policy_end} className="w-full" />} />
           {errors.policy_end && <p className="text-red-500 text-xs mt-1">{errors.policy_end.message}</p>}
         </div>
@@ -2128,7 +2139,12 @@ export default function MatterDetail() {
                       </td>
                       <td className="px-4 py-4 text-sm text-slate-600">{pp.parties?.name}</td>
                       <td className="px-4 py-4 text-sm text-slate-600 whitespace-nowrap">
-                        {pp.policy_start ? format(parseISO(pp.policy_start), 'MM/dd/yyyy') : '—'} — {pp.policy_end ? format(parseISO(pp.policy_end), 'MM/dd/yyyy') : '—'}
+                        {pp.policy_start ? format(parseISO(pp.policy_start), 'MM/dd/yyyy') : '—'}
+                        {' — '}
+                        {pp.policy_end
+                          ? format(parseISO(pp.policy_end), 'MM/dd/yyyy')
+                          : <span className="text-emerald-600 font-medium">Present</span>
+                        }
                       </td>
                       <td className="px-4 py-4 text-right text-sm text-slate-600">
                         {pp.policy_limit ? formatCurrency(pp.policy_limit) : '—'}
