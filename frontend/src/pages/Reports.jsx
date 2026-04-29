@@ -1157,13 +1157,15 @@ function CollectionsAgingReport({ rows }) {
             ))}
           </div>
         </div>
-        <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={chartData} margin={{ top: 4, right: 12, left: 8, bottom: 60 }}>
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={chartData} margin={{ top: 8, right: 12, left: 8, bottom: 70 }}>
+            {/* Legend lives at the TOP so it doesn't collide with the angled
+                insurer / firm labels along the bottom of the X-axis. */}
+            <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: 12, fontSize: 12 }} />
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-            <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-35} textAnchor="end" interval={0} />
+            <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-35} textAnchor="end" interval={0} height={70} />
             <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} />
             <Tooltip formatter={(v, name) => [formatCurrency(v), name]} />
-            <Legend wrapperStyle={{ paddingTop: 8, fontSize: 12 }} />
             {AGING_BUCKETS.map(b => (
               <Bar key={b.key} dataKey={b.key} name={b.sublabel} stackId="a" fill={b.color} radius={b.key === '90+' ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
             ))}
