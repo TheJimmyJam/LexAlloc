@@ -724,22 +724,41 @@ export default function Apportionment() {
     setGeneratingAll(true)
 
     let emailsSent    = 0
-    let emailsSkipped = 0
+    let emailsSkipped = 0  // no email on file at all
+    let emailErrors   = [] // email found but function failed
 
     try {
       const inv     = apport.invoices || {}
       const orgName = profile?.la_organizations?.name || ''
       const matter  = apport.matters || {}
 
-      // Fetch policy periods for this matter indexed by insurer_id
-      // (insurer_policy_period_id is NULL on existing apportionment rows, so we match by insurer_id + matter_id)
-      const { data: ippRows = [] } = await supabase
+      // ── Step 1: bulk-fetch policy periods for this matter, keyed by insurer_id ──
+      // insurer_policy_period_id FK is NULL on many rows, so we match by insurer_id + matter_id.
+      // Fall back to querying by insurer_id alone if the matter-scoped query returns nothing.
+      const { data: ippRows, error: ippError } = await supabase
         .from('la_insurer_policy_periods')
         .select('id, insurer_id, claims_rep_name, claims_rep_email, billing_address, claim_number')
         .eq('matter_id', apport.matter_id)
+
+      if (ippError) console.error('[LexAlloc] IPP query error:', ippError)
+
       const ippByInsurer = {}
-      for (const row of ippRows) {
-        ippByInsurer[row.insurer_id] = row
+      for (const row of (ippRows || [])) {
+        // Keep first match per insurer (there should only be one per matter)
+        if (!ippByInsurer[row.insurer_id]) ippByInsurer[row.insurer_id] = row
+      }
+
+      // ── Step 2: if bulk query missed any insurer, fetch individually as fallback ──
+      const allInsurerIds = allPairs.map(({ ia }) => ia.insurer_id).filter(Boolean)
+      const missing = allInsurerIds.filter(id => id && !ippByInsurer[id])
+      if (missing.length > 0) {
+        const { data: fallbackRows } = await supabase
+          .from('la_insurer_policy_periods')
+          .select('id, insurer_id, claims_rep_name, claims_rep_email, billing_address, claim_number')
+          .in('insurer_id', missing)
+        for (const row of (fallbackRows || [])) {
+          if (!ippByInsurer[row.insurer_id]) ippByInsurer[row.insurer_id] = row
+        }
       }
 
       for (let i = 0; i < allPairs.length; i++) {
@@ -767,28 +786,36 @@ export default function Apportionment() {
         uint8.forEach(b => { binary += String.fromCharCode(b) })
         const base64 = btoa(binary)
 
-        // 3. Resolve contact info — use policy period matched by insurer_id (FK is null on old rows)
+        // 3. Resolve contact info — try bulk result, then inline FK join, then insurer contact
         const ipp         = ippByInsurer[ia.insurer_id] || ia.insurer_policy_periods || {}
         const claimsEmail = ipp.claims_rep_email || ia.insurers?.contact_email || null
 
+        console.log(`[LexAlloc] ${ia.insurers?.name}: ipp=`, ipp, ' email=', claimsEmail)
+
         // 4. Send email with attachment + mark as demanded
         try {
-          const { error: fnErr } = await supabase.functions.invoke('send-demand-letter', {
+          const { data: fnData, error: fnErr } = await supabase.functions.invoke('send-demand-letter', {
             body: {
               insurer_apportionment_id: ia.id,
               attachment_base64:        base64,
               attachment_filename:      filename,
               claims_rep_email:         claimsEmail,
               claims_rep_name:          ipp.claims_rep_name || null,
-              insurer_name:             ia.insurers?.name || null,
+              insurer_name:             ia.insurers?.name   || null,
               lexalloc_invoice_number:  lexallocInvoiceNumber,
             },
           })
-          if (fnErr) throw fnErr
+          if (fnErr) throw new Error(fnErr.message || JSON.stringify(fnErr))
+          console.log('[LexAlloc] send-demand-letter response:', fnData)
           if (claimsEmail) emailsSent++
           else emailsSkipped++
-        } catch {
-          emailsSkipped++
+        } catch (err) {
+          console.error(`[LexAlloc] send-demand-letter failed for ${ia.insurers?.name}:`, err)
+          if (claimsEmail) {
+            emailErrors.push({ name: ia.insurers?.name, msg: err.message })
+          } else {
+            emailsSkipped++
+          }
         }
       }
 
@@ -796,10 +823,21 @@ export default function Apportionment() {
       qc.invalidateQueries({ queryKey: ['apportionment', apportionmentId] })
 
       const letterWord = allPairs.length !== 1 ? 'letters' : 'letter'
-      const msg = emailsSent > 0
-        ? `${allPairs.length} ${letterWord} downloaded · ${emailsSent} emailed to insurers`
-        : `${allPairs.length} ${letterWord} downloaded (no claims rep emails on file — add them under each insurer policy period)`
-      toast.success(msg, { duration: 6000 })
+      if (emailsSent > 0) {
+        const skippedNote = emailsSkipped > 0 ? ` · ${emailsSkipped} skipped (no email on file)` : ''
+        const errorNote   = emailErrors.length > 0 ? ` · ${emailErrors.length} failed` : ''
+        toast.success(`${allPairs.length} ${letterWord} downloaded · ${emailsSent} emailed${skippedNote}${errorNote}`, { duration: 6000 })
+      } else if (emailErrors.length > 0) {
+        toast.error(
+          `${allPairs.length} ${letterWord} downloaded — email failed: ${emailErrors[0].msg}`,
+          { duration: 10000 }
+        )
+      } else {
+        toast.success(
+          `${allPairs.length} ${letterWord} downloaded (no claims rep emails found — check insurer policy periods)`,
+          { duration: 6000 }
+        )
+      }
 
     } catch (err) {
       toast.error('Error generating letters: ' + err.message)
