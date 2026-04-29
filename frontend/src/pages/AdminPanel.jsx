@@ -152,6 +152,17 @@ function TwoFAEnrollModal({ onClose, onEnrolled }) {
 
 const DEMO_PREFIX = '[DEMO]'
 
+const DEMO_LAW_FIRMS = [
+  'Hargrove & Kellner LLP',
+  'Burke, Osei & Vantage PC',
+  'Calloway Weiss LLP',
+  'Meridian Trial Counsel',
+  'Sterling & Cross LLP',
+  'Ashford Litigation Group',
+  'Navarro & Partners PC',
+  'Dunmore Legal Associates',
+]
+
 const DEMO_MATTERS = [
   'Smith v. Hartford Insurance','Johnson v. Allstate Corp','Williams v. State Farm',
   'Brown v. Liberty Mutual','Jones v. Travelers Group','Garcia v. Nationwide',
@@ -1176,11 +1187,23 @@ export default function AdminPanel() {
     try {
       const orgId = profile.org_id
 
-      // ── 1. Matters ──────────────────────────────────────────────────────
-      const matterRows = DEMO_MATTERS.map(name => ({
+      // ── 1a. Law firms ────────────────────────────────────────────────────
+      setDemoProgress('Creating demo law firms…')
+      const firmRows = DEMO_LAW_FIRMS.map(name => ({
         org_id: orgId,
         name:   `${DEMO_PREFIX} ${name}`,
-        status: 'active',
+      }))
+      const { data: firms, error: firmErr } = await supabase
+        .from('la_firms').insert(firmRows).select('id')
+      if (firmErr) throw firmErr
+
+      // ── 1b. Matters (assigned round-robin across firms) ──────────────────
+      setDemoProgress('Creating demo matters…')
+      const matterRows = DEMO_MATTERS.map((name, i) => ({
+        org_id:  orgId,
+        name:    `${DEMO_PREFIX} ${name}`,
+        status:  'active',
+        firm_id: firms[i % firms.length].id,
       }))
       const { data: matters, error: mErr } = await supabase
         .from('la_matters').insert(matterRows).select('id')
@@ -1438,6 +1461,12 @@ export default function AdminPanel() {
       }
       await supabase.from('la_invoices').delete().in('matter_id', mIds)
       await supabase.from('la_matters').delete().in('id', mIds)
+
+      // ── Demo law firms ───────────────────────────────────────────────────
+      await supabase.from('la_firms')
+        .delete()
+        .ilike('name', `${DEMO_PREFIX}%`)
+        .eq('org_id', profile.org_id)
 
       setDemoStats(null)
       setDemoProgress('')
@@ -2631,8 +2660,8 @@ export default function AdminPanel() {
             <div className="bg-slate-50 rounded-xl p-4 mb-6 text-sm text-slate-600 space-y-1">
               <p className="font-medium text-slate-700 mb-2">What gets created:</p>
               <div className="grid grid-cols-2 gap-x-8 gap-y-1">
-                <span>✦ 20 demo matters (legal cases)</span>
-                <span>✦ 2–4 parties per matter with service dates</span>
+                <span>✦ 8 demo law firms</span>
+                <span>✦ 20 demo matters assigned across firms</span>
                 <span>✦ Uses your actual Rolodex insurers</span>
                 <span>✦ 2–3 insurer policy periods per party</span>
                 <span>✦ 1–3 invoices per matter with real line items</span>
