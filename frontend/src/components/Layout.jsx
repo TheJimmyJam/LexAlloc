@@ -4,10 +4,11 @@ import { useBranding } from '../context/BrandingContext.jsx'
 import {
   LayoutDashboard, FolderOpen, Settings, LogOut,
   Shield, Menu, UserCircle, ShieldCheck, Database, BarChart3, FileBarChart,
-  Moon, Sun,
+  Moon, Sun, RefreshCw,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useTheme } from '../context/ThemeContext.jsx'
+import { useQueryClient } from '@tanstack/react-query'
 
 const staffNavItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -27,6 +28,26 @@ export default function Layout() {
   const { dark, toggle: toggleDark } = useTheme()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [refreshing,  setRefreshing]  = useState(false)
+  const [lastSynced,  setLastSynced]  = useState(null)   // Date | null
+  const qc = useQueryClient()
+
+  const handleRefresh = useCallback(async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    await qc.invalidateQueries()
+    setLastSynced(new Date())
+    setRefreshing(false)
+  }, [refreshing, qc])
+
+  const syncLabel = lastSynced
+    ? (() => {
+        const s = Math.round((Date.now() - lastSynced.getTime()) / 1000)
+        if (s < 5)  return 'Just now'
+        if (s < 60) return `${s}s ago`
+        return `${Math.round(s / 60)}m ago`
+      })()
+    : 'Auto-syncing every 15s'
 
   const appName = brandName || 'LexAlloc'
   const logoSrc = logoUrl  || '/logo-icon.png'
@@ -137,6 +158,18 @@ export default function Layout() {
               </div>
             </div>
           </div>
+          <div className="flex gap-2 mb-2">
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              title="Refresh all data"
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-xs font-medium transition-all duration-150 disabled:opacity-60"
+            >
+              <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
+              {refreshing ? 'Syncing…' : 'Refresh'}
+            </button>
+          </div>
+          <p className="text-center text-slate-600 text-xs mb-2">{syncLabel}</p>
           <div className="flex gap-2">
             <button
               onClick={handleSignOut}
@@ -168,6 +201,15 @@ export default function Layout() {
             <Menu className="h-5 w-5 text-slate-300" />
           </button>
           <img src={logoSrc} alt={appName} className="rounded-full" style={{ width: '36px', height: '36px', objectFit: 'cover' }} />
+          <div className="flex-1" />
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            title="Refresh all data"
+            className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-60"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          </button>
         </header>
 
         {isProfileIncomplete && (
