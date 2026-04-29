@@ -19,14 +19,16 @@ function LetterPreview({ data }) {
   const fmtD = (d) => d ? format(typeof d === 'string' ? parseISO(d) : d, 'MMMM d, yyyy') : '—'
   const firmName = orgName || '[Law Firm Name]'
 
-  // Re: entries — Matter (bold) | Law Firm | Policy No. (bold) | Claim No. (bold) | Firm Invoice Number (bold)
+  // Re: labeled fields
+  const firmLabel = invoice.billing_firm || apport.matters?.firm_name || '—'
   const RE_ENTRIES = [
-    { text: `${apport.matters?.name || 'Matter'}${apport.matters?.matter_number ? ` (Matter No. ${apport.matters.matter_number})` : ''}`, bold: true },
-    invoice.billing_firm               ? { text: invoice.billing_firm,                                                           bold: false } : null,
-    ia.insurers?.policy_number         ? { text: `Policy No. ${ia.insurers.policy_number}`,                                      bold: true  } : null,
-    pp?.claim_number                   ? { text: `Claim No. ${pp.claim_number}`,                                                 bold: true  } : null,
-    { text: `Firm Invoice Number: ${invoice.invoice_number || '—'} dated ${fmtD(invoice.invoice_date)}`,                        bold: true  },
-  ].filter(Boolean)
+    { label: 'Case Name:',             value: apport.matters?.name || 'Matter' },
+    { label: 'Firm:',                  value: firmLabel },
+    { label: 'Firm Matter No.:',       value: apport.matters?.matter_number || '' },
+    { label: 'Firm Invoice No.:',      value: invoice.invoice_number || '' },
+    { label: 'LexAlloc Invoice No.:', value: '' },
+    { label: 'Insurer Claim No.:',     value: pp?.claim_number || '' },
+  ]
 
   // Service period
   const servicePeriod = fmtD(invoice.service_start) +
@@ -69,15 +71,15 @@ function LetterPreview({ data }) {
           : <div style={{ color: '#aaa', fontSize: '12px', fontStyle: 'italic' }}>No billing address on file</div>}
       </div>
 
-      {/* Re: block */}
-      <table style={{ marginBottom: '20px', borderSpacing: 0 }}>
+      {/* Re: labeled fields */}
+      <table style={{ marginBottom: '20px', borderSpacing: 0, fontSize: '13px' }}>
         <tbody>
           {RE_ENTRIES.map((entry, i) => (
             <tr key={i}>
-              <td style={{ fontWeight: 'bold', paddingRight: '14px', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
-                {i === 0 ? 'Re:' : ''}
+              <td style={{ fontWeight: 'bold', paddingRight: '24px', verticalAlign: 'top', whiteSpace: 'nowrap', width: '180px' }}>
+                {entry.label}
               </td>
-              <td style={{ fontWeight: entry.bold ? 'bold' : 'normal' }}>{entry.text}</td>
+              <td>{entry.value}</td>
             </tr>
           ))}
         </tbody>
