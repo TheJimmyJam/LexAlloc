@@ -70,7 +70,10 @@ export default function BulkAddInsurersModal({ matterId, parties = [], onClose }
 
     update(id, { status: 'uploading' })
     const ext  = file.name.split('.').pop()
-    const path = `policy-docs/${profile.org_id}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`
+    // Storage RLS requires the FIRST folder segment to equal the user's
+    // org_id, so put org_id at the root and use policy-docs as the second
+    // folder. Was: `policy-docs/${profile.org_id}/...` (RLS rejects).
+    const path = `${profile.org_id}/policy-docs/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`
     const { error: upErr } = await supabase.storage
       .from('la_documents').upload(path, file, { upsert: true })
     if (upErr) { update(id, { status: 'error', error: upErr.message }); return }
