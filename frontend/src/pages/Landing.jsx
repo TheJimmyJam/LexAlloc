@@ -91,7 +91,7 @@ export default function Landing() {
         </div>
         <div className="relative max-w-4xl mx-auto">
           <div className="flex justify-center mb-10">
-            <img src="/logo.svg" alt="LexAlloc" className="h-28 lg:h-36 w-auto" />
+            <img src="/logo-full.svg" alt="LexAlloc" className="h-28 lg:h-36 w-auto" />
           </div>
           <h1 className="text-5xl lg:text-7xl font-extrabold leading-tight mb-6 tracking-tight">
             Apportion Legal Fees<br />
