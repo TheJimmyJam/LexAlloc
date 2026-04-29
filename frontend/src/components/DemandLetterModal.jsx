@@ -17,55 +17,72 @@ function LetterPreview({ data }) {
   const method = apport.calculation_method || 'pro_rata_time_on_risk'
 
   const fmtD = (d) => d ? format(typeof d === 'string' ? parseISO(d) : d, 'MMMM d, yyyy') : '—'
+  const firmName = orgName || '[Law Firm Name]'
 
-  const RE_LINES = [
-    `${apport.matters?.name || 'Matter'}${apport.matters?.matter_number ? ` (Matter No. ${apport.matters.matter_number})` : ''}`,
-    pp?.claim_number           ? `Claim No. ${pp.claim_number}` : null,
-    ia.insurers?.policy_number ? `Policy No. ${ia.insurers.policy_number}` : null,
-    `Invoice No. ${invoice.invoice_number || '—'} dated ${fmtD(invoice.invoice_date)}`,
+  // Re: entries — Matter (bold) | Law Firm | Policy No. (bold) | Claim No. (bold) | Firm Invoice Number (bold)
+  const RE_ENTRIES = [
+    { text: `${apport.matters?.name || 'Matter'}${apport.matters?.matter_number ? ` (Matter No. ${apport.matters.matter_number})` : ''}`, bold: true },
+    invoice.billing_firm               ? { text: invoice.billing_firm,                                                           bold: false } : null,
+    ia.insurers?.policy_number         ? { text: `Policy No. ${ia.insurers.policy_number}`,                                      bold: true  } : null,
+    pp?.claim_number                   ? { text: `Claim No. ${pp.claim_number}`,                                                 bold: true  } : null,
+    { text: `Firm Invoice Number: ${invoice.invoice_number || '—'} dated ${fmtD(invoice.invoice_date)}`,                        bold: true  },
   ].filter(Boolean)
+
+  // Service period
+  const servicePeriod = fmtD(invoice.service_start) +
+    (invoice.service_end && invoice.service_end !== invoice.service_start ? ` through ${fmtD(invoice.service_end)}` : '')
+
+  // All insurers for this party
+  const allInsurers = pa.insurer_apportionments?.length > 0 ? pa.insurer_apportionments : [ia]
 
   const calcDesc = () => {
     const pct = formatPercent(ia.percentage)
     if (method === 'equal_shares') {
       const n = pa.insurer_apportionments?.length || 1
-      return `Defense costs for ${pa.parties?.name || 'this party'} have been allocated equally among ${n} carrier${n !== 1 ? 's' : ''}, resulting in an equal share of ${pct} for ${ia.insurers?.name || 'the insurer'}.`
+      return `Costs for ${pa.parties?.name || 'this party'} have been allocated equally among ${n} carrier${n !== 1 ? 's' : ''}, resulting in an equal share of ${pct} for ${ia.insurers?.name || 'the insurer'}.`
     }
     if (method === 'limits_proportional') {
       const limit = pp?.policy_limit ? formatCurrency(pp.policy_limit) : '[policy limit on file]'
-      return `Defense costs have been allocated proportionally based on policy limits. ${ia.insurers?.name || 'The insurer'}'s policy limit of ${limit} represents ${pct} of total limits across all policies for this party.`
+      return `Costs have been allocated proportionally based on policy limits. ${ia.insurers?.name || 'The insurer'}'s policy limit of ${limit} represents ${pct} of total limits across all policies for this party.`
     }
-    return `Defense costs have been allocated on a pro-rata time-on-risk basis. ${ia.insurers?.name || 'The insurer'}'s policy was on-risk for ${ia.days_on_risk ?? '—'} of the ${ia.total_days ?? '—'} days in the service period, representing ${pct} of total exposure.`
+    return `Costs for ${pa.parties?.name || 'this party'} have been allocated on a pro-rata time-on-risk basis. ${ia.insurers?.name || 'The insurer'}'s policy was on-risk for ${ia.days_on_risk ?? '—'} of the ${ia.total_days ?? '—'} days in the applicable coverage period, representing ${pct} of total exposure.`
   }
 
   const s = (obj = {}) => ({ fontFamily: 'Georgia, serif', fontSize: '13px', lineHeight: '1.6', color: '#1a1a1a', ...obj })
+  const cell = (extra = {}) => ({ padding: '5px 8px', border: '1px solid #ccc', ...extra })
 
   return (
     <div style={s()}>
-      {/* Letterhead */}
+      {/* Logo */}
+      <div style={{ marginBottom: '6px' }}>
+        <img src="/logo-icon.png" alt="Logo" style={{ width: '52px', height: '52px', objectFit: 'contain' }}
+          onError={e => { e.target.style.display = 'none' }} />
+      </div>
+
+      {/* Letterhead: firm name left, date right */}
       <div style={{ borderBottom: '2.5px solid #2E4057', paddingBottom: '8px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-        <strong style={{ fontSize: '17px', color: '#2E4057' }}>{orgName || '[Law Firm Name]'}</strong>
+        <strong style={{ fontSize: '17px', color: '#2E4057' }}>{firmName}</strong>
         <span style={{ color: '#666', fontSize: '12px' }}>{today}</span>
       </div>
 
-      {/* Addressee */}
+      {/* Addressee — contact person first, then company, then address */}
       <div style={{ marginBottom: '20px' }}>
-        {ia.insurers?.name    && <div style={{ fontWeight: 'bold' }}>{ia.insurers.name}</div>}
-        {pp?.claims_rep_name  && <div>{pp.claims_rep_name}</div>}
+        {pp?.claims_rep_name && <div style={{ fontWeight: 'bold' }}>{pp.claims_rep_name}</div>}
+        {ia.insurers?.name   && <div>{ia.insurers.name}</div>}
         {pp?.billing_address
           ? pp.billing_address.split('\n').map((l, i) => <div key={i}>{l}</div>)
           : <div style={{ color: '#aaa', fontSize: '12px', fontStyle: 'italic' }}>No billing address on file</div>}
       </div>
 
-      {/* Re: */}
+      {/* Re: block */}
       <table style={{ marginBottom: '20px', borderSpacing: 0 }}>
         <tbody>
-          {RE_LINES.map((line, i) => (
+          {RE_ENTRIES.map((entry, i) => (
             <tr key={i}>
               <td style={{ fontWeight: 'bold', paddingRight: '14px', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
                 {i === 0 ? 'Re:' : ''}
               </td>
-              <td>{line}</td>
+              <td style={{ fontWeight: entry.bold ? 'bold' : 'normal' }}>{entry.text}</td>
             </tr>
           ))}
         </tbody>
@@ -76,77 +93,80 @@ function LetterPreview({ data }) {
         {pp?.claims_rep_name ? `Dear ${pp.claims_rep_name}:` : 'Dear Sir or Madam:'}
       </p>
 
+      {/* Opening — first sentence removed; "for the above captioned matter" added */}
       <p style={{ marginBottom: '20px' }}>
-        This letter constitutes a formal demand for payment of defense costs incurred in connection with the above-referenced matter. Please review the following apportionment calculation and remit payment in the amount set forth below.
+        Please review the following apportionment calculation and remit payment in the amount set forth below for the above captioned matter.
       </p>
 
-      {/* Invoice Summary */}
+      {/* Invoice Summary — Service Period replaces Billing Firm */}
       <div style={{ fontWeight: 'bold', fontSize: '11px', letterSpacing: '0.1em', borderBottom: '1.5px solid #2E4057', paddingBottom: '3px', marginBottom: '10px', color: '#2E4057' }}>
         INVOICE SUMMARY
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '10px', fontSize: '12px' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '20px', fontSize: '12px' }}>
         <thead>
           <tr style={{ background: '#EDF0F5' }}>
-            {['Invoice Number', 'Invoice Date', 'Billing Firm', 'Total Amount'].map(h => (
-              <th key={h} style={{ padding: '5px 8px', textAlign: 'left', border: '1px solid #ccc', fontWeight: 'bold' }}>{h}</th>
+            {['Invoice Number', 'Invoice Date', 'Service Period', 'Total Amount'].map(h => (
+              <th key={h} style={cell({ fontWeight: 'bold', textAlign: h === 'Total Amount' ? 'right' : 'left' })}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td style={{ padding: '5px 8px', border: '1px solid #ccc' }}>{invoice.invoice_number || '—'}</td>
-            <td style={{ padding: '5px 8px', border: '1px solid #ccc' }}>{fmtD(invoice.invoice_date)}</td>
-            <td style={{ padding: '5px 8px', border: '1px solid #ccc' }}>{invoice.billing_firm || '—'}</td>
-            <td style={{ padding: '5px 8px', border: '1px solid #ccc', textAlign: 'right' }}>{formatCurrency(invoice.total_amount)}</td>
+            <td style={cell()}>{invoice.invoice_number || '—'}</td>
+            <td style={cell()}>{fmtD(invoice.invoice_date)}</td>
+            <td style={cell()}>{servicePeriod}</td>
+            <td style={cell({ textAlign: 'right' })}>{formatCurrency(invoice.total_amount)}</td>
           </tr>
         </tbody>
       </table>
-      <p style={{ fontSize: '12px', marginBottom: '20px' }}>
-        <strong>Service Period:</strong>{' '}
-        {fmtD(invoice.service_start)}
-        {invoice.service_end && invoice.service_end !== invoice.service_start ? ` through ${fmtD(invoice.service_end)}` : ''}
-      </p>
 
       {/* Allocated Obligation */}
       <div style={{ fontWeight: 'bold', fontSize: '11px', letterSpacing: '0.1em', borderBottom: '1.5px solid #2E4057', paddingBottom: '3px', marginBottom: '10px', color: '#2E4057' }}>
         ALLOCATED OBLIGATION
       </div>
+      {/* "defense" removed from party share paragraph */}
       <p style={{ marginBottom: '10px' }}>
-        {pa.parties?.name || 'The insured party'} bears {formatPercent(pa.percentage)} of the defense obligation for this invoice, corresponding to a total party obligation of {formatCurrency(pa.amount)}.
+        {pa.parties?.name || 'The insured party'} bears {formatPercent(pa.percentage)} of the obligation for this invoice, corresponding to a total party obligation of {formatCurrency(pa.amount)}.
       </p>
       <p style={{ marginBottom: '12px' }}>{calcDesc()}</p>
 
+      {/* Obligation table — party as folder, all insurers listed below */}
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '20px', fontSize: '12px' }}>
         <thead>
           <tr style={{ background: '#EDF0F5' }}>
-            <th style={{ padding: '5px 8px', textAlign: 'left', border: '1px solid #ccc', fontWeight: 'bold' }}>Description</th>
-            <th style={{ padding: '5px 8px', textAlign: 'right', border: '1px solid #ccc', fontWeight: 'bold' }}>Percentage</th>
-            <th style={{ padding: '5px 8px', textAlign: 'right', border: '1px solid #ccc', fontWeight: 'bold' }}>Amount</th>
+            <th style={cell({ fontWeight: 'bold' })}>Description</th>
+            <th style={cell({ fontWeight: 'bold', textAlign: 'right' })}>Percentage</th>
+            <th style={cell({ fontWeight: 'bold', textAlign: 'right' })}>Amount</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td style={{ padding: '5px 8px', border: '1px solid #ccc' }}>{pa.parties?.name || 'Party'} share of invoice</td>
-            <td style={{ padding: '5px 8px', border: '1px solid #ccc', textAlign: 'right' }}>{formatPercent(pa.percentage)}</td>
-            <td style={{ padding: '5px 8px', border: '1px solid #ccc', textAlign: 'right' }}>{formatCurrency(pa.amount)}</td>
+          {/* Party folder row */}
+          <tr style={{ background: '#C8D3E0' }}>
+            <td style={cell({ fontWeight: 'bold', color: '#2E4057' })}>{pa.parties?.name || 'Party'} share of invoice</td>
+            <td style={cell({ textAlign: 'right', fontWeight: 'bold', color: '#2E4057' })}>{formatPercent(pa.percentage)}</td>
+            <td style={cell({ textAlign: 'right', fontWeight: 'bold', color: '#2E4057' })}>{formatCurrency(pa.amount)}</td>
           </tr>
-          {method === 'pro_rata_time_on_risk' && (
-            <tr>
-              <td style={{ padding: '5px 8px', border: '1px solid #ccc' }}>
-                {ia.insurers?.name || 'Insurer'} time-on-risk ({ia.days_on_risk ?? '—'} / {ia.total_days ?? '—'} days)
-              </td>
-              <td style={{ padding: '5px 8px', border: '1px solid #ccc', textAlign: 'right' }}>{formatPercent(ia.percentage)}</td>
-              <td style={{ padding: '5px 8px', border: '1px solid #ccc' }}></td>
-            </tr>
-          )}
+          {/* All insurer rows — indented */}
+          {allInsurers.map((eachIa, i) => {
+            const isTarget = eachIa.id === ia.id
+            const name = eachIa.insurers?.name || 'Insurer'
+            const desc = '    ' + name +
+              (method === 'pro_rata_time_on_risk'
+                ? ` – ${eachIa.days_on_risk ?? '—'} / ${eachIa.total_days ?? '—'} days`
+                : '')
+            return (
+              <tr key={i} style={{ background: isTarget ? '#f8f9ff' : '#fff' }}>
+                <td style={cell({ fontWeight: isTarget ? 'bold' : 'normal', paddingLeft: '20px' })}>{desc}</td>
+                <td style={cell({ textAlign: 'right', fontWeight: isTarget ? 'bold' : 'normal' })}>{formatPercent(eachIa.percentage)}</td>
+                <td style={cell({ textAlign: 'right', fontWeight: isTarget ? 'bold' : 'normal' })}>{formatCurrency(eachIa.amount)}</td>
+              </tr>
+            )
+          })}
+          {/* Total due row */}
           <tr style={{ background: '#EDF0F5' }}>
-            <td style={{ padding: '5px 8px', border: '1px solid #ccc', fontWeight: 'bold' }}>
-              Total due from {ia.insurers?.name || 'Insurer'}
-            </td>
-            <td style={{ padding: '5px 8px', border: '1px solid #ccc' }}></td>
-            <td style={{ padding: '5px 8px', border: '1px solid #ccc', textAlign: 'right', fontWeight: 'bold', color: '#1a4480', fontSize: '14px' }}>
-              {formatCurrency(ia.amount)}
-            </td>
+            <td style={cell({ fontWeight: 'bold' })}>Total due from {ia.insurers?.name || 'Insurer'}</td>
+            <td style={cell()}></td>
+            <td style={cell({ textAlign: 'right', fontWeight: 'bold', color: '#1a4480', fontSize: '14px' })}>{formatCurrency(ia.amount)}</td>
           </tr>
         </tbody>
       </table>
@@ -168,9 +188,9 @@ function LetterPreview({ data }) {
       </p>
       <p>Very truly yours,</p>
       <div style={{ marginTop: '44px', marginBottom: '4px', borderBottom: '1px solid #555', width: '220px' }}></div>
-      <div style={{ fontWeight: 'bold' }}>{orgName || '[Law Firm Name]'}</div>
-      <div>[Attorney Name]</div>
-      <div>[Phone] | [Email]</div>
+      <div style={{ fontWeight: 'bold' }}>{firmName}</div>
+      <div>Michael Mason</div>
+      <div>Mason@LexAlloc.com</div>
 
       <div style={{ borderTop: '1px solid #ddd', marginTop: '32px', paddingTop: '8px', textAlign: 'center', fontSize: '10px', color: '#999', fontStyle: 'italic' }}>
         ATTORNEY WORK PRODUCT — PRIVILEGED AND CONFIDENTIAL
