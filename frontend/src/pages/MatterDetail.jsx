@@ -19,6 +19,7 @@ import { format, parseISO, differenceInCalendarDays, addDays, startOfYear, addYe
 import toast from 'react-hot-toast'
 import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
 import DocumentUploadModal, { DOC_TYPES } from '../components/DocumentUploadModal.jsx'
+import BulkAddInsurersModal from '../components/BulkAddInsurersModal.jsx'
 import { UseTemplateModal } from './Matters.jsx'
 import { generateMatterSummaryReport } from '../lib/generateMatterSummaryReport.js'
 import SettlementTab from '../components/SettlementTab.jsx'
@@ -3357,12 +3358,22 @@ export default function MatterDetail() {
       {showAddParty    && <AddPartyModal   matterId={matterId} existingParties={parties} onClose={() => setShowAddParty(false)} />}
       {showAdjusterModal && matter && <RequestAdjusterInfoModal matter={matter} onClose={() => setShowAdjusterModal(false)} />}
       {editingParty    && <EditPartyModal  party={editingParty} matterId={matterId} allParties={parties} onClose={() => setEditingParty(null)} />}
-      {(showAddInsurer || addInsurerForParty) && (
+      {/* Per-party "Add Insurer for this party" — keeps the single-file modal so
+          the user doesn't lose the contextual party lock. */}
+      {addInsurerForParty && (
         <AddInsurerModal
           matterId={matterId}
           parties={parties}
-          defaultPartyId={addInsurerForParty?.id || null}
-          onClose={() => { setShowAddInsurer(false); setAddInsurerForParty(null) }}
+          defaultPartyId={addInsurerForParty.id}
+          onClose={() => setAddInsurerForParty(null)}
+        />
+      )}
+      {/* Matter-level "Add Insurer" — multi-file queue with per-row review. */}
+      {showAddInsurer && (
+        <BulkAddInsurersModal
+          matterId={matterId}
+          parties={parties}
+          onClose={() => setShowAddInsurer(false)}
         />
       )}
       {editingInsurer  && <EditInsurerModal pp={editingInsurer} matterId={matterId} onClose={() => setEditingInsurer(null)} />}
