@@ -718,18 +718,25 @@ export default function Apportionment() {
         const base64 = btoa(binary)
 
         // 3. Send email with attachment + mark as demanded
+        // Pass contact info directly from already-loaded data — don't rely on edge fn re-query
+        const ipp = ia.insurer_policy_periods || {}
+        const claimsEmail = ipp.claims_rep_email || ia.insurers?.contact_email || null
         try {
           const { error: fnErr } = await supabase.functions.invoke('send-demand-letter', {
             body: {
               insurer_apportionment_id: ia.id,
               attachment_base64:        base64,
               attachment_filename:      filename,
+              // Pass contact info so edge fn doesn't need to re-query
+              claims_rep_email:         claimsEmail,
+              claims_rep_name:          ipp.claims_rep_name || null,
+              insurer_name:             ia.insurers?.name || null,
             },
           })
           if (fnErr) throw fnErr
-          emailsSent++
+          if (claimsEmail) emailsSent++
+          else emailsSkipped++
         } catch {
-          // No claims_rep_email on file — letter was still downloaded
           emailsSkipped++
         }
       }
