@@ -26,7 +26,7 @@ function LetterPreview({ data }) {
     { label: 'Firm:',                  value: firmLabel },
     { label: 'Firm Matter No.:',       value: apport.matters?.matter_number || '' },
     { label: 'Firm Invoice No.:',      value: invoice.invoice_number || '' },
-    { label: 'LexAlloc Invoice No.:', value: '' },
+    { label: 'LexAlloc Invoice No.:', value: ia.lexalloc_invoice_number || '' },
     { label: 'Insurer Claim No.:',     value: pp?.claim_number || '' },
   ]
 
