@@ -952,6 +952,13 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
   const [parseError,  setParseError]  = useState(null)
   const [parsed,      setParsed]      = useState(false)
 
+  // ── New-party-from-parsed-policy mode ───────────────────────────────────────
+  // When a policy is parsed and the named insured doesn't match any existing
+  // party on this matter, we flip to "create new party" mode and pre-fill the
+  // input with the parsed name. Lets users skip the manual Add Party step.
+  const [creatingNewParty, setCreatingNewParty] = useState(false)
+  const [newPartyName,     setNewPartyName]     = useState('')
+
   const onPolicyDrop = useCallback(async (accepted) => {
     const file = accepted[0]
     if (!file) return
@@ -995,13 +1002,34 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
       if (data.claims_rep_email) setValue('claims_rep_email', data.claims_rep_email)
       if (data.portal_url)       setValue('portal_url',       data.portal_url)
 
+      // 5. Handle named_insured — match to an existing party or stage a new one.
+      if (data.named_insured) {
+        const norm = (s) => (s || '')
+          .toLowerCase()
+          .replace(/\([^)]*\)/g, ' ')
+          .replace(/[^a-z0-9\s]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+        const niNorm = norm(data.named_insured)
+        const match  = (parties || []).find(p => norm(p.name) === niNorm)
+        if (match && !defaultPartyId) {
+          setValue('party_id', match.id)
+          setCreatingNewParty(false)
+        } else if (!match && !defaultPartyId) {
+          // No existing party with this name — flip to create-new-party mode
+          // and pre-fill the input with the parsed name.
+          setCreatingNewParty(true)
+          setNewPartyName(data.named_insured)
+        }
+      }
+
       setParsed(true)
     } catch (err) {
       setParseError(err.message || 'Failed to parse policy — try again')
     } finally {
       setParsing(false)
     }
-  }, [profile, setValue])
+  }, [profile, setValue, parties, defaultPartyId])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: onPolicyDrop,
@@ -1052,8 +1080,32 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
   const isBlocked       = overbroad && !isAdmin && !overrideChecked
 
   const onSubmit = async (values) => {
-    let insurerId = null
+    // ── Step 0: if user chose to create a new party from the parsed policy,
+    //    insert that party first and use its id for the policy period.
+    let partyId  = values.party_id
+    let createdPartyName = null
+    if (creatingNewParty && !defaultPartyId) {
+      const trimmed = newPartyName.trim()
+      if (!trimmed) { toast.error('New party name is required'); return }
+      const { data: newParty, error: pErr } = await supabase.from('la_parties').insert({
+        matter_id:        matterId,
+        org_id:           profile.org_id,
+        name:             trimmed,
+        share_percentage: 0,
+      }).select().single()
+      if (pErr) { toast.error('Could not add party: ' + pErr.message); return }
+      partyId = newParty.id
+      createdPartyName = trimmed
+      logAudit({
+        profile, matterId,
+        action: 'party.added', entityType: 'party',
+        entityId: partyId, entityName: trimmed,
+        metadata: { source: 'policy_upload', policy_file: policyFile?.name || null },
+      })
+    }
+    if (!partyId) { toast.error('Insured party is required'); return }
 
+    let insurerId = null
     {
       // Find by name or create new
       const { data: existing } = await supabase
@@ -1079,7 +1131,7 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
     // Create policy period with contact info
     const { error: ppErr } = await supabase.from('la_insurer_policy_periods').insert({
       insurer_id:          insurerId,
-      party_id:            values.party_id,
+      party_id:            partyId,
       matter_id:           matterId,
       org_id:              profile.org_id,
       policy_start:        values.policy_start,
@@ -1094,10 +1146,13 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
       date_range_override: values.date_range_override || false,
     })
     if (ppErr) { toast.error(ppErr.message); return }
-    const party = parties.find(p => p.id === values.party_id)
-    logAudit({ profile, matterId, action: 'insurer.added', entityType: 'insurer', entityId: insurerId, entityName: values.insurer_name, metadata: { party: party?.name, policy_limit: values.policy_limit || null, policy_start: values.policy_start, policy_end: values.policy_end } })
-    toast.success('Insurer & policy period added!')
+    const partyName = createdPartyName || parties.find(p => p.id === partyId)?.name
+    logAudit({ profile, matterId, action: 'insurer.added', entityType: 'insurer', entityId: insurerId, entityName: values.insurer_name, metadata: { party: partyName, party_created: !!createdPartyName, policy_limit: values.policy_limit || null, policy_start: values.policy_start, policy_end: values.policy_end } })
+    toast.success(createdPartyName
+      ? `Created party "${createdPartyName}" + insurer & policy period.`
+      : 'Insurer & policy period added!')
     qc.invalidateQueries({ queryKey: ['matter-insurers', matterId] })
+    if (createdPartyName) qc.invalidateQueries({ queryKey: ['matter-parties', matterId] })
     onClose()
   }
 
@@ -1205,14 +1260,43 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
               {parties?.find(p => p.id === defaultPartyId)?.name || 'Selected party'}
               <input type="hidden" value={defaultPartyId} {...register('party_id', { required: 'Required' })} />
             </div>
+          ) : creatingNewParty ? (
+            <div>
+              <label className="form-label flex items-center gap-1.5">
+                New Party (Named Insured) *
+                {parsed && <span className="text-xs font-normal text-emerald-600 inline-flex items-center gap-0.5"><Sparkles className="h-3 w-3" /> from policy</span>}
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="ABC General Contractors, Inc."
+                value={newPartyName}
+                onChange={e => setNewPartyName(e.target.value)}
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                Will be created as a new party on this matter (0% share — adjust afterward).
+              </p>
+              {parties && parties.length > 0 && (
+                <button type="button"
+                  onClick={() => { setCreatingNewParty(false); setNewPartyName('') }}
+                  className="text-xs text-brand-600 hover:underline mt-1.5">
+                  ← Use an existing party instead
+                </button>
+              )}
+            </div>
           ) : (
             <div>
               <label className="form-label">Insured Party *</label>
-              <select className="form-input" {...register('party_id', { required: 'Required' })}>
+              <select className="form-input" {...register('party_id', { required: !creatingNewParty && 'Required' })}>
                 <option value="">Select party…</option>
                 {parties?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               {errors.party_id && <p className="text-red-500 text-xs mt-1">{errors.party_id.message}</p>}
+              <button type="button"
+                onClick={() => setCreatingNewParty(true)}
+                className="text-xs text-brand-600 hover:underline mt-1.5 inline-flex items-center gap-1">
+                <Plus className="h-3 w-3" /> Create new party from this policy
+              </button>
             </div>
           )}
           {/* Claims rep picker — shown when a known insurer is selected */}
@@ -2427,7 +2511,7 @@ export default function MatterDetail() {
                     : <><Bell className="h-4 w-4" /> Check Limits</>}
                 </button>
               )}
-              <button onClick={() => setShowAddInsurer(true)} className="btn-primary" disabled={parties.length === 0}>
+              <button onClick={() => setShowAddInsurer(true)} className="btn-primary">
                 <Plus className="h-4 w-4" /> Add Insurer
               </button>
             </div>
