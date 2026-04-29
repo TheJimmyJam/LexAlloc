@@ -6,7 +6,7 @@ import { generateDemandLetterBlob, getDemandLetterFilename, buildDemandLetterEma
 import { generateApportionmentReport } from '../lib/generateApportionmentReport.js'
 import DemandLetterModal from '../components/DemandLetterModal.jsx'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2, AlertTriangle, Mail, FileDown, Bell, Clock, BookOpen, PlugZap, Lock, Unlock, Pencil } from 'lucide-react'
+import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2, AlertTriangle, AlertCircle, Mail, FileDown, Bell, Clock, BookOpen, PlugZap, Lock, Unlock, Pencil, RefreshCw } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays, addDays } from 'date-fns'
 import { useState, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
@@ -638,7 +638,9 @@ export default function Apportionment() {
   const [bulkPaymentOpen, setBulkPaymentOpen] = useState(false)
   const [letterModal,    setLetterModal]    = useState(null)   // { apport, invoice, pa, ia, orgName }
   const [overrideModal,  setOverrideModal]  = useState(null)   // { ia, partyName }
-  const [generatingAll, setGeneratingAll] = useState(false)
+  const [generatingAll,  setGeneratingAll]  = useState(false)
+  const [failedEmails,   setFailedEmails]   = useState([])   // [{ insurerName, payload }]
+  const [retryingEmails, setRetryingEmails] = useState(false)
   const [sendingReminder, setSendingReminder] = useState(new Set()) // set of ia.ids
 
   const { data: apport, isLoading } = useQuery({
@@ -913,9 +915,10 @@ export default function Apportionment() {
     if (allPairs.length === 0) { toast.error('No insurer obligations to generate letters for.'); return }
     setGeneratingAll(true)
 
-    let emailsSent    = 0
-    let emailsSkipped = 0  // no email on file at all
-    let emailErrors   = [] // email found but function failed
+    let emailsSent     = 0
+    let emailsSkipped  = 0  // no email on file at all
+    let emailErrors    = [] // email found but function failed — for toast summary
+    const retryPayloads = [] // full payloads for retry UI
 
     try {
       const inv     = apport.invoices || {}
@@ -981,26 +984,25 @@ export default function Apportionment() {
         const claimsEmail = ipp.claims_rep_email || ia.insurers?.contact_email || null
 
         // 4. Send email with attachment + mark as demanded
+        const emailPayload = {
+          insurer_apportionment_id: ia.id,
+          attachment_base64:        base64,
+          attachment_filename:      filename,
+          claims_rep_email:         claimsEmail,
+          claims_rep_name:          ipp.claims_rep_name || null,
+          insurer_name:             ia.insurers?.name   || null,
+          lexalloc_invoice_number:  lexallocInvoiceNumber,
+          email_html:               buildDemandLetterEmailHtml({ apport, invoice: inv, pa, ia, orgName, lexallocInvoiceNumber }),
+        }
         try {
-          const emailHtml = buildDemandLetterEmailHtml({ apport, invoice: inv, pa, ia, orgName, lexallocInvoiceNumber })
-          const { data: fnData, error: fnErr } = await supabase.functions.invoke('send-demand-letter', {
-            body: {
-              insurer_apportionment_id: ia.id,
-              attachment_base64:        base64,
-              attachment_filename:      filename,
-              claims_rep_email:         claimsEmail,
-              claims_rep_name:          ipp.claims_rep_name || null,
-              insurer_name:             ia.insurers?.name   || null,
-              lexalloc_invoice_number:  lexallocInvoiceNumber,
-              email_html:               emailHtml,
-            },
-          })
+          const { error: fnErr } = await supabase.functions.invoke('send-demand-letter', { body: emailPayload })
           if (fnErr) throw new Error(fnErr.message || JSON.stringify(fnErr))
           if (claimsEmail) emailsSent++
           else emailsSkipped++
         } catch (err) {
           if (claimsEmail) {
             emailErrors.push({ name: ia.insurers?.name, msg: err.message })
+            retryPayloads.push({ insurerName: ia.insurers?.name, payload: emailPayload })
           } else {
             emailsSkipped++
           }
@@ -1010,16 +1012,16 @@ export default function Apportionment() {
       // Refresh so demanded statuses show without a reload
       qc.invalidateQueries({ queryKey: ['apportionment', apportionmentId] })
 
+      // Surface retryable failures as persistent banner
+      setFailedEmails(retryPayloads)
+
       const letterWord = allPairs.length !== 1 ? 'letters' : 'letter'
       if (emailsSent > 0) {
         const skippedNote = emailsSkipped > 0 ? ` · ${emailsSkipped} skipped (no email on file)` : ''
-        const errorNote   = emailErrors.length > 0 ? ` · ${emailErrors.length} failed` : ''
+        const errorNote   = emailErrors.length > 0 ? ` · ${emailErrors.length} failed — see banner above` : ''
         toast.success(`${allPairs.length} ${letterWord} downloaded · ${emailsSent} emailed${skippedNote}${errorNote}`, { duration: 6000 })
       } else if (emailErrors.length > 0) {
-        toast.error(
-          `${allPairs.length} ${letterWord} downloaded — email failed: ${emailErrors[0].msg}`,
-          { duration: 10000 }
-        )
+        toast.error(`${allPairs.length} ${letterWord} downloaded — ${emailErrors.length} email${emailErrors.length !== 1 ? 's' : ''} failed. Use the retry banner to try again.`, { duration: 8000 })
       } else {
         toast.success(
           `${allPairs.length} ${letterWord} downloaded (no claims rep emails found — check insurer policy periods)`,
@@ -1031,6 +1033,28 @@ export default function Apportionment() {
       toast.error('Error generating letters: ' + err.message)
     } finally {
       setGeneratingAll(false)
+    }
+  }
+
+  const handleRetryEmails = async () => {
+    if (!failedEmails.length) return
+    setRetryingEmails(true)
+    const stillFailed = []
+    for (const { insurerName, payload } of failedEmails) {
+      try {
+        const { error: fnErr } = await supabase.functions.invoke('send-demand-letter', { body: payload })
+        if (fnErr) throw new Error(fnErr.message || JSON.stringify(fnErr))
+      } catch {
+        stillFailed.push({ insurerName, payload })
+      }
+    }
+    setRetryingEmails(false)
+    setFailedEmails(stillFailed)
+    if (stillFailed.length === 0) {
+      toast.success('All emails sent successfully!')
+      qc.invalidateQueries({ queryKey: ['apportionment', apportionmentId] })
+    } else {
+      toast.error(`${stillFailed.length} email${stillFailed.length !== 1 ? 's' : ''} still failing — check your email integration`)
     }
   }
 
@@ -1100,6 +1124,40 @@ export default function Apportionment() {
           </tbody>
         </table>
       </div>
+
+      {/* Email failure retry banner */}
+      {failedEmails.length > 0 && (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800 p-4 flex items-start gap-3 print:hidden">
+          <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-red-800 dark:text-red-300">
+              {failedEmails.length} demand letter email{failedEmails.length !== 1 ? 's' : ''} failed to send
+            </p>
+            <p className="text-xs text-red-600 dark:text-red-400 mt-0.5 truncate">
+              {failedEmails.map(f => f.insurerName).join(', ')}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleRetryEmails}
+              disabled={retryingEmails}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white text-xs font-semibold transition-colors"
+            >
+              {retryingEmails
+                ? <><span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full" /> Retrying…</>
+                : <><RefreshCw className="h-3 w-3" /> Try Again</>
+              }
+            </button>
+            <button
+              onClick={() => setFailedEmails([])}
+              className="p-1 text-red-400 hover:text-red-600 transition-colors"
+              title="Dismiss"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <div className="mb-6 print:hidden">
