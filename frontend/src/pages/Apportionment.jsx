@@ -135,6 +135,172 @@ function RecordPaymentModal({ ia, partyName, matterId, onClose, onSaved }) {
   )
 }
 
+function BulkPaymentModal({ partyApportionments, matterId, apportionmentId, onClose, onSaved }) {
+  const { profile } = useAuth()
+  const today = new Date().toISOString().split('T')[0]
+
+  // Flatten all outstanding IAs across all parties
+  const allRows = (partyApportionments || []).flatMap(pa =>
+    (pa.insurer_apportionments || [])
+      .filter(ia => !['paid', 'written_off'].includes(ia.payment_status))
+      .map(ia => ({ ia, partyName: pa.parties?.name || '—' }))
+  )
+
+  const [selected,    setSelected]    = useState(() => new Set(allRows.map(r => r.ia.id)))
+  const [status,      setStatus]      = useState('paid')
+  const [payDate,     setPayDate]     = useState(today)
+  const [amounts,     setAmounts]     = useState(() => {
+    const m = {}
+    allRows.forEach(({ ia }) => { m[ia.id] = ia.amount != null ? String(ia.amount) : '' })
+    return m
+  })
+  const [saving, setSaving] = useState(false)
+
+  const toggleAll = () =>
+    setSelected(s => s.size === allRows.length ? new Set() : new Set(allRows.map(r => r.ia.id)))
+
+  const toggle = (id) =>
+    setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+
+  const handleApply = async () => {
+    const targets = allRows.filter(r => selected.has(r.ia.id))
+    if (!targets.length) { toast.error('No rows selected'); return }
+    setSaving(true)
+    try {
+      await Promise.all(targets.map(({ ia }) =>
+        supabase.from('la_insurer_apportionments').update({
+          payment_status: status,
+          amount_paid:    status === 'paid' || status === 'partially_paid'
+            ? parseFloat(amounts[ia.id]) || 0 : 0,
+          payment_date:   status === 'paid' || status === 'partially_paid'
+            ? payDate || null : null,
+        }).eq('id', ia.id)
+      ))
+      await Promise.all(targets.map(({ ia, partyName }) =>
+        logAudit({ profile, matterId, action: 'payment.updated', entityType: 'payment',
+          entityId: ia.id, entityName: ia.insurers?.name,
+          metadata: { bulk: true, new_status: status, amount_paid: parseFloat(amounts[ia.id]) || 0, party: partyName } })
+      ))
+      toast.success(`${targets.length} payment${targets.length !== 1 ? 's' : ''} updated`)
+      onSaved()
+      onClose()
+    } catch (err) {
+      toast.error(err.message || 'Bulk update failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const showAmounts = status === 'paid' || status === 'partially_paid'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 flex-shrink-0">
+          <div>
+            <h2 className="font-semibold text-lg">Bulk Record Payments</h2>
+            <p className="text-sm text-slate-500 mt-0.5">{allRows.length} outstanding obligation{allRows.length !== 1 ? 's' : ''}</p>
+          </div>
+          <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
+        </div>
+
+        {/* Controls */}
+        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex flex-wrap items-end gap-4 flex-shrink-0">
+          <div>
+            <label className="form-label mb-1">Apply Status</label>
+            <select className="form-input py-1.5" value={status} onChange={e => setStatus(e.target.value)}>
+              <option value="paid">Paid in Full</option>
+              <option value="partially_paid">Partially Paid</option>
+              <option value="disputed">Disputed</option>
+              <option value="demanded">Demanded</option>
+            </select>
+          </div>
+          {showAmounts && (
+            <div>
+              <label className="form-label mb-1">Payment Date</label>
+              <input type="date" className="form-input py-1.5" value={payDate} onChange={e => setPayDate(e.target.value)} />
+            </div>
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-slate-500">{selected.size} of {allRows.length} selected</span>
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="overflow-y-auto flex-1">
+          {allRows.length === 0 ? (
+            <p className="text-center text-slate-400 py-12">No outstanding obligations on this apportionment.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="px-4 py-3 text-left w-10">
+                    <input type="checkbox" checked={selected.size === allRows.length} onChange={toggleAll}
+                      className="rounded border-slate-300" />
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Insurer</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Party</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Owed</th>
+                  {showAmounts && (
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Amount Paid ($)</th>
+                  )}
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Current Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {allRows.map(({ ia, partyName }) => (
+                  <tr key={ia.id} className={`hover:bg-slate-50 ${selected.has(ia.id) ? 'bg-brand-50/40' : ''}`}>
+                    <td className="px-4 py-3">
+                      <input type="checkbox" checked={selected.has(ia.id)} onChange={() => toggle(ia.id)}
+                        className="rounded border-slate-300" />
+                    </td>
+                    <td className="px-4 py-3 font-medium text-slate-800">{ia.insurers?.name || '—'}</td>
+                    <td className="px-4 py-3 text-slate-500">{partyName}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-slate-800">{formatCurrency(ia.amount)}</td>
+                    {showAmounts && (
+                      <td className="px-4 py-3">
+                        <input
+                          type="number" step="0.01" min="0"
+                          value={amounts[ia.id]}
+                          onChange={e => setAmounts(a => ({ ...a, [ia.id]: e.target.value }))}
+                          disabled={!selected.has(ia.id)}
+                          className="form-input py-1 text-right w-32 ml-auto block disabled:opacity-40"
+                        />
+                      </td>
+                    )}
+                    <td className="px-4 py-3">
+                      <span className={`badge text-xs ${
+                        ia.payment_status === 'demanded' ? 'bg-amber-100 text-amber-700' :
+                        ia.payment_status === 'partially_paid' ? 'bg-blue-100 text-blue-700' :
+                        ia.payment_status === 'disputed' ? 'bg-red-100 text-red-700' :
+                        'bg-slate-100 text-slate-600'
+                      }`}>{ia.payment_status?.replace('_', ' ')}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-between flex-shrink-0">
+          <button onClick={onClose} className="btn-secondary">Cancel</button>
+          <button
+            onClick={handleApply}
+            disabled={saving || selected.size === 0}
+            className="btn-primary"
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            {saving ? 'Saving…' : `Apply to ${selected.size} Insurer${selected.size !== 1 ? 's' : ''}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SectionCard({ title, icon: Icon, children, defaultOpen = true }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
@@ -469,6 +635,7 @@ export default function Apportionment() {
   const qc = useQueryClient()
   const { profile } = useAuth()
   const [paymentModal,   setPaymentModal]   = useState(null)   // { ia, partyName }
+  const [bulkPaymentOpen, setBulkPaymentOpen] = useState(false)
   const [letterModal,    setLetterModal]    = useState(null)   // { apport, invoice, pa, ia, orgName }
   const [overrideModal,  setOverrideModal]  = useState(null)   // { ia, partyName }
   const [generatingAll, setGeneratingAll] = useState(false)
@@ -960,6 +1127,12 @@ export default function Apportionment() {
             </p>
           </div>
           <div className="flex gap-3 print:hidden flex-wrap">
+            <button
+              onClick={() => setBulkPaymentOpen(true)}
+              className="btn-secondary"
+            >
+              <CheckCircle2 className="h-4 w-4" /> Bulk Mark Paid
+            </button>
             <button
               onClick={handleGenerateAll}
               disabled={generatingAll}
@@ -1466,6 +1639,17 @@ export default function Apportionment() {
           }
         }
       `}</style>
+
+      {/* Bulk payment modal */}
+      {bulkPaymentOpen && (
+        <BulkPaymentModal
+          partyApportionments={partyApps}
+          matterId={matterId}
+          apportionmentId={apportionmentId}
+          onClose={() => setBulkPaymentOpen(false)}
+          onSaved={() => qc.invalidateQueries({ queryKey: ['apportionment', apportionmentId] })}
+        />
+      )}
 
       {/* Payment modal */}
       {paymentModal && (
