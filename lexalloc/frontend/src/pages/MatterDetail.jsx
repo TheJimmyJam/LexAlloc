@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { useForm, Controller } from 'react-hook-form'
 import { formatCurrency, exhaustionInfo } from '../lib/calculations.js'
+import { APPORTIONMENT_METHODS } from '../lib/apportionment.js'
 import { logAudit, getActionMeta } from '../lib/audit.js'
 import {
   ArrowLeft, Plus, Trash2, X, Upload, FileText,
@@ -1411,28 +1412,85 @@ export default function MatterDetail() {
       </div>
 
       {/* ── Overview Tab ── */}
-      {tab === 'overview' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="card p-5 text-center">
-            <p className="text-3xl font-bold text-brand-600">{parties.length}</p>
-            <p className="text-sm text-slate-500 mt-1">Parties</p>
+      {tab === 'overview' && (() => {
+        const setDefaultMethod = async (method) => {
+          await supabase.from('la_matters').update({ default_apportionment_method: method }).eq('id', matterId)
+          qc.invalidateQueries({ queryKey: ['matter', matterId] })
+          toast.success('Default apportionment method saved')
+        }
+
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="card p-5 text-center">
+                <p className="text-3xl font-bold text-brand-600">{parties.length}</p>
+                <p className="text-sm text-slate-500 mt-1">Parties</p>
+              </div>
+              <div className="card p-5 text-center">
+                <p className="text-3xl font-bold text-brand-600">{insurerPeriods.length}</p>
+                <p className="text-sm text-slate-500 mt-1">Policy Periods</p>
+              </div>
+              <div className="card p-5 text-center">
+                <p className="text-3xl font-bold text-brand-600">{invoices.length}</p>
+                <p className="text-sm text-slate-500 mt-1">Invoices</p>
+              </div>
+              <div className="card p-5 text-center">
+                <p className="text-3xl font-bold text-brand-600">
+                  {formatCurrency(invoices.reduce((s, i) => s + (i.total_amount || 0), 0))}
+                </p>
+                <p className="text-sm text-slate-500 mt-1">Total Invoiced</p>
+              </div>
+            </div>
+
+            {/* ── Default Apportionment Method ── */}
+            <div className="card p-5">
+              <div className="flex items-start justify-between mb-1">
+                <div>
+                  <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                    <Calculator className="h-4 w-4 text-brand-500" />
+                    Default Apportionment Method
+                  </h3>
+                  <p className="text-sm text-slate-400 mt-0.5">
+                    New invoices added to this matter will be automatically apportioned using this method. Invoices can still be re-run with a different method individually.
+                  </p>
+                </div>
+                {matter.default_apportionment_method && (
+                  <button
+                    onClick={() => setDefaultMethod(null)}
+                    className="text-xs text-slate-400 hover:text-red-500 transition-colors flex-shrink-0 ml-4"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+                {APPORTIONMENT_METHODS.map(m => (
+                  <button
+                    key={m.value}
+                    type="button"
+                    onClick={() => setDefaultMethod(m.value)}
+                    className={`text-left rounded-xl border-2 p-4 transition-all ${
+                      matter.default_apportionment_method === m.value
+                        ? 'border-brand-600 bg-brand-50'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <p className={`font-semibold text-sm ${matter.default_apportionment_method === m.value ? 'text-brand-700' : 'text-slate-800'}`}>
+                      {m.label}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">{m.description}</p>
+                  </button>
+                ))}
+              </div>
+              {!matter.default_apportionment_method && (
+                <p className="text-xs text-amber-600 mt-3 bg-amber-50 rounded-lg px-3 py-2">
+                  No default set — invoices will need to be apportioned manually from each invoice's detail page.
+                </p>
+              )}
+            </div>
           </div>
-          <div className="card p-5 text-center">
-            <p className="text-3xl font-bold text-brand-600">{insurerPeriods.length}</p>
-            <p className="text-sm text-slate-500 mt-1">Policy Periods</p>
-          </div>
-          <div className="card p-5 text-center">
-            <p className="text-3xl font-bold text-brand-600">{invoices.length}</p>
-            <p className="text-sm text-slate-500 mt-1">Invoices</p>
-          </div>
-          <div className="card p-5 text-center">
-            <p className="text-3xl font-bold text-brand-600">
-              {formatCurrency(invoices.reduce((s, i) => s + (i.total_amount || 0), 0))}
-            </p>
-            <p className="text-sm text-slate-500 mt-1">Total Invoiced</p>
-          </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* ── Financials Tab ── */}
       {tab === 'financials' && (() => {
