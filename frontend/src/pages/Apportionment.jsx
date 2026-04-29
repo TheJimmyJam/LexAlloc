@@ -687,13 +687,20 @@ export default function Apportionment() {
     )
     if (allPairs.length === 0) { toast.error('No insurer obligations to generate letters for.'); return }
     setGeneratingAll(true)
+
+    let emailsSent    = 0
+    let emailsSkipped = 0
+
     try {
       const inv     = apport.invoices || {}
       const orgName = profile?.la_organizations?.name || ''
+
       for (let i = 0; i < allPairs.length; i++) {
         const { pa, ia } = allPairs[i]
         // Stagger downloads so browsers don't block them
         if (i > 0) await new Promise(r => setTimeout(r, 600))
+
+        // 1. Generate blob + download to admin's machine
         const blob     = await generateDemandLetterBlob({ apport, invoice: inv, pa, ia, orgName })
         const filename = getDemandLetterFilename({ apport, invoice: inv, ia })
         const url = URL.createObjectURL(blob)
@@ -702,8 +709,40 @@ export default function Apportionment() {
         document.body.appendChild(a); a.click()
         document.body.removeChild(a)
         URL.revokeObjectURL(url)
+
+        // 2. Convert blob to base64 for email attachment
+        const arrayBuffer = await blob.arrayBuffer()
+        const uint8       = new Uint8Array(arrayBuffer)
+        let binary = ''
+        uint8.forEach(b => { binary += String.fromCharCode(b) })
+        const base64 = btoa(binary)
+
+        // 3. Send email with attachment + mark as demanded
+        try {
+          const { error: fnErr } = await supabase.functions.invoke('send-demand-letter', {
+            body: {
+              insurer_apportionment_id: ia.id,
+              attachment_base64:        base64,
+              attachment_filename:      filename,
+            },
+          })
+          if (fnErr) throw fnErr
+          emailsSent++
+        } catch {
+          // No claims_rep_email on file — letter was still downloaded
+          emailsSkipped++
+        }
       }
-      toast.success(`${allPairs.length} demand letter${allPairs.length !== 1 ? 's' : ''} downloaded`)
+
+      // Refresh so demanded statuses show without a reload
+      qc.invalidateQueries({ queryKey: ['apportionment', apportionmentId] })
+
+      const letterWord = allPairs.length !== 1 ? 'letters' : 'letter'
+      const msg = emailsSent > 0
+        ? `${allPairs.length} ${letterWord} downloaded · ${emailsSent} emailed to insurers`
+        : `${allPairs.length} ${letterWord} downloaded (no claims rep emails on file — add them under each insurer policy period)`
+      toast.success(msg, { duration: 6000 })
+
     } catch (err) {
       toast.error('Error generating letters: ' + err.message)
     } finally {
