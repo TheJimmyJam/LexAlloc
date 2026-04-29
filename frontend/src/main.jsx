@@ -8,7 +8,14 @@ import { ThemeProvider } from './context/ThemeContext.jsx'
 import './index.css'
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 1000 * 60 * 5 } }
+  defaultOptions: {
+    queries: {
+      staleTime:                  1000 * 10,   // data considered fresh for 10 s
+      refetchInterval:            1000 * 15,   // background poll every 15 s
+      refetchIntervalInBackground: false,       // pause polling when tab isn't focused
+      refetchOnWindowFocus:       true,         // immediate re-fetch when you re-focus the tab
+    }
+  }
 })
 
 ReactDOM.createRoot(document.getElementById('root')).render(
