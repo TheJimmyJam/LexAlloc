@@ -1621,6 +1621,24 @@ export default function AdminPanel() {
     setPendingInsurers(prev => { const next = { ...prev }; delete next[userId]; return next })
   }
 
+  const handleDeleteUser = async (u) => {
+    const label = u.first_name ? `${u.first_name} ${u.last_name ?? ''}`.trim() : u.email
+    if (!confirm(`Permanently delete ${label}? This cannot be undone.`)) return
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const { data, error } = await supabase.functions.invoke('delete-user', {
+        body: { target_user_id: u.id },
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : undefined,
+      })
+      if (error) throw new Error(error.message)
+      if (data?.error) throw new Error(data.error)
+      toast.success(`${label} removed.`)
+      qc.invalidateQueries({ queryKey: ['admin-users'] })
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete user')
+    }
+  }
+
   const togglePlatformAdmin = async (userId, current) => {
     if (userId === profile?.id && current) {
       toast.error("Can't remove your own DB Admin status")
@@ -2008,16 +2026,15 @@ export default function AdminPanel() {
                         {u.login_count ?? 0}
                       </td>
                     )}
-                    {isPlatformAdmin && (
-                      <td className="px-4 py-4">
-                        <button
-                          onClick={() => toast('Remove user via Supabase dashboard for now.')}
-                          disabled={u.id === profile?.id}
-                          className="text-slate-300 hover:text-red-500 disabled:opacity-30 transition-colors">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </td>
-                    )}
+                    <td className="px-4 py-4">
+                      <button
+                        onClick={() => handleDeleteUser(u)}
+                        disabled={u.id === profile?.id}
+                        title="Remove user"
+                        className="text-slate-300 hover:text-red-500 disabled:opacity-30 transition-colors">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </td>
                   </tr>
                       ))}
                     </tbody>
