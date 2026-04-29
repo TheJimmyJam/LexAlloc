@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase.js'
 import {
   User, Lock, Building2, Shield, ShieldCheck, ShieldOff, QrCode,
   Loader2, CheckCircle2, X, Briefcase, Plus, Trash2, FolderOpen, Landmark,
+  ChevronDown, ChevronRight, ExternalLink, Mail, Phone, MapPin, UserPlus, Pencil,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -279,41 +280,244 @@ function FirmsTab({ orgId }) {
   )
 }
 
-// ── Add Insurer Modal ─────────────────────────────────────────────────────────
-function AddInsurerModal({ orgId, onClose }) {
+// ── Insurer Edit Modal (add + full edit + claims reps) ───────────────────────
+function InsurerEditModal({ orgId, insurer, onClose }) {
   const qc = useQueryClient()
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm()
+  const isEdit = !!insurer
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({
+    defaultValues: isEdit ? {
+      name: insurer.name, contact_email: insurer.contact_email || '',
+      phone: insurer.phone || '', website: insurer.website || '',
+      payment_portal_url: insurer.payment_portal_url || '',
+      address_line1: insurer.address_line1 || '', address_line2: insurer.address_line2 || '',
+      city: insurer.city || '', state: insurer.state || '', zip: insurer.zip || '',
+      notes: insurer.notes || '',
+    } : {}
+  })
+
+  // Claims reps state
+  const [reps, setReps]           = useState([])
+  const [repForm, setRepForm]     = useState(null) // null | 'new' | rep object
+  const [repName, setRepName]     = useState('')
+  const [repEmail, setRepEmail]   = useState('')
+  const [repPhone, setRepPhone]   = useState('')
+  const [repTitle, setRepTitle]   = useState('')
+  const [savingRep, setSavingRep] = useState(false)
+
+  useEffect(() => {
+    if (!isEdit) return
+    supabase.from('la_insurer_claims_reps')
+      .select('*').eq('insurer_id', insurer.id).order('name')
+      .then(({ data }) => setReps(data || []))
+  }, [isEdit, insurer?.id])
+
+  const openRepForm = (rep = null) => {
+    setRepForm(rep || 'new')
+    setRepName(rep?.name || '')
+    setRepEmail(rep?.email || '')
+    setRepPhone(rep?.phone || '')
+    setRepTitle(rep?.title || '')
+  }
+
+  const saveRep = async () => {
+    if (!repName.trim()) { toast.error('Rep name required'); return }
+    setSavingRep(true)
+    const payload = { name: repName.trim(), email: repEmail || null, phone: repPhone || null, title: repTitle || null }
+    let err
+    if (repForm === 'new') {
+      const res = await supabase.from('la_insurer_claims_reps')
+        .insert({ ...payload, org_id: orgId, insurer_id: insurer.id }).select().single()
+      err = res.error
+      if (!err) setReps(r => [...r, res.data])
+    } else {
+      const res = await supabase.from('la_insurer_claims_reps').update(payload).eq('id', repForm.id).select().single()
+      err = res.error
+      if (!err) setReps(r => r.map(x => x.id === repForm.id ? res.data : x))
+    }
+    setSavingRep(false)
+    if (err) { toast.error(err.message); return }
+    toast.success(repForm === 'new' ? 'Rep added' : 'Rep updated')
+    setRepForm(null)
+    qc.invalidateQueries({ queryKey: ['insurer-reps'] })
+  }
+
+  const deleteRep = async (rep) => {
+    if (!confirm(`Remove ${rep.name}?`)) return
+    const { error } = await supabase.from('la_insurer_claims_reps').delete().eq('id', rep.id)
+    if (error) { toast.error(error.message); return }
+    setReps(r => r.filter(x => x.id !== rep.id))
+    toast.success('Rep removed')
+  }
 
   const onSubmit = async (values) => {
-    const { error } = await supabase.from('la_insurers').insert({ org_id: orgId, name: values.name.trim() })
+    const payload = {
+      name: values.name.trim(), contact_email: values.contact_email || null,
+      phone: values.phone || null, website: values.website || null,
+      payment_portal_url: values.payment_portal_url || null,
+      address_line1: values.address_line1 || null, address_line2: values.address_line2 || null,
+      city: values.city || null, state: values.state || null, zip: values.zip || null,
+      notes: values.notes || null,
+    }
+    let error
+    if (isEdit) {
+      ({ error } = await supabase.from('la_insurers').update(payload).eq('id', insurer.id))
+    } else {
+      ({ error } = await supabase.from('la_insurers').insert({ ...payload, org_id: orgId }))
+    }
     if (error) { toast.error(error.message); return }
-    toast.success('Insurer added!')
+    toast.success(isEdit ? 'Insurer updated' : 'Insurer added!')
     qc.invalidateQueries({ queryKey: ['insurers', orgId] })
     onClose()
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
-        <div className="flex items-center justify-between p-5 border-b border-slate-200">
-          <h2 className="font-semibold text-slate-900">Add Insurer</h2>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 flex-shrink-0">
+          <h2 className="font-semibold text-slate-900 text-lg">{isEdit ? `Edit — ${insurer.name}` : 'Add Insurer'}</h2>
           <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
         </div>
-        <form onSubmit={handleSubmit(onSubmit)} className="p-5 space-y-4">
-          <div>
-            <label className="form-label">Insurer Name *</label>
-            <input className={`form-input ${errors.name ? 'border-red-400' : ''}`}
-              placeholder="Acme Insurance Co."
-              {...register('name', { required: 'Insurer name is required' })} />
-            {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
-          </div>
-          <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
-            <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
-              {isSubmitting ? 'Adding…' : 'Add Insurer'}
-            </button>
-          </div>
-        </form>
+
+        <div className="overflow-y-auto flex-1 p-6 space-y-6">
+          {/* ── Core fields ── */}
+          <form id="insurer-form" onSubmit={handleSubmit(onSubmit)}>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className="form-label">Insurer Name *</label>
+                <input className={`form-input ${errors.name ? 'border-red-400' : ''}`}
+                  placeholder="Acme Insurance Co."
+                  {...register('name', { required: 'Name is required' })} />
+                {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
+              </div>
+              <div>
+                <label className="form-label">Contact Email</label>
+                <input type="email" className="form-input" placeholder="claims@insurer.com"
+                  {...register('contact_email')} />
+              </div>
+              <div>
+                <label className="form-label">Phone</label>
+                <input className="form-input" placeholder="(800) 555-0100"
+                  {...register('phone')} />
+              </div>
+              <div>
+                <label className="form-label">Website</label>
+                <input type="url" className="form-input" placeholder="https://insurer.com"
+                  {...register('website')} />
+              </div>
+              <div>
+                <label className="form-label">Payment Portal URL</label>
+                <input type="url" className="form-input" placeholder="https://payments.insurer.com"
+                  {...register('payment_portal_url')} />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Mailing Address</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <input className="form-input" placeholder="Address Line 1"
+                    {...register('address_line1')} />
+                </div>
+                <div className="col-span-2">
+                  <input className="form-input" placeholder="Address Line 2 (optional)"
+                    {...register('address_line2')} />
+                </div>
+                <div>
+                  <input className="form-input" placeholder="City"
+                    {...register('city')} />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input className="form-input" placeholder="State"
+                    {...register('state')} />
+                  <input className="form-input" placeholder="ZIP"
+                    {...register('zip')} />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="form-label">Notes</label>
+              <textarea className="form-input" rows={2} placeholder="Internal notes…"
+                {...register('notes')} />
+            </div>
+          </form>
+
+          {/* ── Claims Reps (only for existing insurers) ── */}
+          {isEdit && (
+            <div className="border-t border-slate-100 pt-5">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                  <UserPlus className="h-4 w-4 text-slate-400" /> Claims Representatives
+                </p>
+                <button onClick={() => openRepForm()} className="text-xs btn-secondary py-1 px-2">
+                  <Plus className="h-3.5 w-3.5" /> Add Rep
+                </button>
+              </div>
+
+              {reps.length === 0 && repForm === null && (
+                <p className="text-sm text-slate-400 italic">No reps yet — click Add Rep to get started.</p>
+              )}
+
+              <div className="space-y-2">
+                {reps.map(rep => (
+                  <div key={rep.id} className="flex items-start justify-between bg-slate-50 rounded-lg px-3 py-2.5">
+                    <div>
+                      <p className="text-sm font-medium text-slate-800">{rep.name}
+                        {rep.title && <span className="ml-1.5 text-xs text-slate-400">· {rep.title}</span>}
+                      </p>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        {rep.email && <a href={`mailto:${rep.email}`} className="text-xs text-brand-600 hover:underline flex items-center gap-1"><Mail className="h-3 w-3" />{rep.email}</a>}
+                        {rep.phone && <span className="text-xs text-slate-500 flex items-center gap-1"><Phone className="h-3 w-3" />{rep.phone}</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0 ml-3">
+                      <button onClick={() => openRepForm(rep)} className="p-1 text-slate-400 hover:text-brand-600 transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
+                      <button onClick={() => deleteRep(rep)} className="p-1 text-slate-300 hover:text-red-500 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Inline rep form */}
+              {repForm !== null && (
+                <div className="mt-3 bg-brand-50 border border-brand-200 rounded-lg p-4 space-y-3">
+                  <p className="text-xs font-semibold text-brand-700">{repForm === 'new' ? 'New Rep' : `Edit — ${repForm.name}`}</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="form-label text-xs">Name *</label>
+                      <input className="form-input" value={repName} onChange={e => setRepName(e.target.value)} placeholder="Jane Smith" />
+                    </div>
+                    <div>
+                      <label className="form-label text-xs">Title</label>
+                      <input className="form-input" value={repTitle} onChange={e => setRepTitle(e.target.value)} placeholder="Senior Claims Adjuster" />
+                    </div>
+                    <div>
+                      <label className="form-label text-xs">Email</label>
+                      <input type="email" className="form-input" value={repEmail} onChange={e => setRepEmail(e.target.value)} placeholder="jsmith@insurer.com" />
+                    </div>
+                    <div>
+                      <label className="form-label text-xs">Phone</label>
+                      <input className="form-input" value={repPhone} onChange={e => setRepPhone(e.target.value)} placeholder="(800) 555-0100" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={() => setRepForm(null)} className="btn-secondary py-1 text-xs">Cancel</button>
+                    <button onClick={saveRep} disabled={savingRep} className="btn-primary py-1 text-xs">
+                      {savingRep ? 'Saving…' : 'Save Rep'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-3 px-6 py-4 border-t border-slate-200 flex-shrink-0">
+          <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
+          <button type="submit" form="insurer-form" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
+            {isSubmitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Insurer'}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -322,7 +526,7 @@ function AddInsurerModal({ orgId, onClose }) {
 // ── Insurers Tab ──────────────────────────────────────────────────────────────
 function InsurersTab({ orgId }) {
   const qc = useQueryClient()
-  const [showAdd, setShowAdd] = useState(false)
+  const [editModal, setEditModal] = useState(null) // null | 'new' | insurer object
 
   const { data: insurers = [], isLoading } = useQuery({
     queryKey: ['insurers', orgId],
@@ -330,7 +534,7 @@ function InsurersTab({ orgId }) {
     queryFn: async () => {
       const { data } = await supabase
         .from('la_insurers')
-        .select('*, la_insurer_policy_periods(id)')
+        .select('*, la_insurer_policy_periods(id), la_insurer_claims_reps(id)')
         .eq('org_id', orgId)
         .order('name')
       return data || []
@@ -340,7 +544,7 @@ function InsurersTab({ orgId }) {
   const deleteInsurer = async (insurer) => {
     const usageCount = insurer.la_insurer_policy_periods?.length || 0
     if (usageCount > 0) {
-      toast.error(`Can't delete — this insurer is assigned to ${usageCount} policy period${usageCount > 1 ? 's' : ''}. Remove those assignments first.`)
+      toast.error(`Can't delete — assigned to ${usageCount} policy period${usageCount > 1 ? 's' : ''}. Remove those first.`)
       return
     }
     if (!confirm(`Delete "${insurer.name}"?`)) return
@@ -353,8 +557,8 @@ function InsurersTab({ orgId }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-slate-500">Manage the insurance carriers used across your matters.</p>
-        <button onClick={() => setShowAdd(true)} className="btn-primary">
+        <p className="text-sm text-slate-500">Manage carriers, their contact info, and claims representatives.</p>
+        <button onClick={() => setEditModal('new')} className="btn-primary">
           <Plus className="h-4 w-4" /> Add Insurer
         </button>
       </div>
@@ -366,7 +570,7 @@ function InsurersTab({ orgId }) {
           <div className="p-10 text-center text-slate-400">
             <Landmark className="h-8 w-8 mx-auto mb-2 text-slate-300" />
             <p>No insurers yet.</p>
-            <button onClick={() => setShowAdd(true)} className="btn-primary mt-4">
+            <button onClick={() => setEditModal('new')} className="btn-primary mt-4">
               <Plus className="h-4 w-4" /> Add First Insurer
             </button>
           </div>
@@ -374,30 +578,66 @@ function InsurersTab({ orgId }) {
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
-                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Insurer Name</th>
-                <th className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Policy Periods</th>
-                <th className="px-4 py-3 w-10"></th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Insurer</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3 hidden md:table-cell">Contact</th>
+                <th className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Reps</th>
+                <th className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Matters</th>
+                <th className="px-4 py-3 w-20"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {insurers.map(insurer => {
-                const count = insurer.la_insurer_policy_periods?.length || 0
+                const repCount    = insurer.la_insurer_claims_reps?.length || 0
+                const matterCount = insurer.la_insurer_policy_periods?.length || 0
                 return (
                   <tr key={insurer.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-4 font-medium text-slate-800">{insurer.name}</td>
-                    <td className="px-4 py-4 text-center">
-                      <span className="inline-flex items-center gap-1 text-sm text-slate-500">
-                        <Landmark className="h-3.5 w-3.5" /> {count}
-                      </span>
+                    <td className="px-5 py-3.5">
+                      <p className="font-medium text-slate-800">{insurer.name}</p>
+                      {insurer.payment_portal_url && (
+                        <a href={insurer.payment_portal_url} target="_blank" rel="noreferrer"
+                          className="text-xs text-brand-600 hover:underline flex items-center gap-1 mt-0.5">
+                          <ExternalLink className="h-3 w-3" /> Payment portal
+                        </a>
+                      )}
                     </td>
-                    <td className="px-4 py-4 text-right">
-                      <button
-                        onClick={() => deleteInsurer(insurer)}
-                        className="p-1.5 rounded-md text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
-                        title="Delete insurer"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                    <td className="px-4 py-3.5 hidden md:table-cell">
+                      <div className="space-y-0.5">
+                        {insurer.contact_email && (
+                          <a href={`mailto:${insurer.contact_email}`} className="text-xs text-slate-500 flex items-center gap-1 hover:text-brand-600">
+                            <Mail className="h-3 w-3 flex-shrink-0" />{insurer.contact_email}
+                          </a>
+                        )}
+                        {insurer.phone && (
+                          <p className="text-xs text-slate-500 flex items-center gap-1">
+                            <Phone className="h-3 w-3 flex-shrink-0" />{insurer.phone}
+                          </p>
+                        )}
+                        {insurer.city && (
+                          <p className="text-xs text-slate-400 flex items-center gap-1">
+                            <MapPin className="h-3 w-3 flex-shrink-0" />{[insurer.city, insurer.state].filter(Boolean).join(', ')}
+                          </p>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3.5 text-center">
+                      <span className="text-sm text-slate-500">{repCount}</span>
+                    </td>
+                    <td className="px-4 py-3.5 text-center">
+                      <span className="text-sm text-slate-500">{matterCount}</span>
+                    </td>
+                    <td className="px-4 py-3.5 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => setEditModal(insurer)}
+                          className="p-1.5 rounded-md text-slate-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
+                          title="Edit insurer"
+                        ><Pencil className="h-3.5 w-3.5" /></button>
+                        <button
+                          onClick={() => deleteInsurer(insurer)}
+                          className="p-1.5 rounded-md text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                          title="Delete insurer"
+                        ><Trash2 className="h-4 w-4" /></button>
+                      </div>
                     </td>
                   </tr>
                 )
@@ -407,7 +647,13 @@ function InsurersTab({ orgId }) {
         )}
       </div>
 
-      {showAdd && <AddInsurerModal orgId={orgId} onClose={() => setShowAdd(false)} />}
+      {editModal !== null && (
+        <InsurerEditModal
+          orgId={orgId}
+          insurer={editModal === 'new' ? null : editModal}
+          onClose={() => setEditModal(null)}
+        />
+      )}
     </div>
   )
 }
