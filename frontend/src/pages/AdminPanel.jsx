@@ -1351,21 +1351,40 @@ export default function AdminPanel() {
           .from('la_invoice_line_items').insert(allLineItemRows.slice(i, i + 100))
         if (liErr) throw liErr
       }
-      // Back-fill total_amount + mark as apportioned
+      // Leave one invoice per 3 randomly-chosen matters unapportioned (for demo testing)
+      const unapportionedMatterIds = new Set(
+        [...matters].sort(() => Math.random() - 0.5).slice(0, 3).map(m => m.id)
+      )
+      // Track which invoice per matter is held back (first invoice for that matter)
+      const heldBackInvoiceIds = new Set()
+      const seenMatters = new Set()
+      for (const inv of invoices) {
+        if (unapportionedMatterIds.has(inv.matter_id) && !seenMatters.has(inv.matter_id)) {
+          heldBackInvoiceIds.add(inv.id)
+          seenMatters.add(inv.matter_id)
+        }
+      }
+
+      // Back-fill total_amount; mark apportioned vs parsed
       await Promise.all(
         invoices.map(inv =>
-          supabase.from('la_invoices').update({ total_amount: invoiceTotals[inv.id], status: 'apportioned' }).eq('id', inv.id)
+          supabase.from('la_invoices').update({
+            total_amount: invoiceTotals[inv.id],
+            status: heldBackInvoiceIds.has(inv.id) ? 'parsed' : 'apportioned',
+          }).eq('id', inv.id)
         )
       )
 
-      // ── 6. Apportionments ───────────────────────────────────────────────
+      // ── 6. Apportionments (skip held-back invoices) ──────────────────────
       setDemoProgress('Creating apportionments…')
-      const appRows = invoices.map(inv => ({
-        invoice_id:         inv.id,
-        matter_id:          inv.matter_id,
-        org_id:             orgId,
-        calculation_method: ['equal_shares','weighted_billing','time_on_risk'][rand(0,2)],
-      }))
+      const appRows = invoices
+        .filter(inv => !heldBackInvoiceIds.has(inv.id))
+        .map(inv => ({
+          invoice_id:         inv.id,
+          matter_id:          inv.matter_id,
+          org_id:             orgId,
+          calculation_method: ['equal_shares','weighted_billing','time_on_risk'][rand(0,2)],
+        }))
       const { data: apportionments, error: aErr } = await supabase
         .from('la_apportionments').insert(appRows).select('id')
       if (aErr) throw aErr
