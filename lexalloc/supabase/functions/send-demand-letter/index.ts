@@ -170,6 +170,7 @@ Deno.serve(async (req: Request) => {
       claims_rep_name:         passedRepName,
       insurer_name:            passedInsurerName,
       lexalloc_invoice_number: lexallocNum,
+      email_html:              passedEmailHtml,
     } = body
 
     if (!insurer_apportionment_id) {
@@ -236,7 +237,7 @@ Deno.serve(async (req: Request) => {
       ? ` through ${fmtDate(invoice.service_end)}` : ''
     const serviceRange = invoice?.service_start ? serviceStart + serviceEnd : '—'
 
-    const html = buildHtml({
+    const html = passedEmailHtml ?? buildHtml({
       insurerName,
       salutation:  claimsName ? `Dear ${claimsName}:` : 'Dear Sir or Madam:',
       matterName,  matterNum,
