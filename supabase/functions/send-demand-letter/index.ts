@@ -217,12 +217,6 @@ Deno.serve(async (req: Request) => {
 
     if (!claimsEmail) claimsEmail = insurer?.contact_email || null
 
-    // ── Org admins for CC ─────────────────────────────────────────────────────
-    const admins = await dbGet(
-      `la_profiles?org_id=eq.${orgId}&role=in.(admin,user)&notifications_muted=eq.false&select=email`
-    ).catch(() => [])
-    const orgAdminEmails: string[] = (admins || []).map((r: any) => r.email).filter(Boolean)
-
     // ── Build email ───────────────────────────────────────────────────────────
     const insurerName  = passedInsurerName || insurer?.name || 'Unknown Insurer'
     const matterName   = matter?.name ?? 'Unknown Matter'
@@ -258,10 +252,7 @@ Deno.serve(async (req: Request) => {
       : []
 
     // ── Send email ────────────────────────────────────────────────────────────
-    const toList      = claimsEmail ? [claimsEmail] : []
-    const ccList      = orgAdminEmails.filter((e: string) => e !== claimsEmail)
-    const effectiveTo = toList.length > 0 ? toList : ccList
-    const effectiveCc = toList.length > 0 ? ccList  : []
+    const effectiveTo = claimsEmail ? [claimsEmail] : []
 
     let sent   = false
     let sentTo: string | null = null
@@ -269,7 +260,6 @@ Deno.serve(async (req: Request) => {
     if (effectiveTo.length > 0) {
       if (!RESEND_API_KEY) throw new Error('RESEND_API_KEY not configured')
       const payload: Record<string, unknown> = { from: RESEND_FROM, to: effectiveTo, subject, html }
-      if (effectiveCc.length > 0)  payload.cc          = effectiveCc
       if (attachments.length > 0)  payload.attachments = attachments
 
       const resendRes = await fetch('https://api.resend.com/emails', {
