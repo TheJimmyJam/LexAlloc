@@ -14,12 +14,12 @@ const staffNavItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/matters',   icon: FolderOpen,      label: 'Matters'   },
   { to: '/reports',   icon: FileBarChart,    label: 'Reports'   },
-  { to: '/settings',  icon: Settings,        label: 'Settings'  },
+  { to: '/settings',  icon: Settings,        label: 'Rolodex'   },
 ]
 
 const clientNavItems = [
   { to: '/portal',   icon: ShieldCheck, label: 'My Portal' },
-  { to: '/settings', icon: Settings,    label: 'Settings'  },
+  { to: '/settings', icon: Settings,    label: 'Rolodex'   },
 ]
 
 export default function Layout() {
