@@ -25,6 +25,28 @@ async function runWithConcurrency(tasks, limit) {
   await Promise.all(pool)
 }
 
+// ── Matter-grouping helpers ───────────────────────────────────────────────────
+// Multiple invoices for the SAME matter should produce ONE matter with N
+// invoices attached — not N duplicate matters. We compute a stable fingerprint
+// per item so the batch creator can group items before any DB writes.
+function normalizeMatterKey(s) {
+  return (s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, ' ')   // keep alphanumerics, spaces, hyphens
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// Priority: matter_number (cause/docket #) → matter_name. Items missing both
+// fall back to a per-item key so they never collide with anything else.
+function matterFingerprint(item) {
+  const num  = normalizeMatterKey(item.matterNumber)
+  const name = normalizeMatterKey(item.matterName)
+  if (num)  return `mn:${num}`
+  if (name) return `nm:${name}`
+  return `id:${item.id}`
+}
+
 // ── Step pipeline ─────────────────────────────────────────────────────────────
 const STEPS = [
   { key: 'upload',  label: 'Upload',   active: ['uploading'],                  done: ['parsing','ready','creating','created','dupe'] },
@@ -167,11 +189,13 @@ export default function BulkCreateMattersModal({ onClose }) {
   })
 
   // ── Create a single matter + invoice ──────────────────────────────────────
+  // Returns { matterId } on success, or null on dupe/error/missing-name so the
+  // batch creator knows whether to keep grouping more invoices onto it.
   const createItem = async (item, force = false) => {
     const { id, parsed, fileUrl, matterName, matterNumber, firmName, description } = item
     if (!matterName.trim()) {
       update(id, { error: 'Matter name is required', status: 'ready' })
-      return
+      return null
     }
 
     // Dupe check (skip when force = true)
@@ -198,7 +222,7 @@ export default function BulkCreateMattersModal({ onClose }) {
       }
       if (warnings.length) {
         update(id, { status: 'dupe', dupeWarnings: warnings })
-        return
+        return null
       }
     }
 
@@ -264,24 +288,106 @@ export default function BulkCreateMattersModal({ onClose }) {
       setSelected(s => { const n = new Set(s); n.delete(id); return n })
       qc.invalidateQueries({ queryKey: ['matters'] })
       qc.invalidateQueries({ queryKey: ['dashboard-stats'] })
+      return { matterId: newMatter.id }
     } catch (err) {
       update(id, { status: 'error', error: err.message })
+      return null
+    }
+  }
+
+  // ── Attach an invoice to a matter that already exists (e.g. one that was
+  // just created earlier in the same batch). No new matter row — invoice +
+  // line items only.
+  const attachInvoice = async (item, matterId) => {
+    const { id, parsed, fileUrl } = item
+    update(id, { status: 'creating', dupeWarnings: null })
+    try {
+      const { data: invoice, error: invErr } = await supabase
+        .from('la_invoices').insert({
+          matter_id:      matterId,
+          org_id:         profile.org_id,
+          file_url:       fileUrl,
+          invoice_number: parsed.invoice_number,
+          invoice_date:   parsed.invoice_date,
+          billing_firm:   parsed.billing_firm,
+          total_amount:   parseFloat(parsed.total_amount) || 0,
+          service_start:  parsed.service_start,
+          service_end:    parsed.service_end,
+          status:         'parsed',
+          parsed_data:    parsed,
+        }).select().single()
+      if (invErr) throw invErr
+
+      if (parsed.line_items?.length > 0) {
+        await supabase.from('la_invoice_line_items').insert(
+          parsed.line_items.map(li => ({
+            invoice_id:      invoice.id,
+            date_of_service: li.date || li.date_of_service,
+            description:     li.description,
+            timekeeper:      li.timekeeper,
+            hours:           parseFloat(li.hours)  || null,
+            rate:            parseFloat(li.rate)   || null,
+            amount:          parseFloat(li.amount) || 0,
+            category:        li.category || 'fees',
+          }))
+        )
+      }
+
+      api.sendEvent('invoice_parsed', profile.org_id, matterId, {
+        invoice_number: parsed.invoice_number,
+        billing_firm:   parsed.billing_firm,
+      }).catch(() => {})
+
+      update(id, { status: 'created', matterId, expanded: false })
+      setSelected(s => { const n = new Set(s); n.delete(id); return n })
+      qc.invalidateQueries({ queryKey: ['matters'] })
+      return { matterId }
+    } catch (err) {
+      update(id, { status: 'error', error: err.message })
+      return null
     }
   }
 
   // ── Create all selected ready items ───────────────────────────────────────
+  // Group items by matter fingerprint so multiple invoices for the SAME matter
+  // produce ONE matter with N invoices attached, instead of N duplicate matters.
   const createSelected = async () => {
-    const toCreate = queue.filter(i => i.status === 'ready' && selected.has(i.id))
+    const toCreate = queue.filter(
+      i => i.status === 'ready' && selected.has(i.id) && i.matterName.trim()
+    )
     if (!toCreate.length) return
-    // Run sequentially to avoid DB hammering; dupe checks need prior creates visible
-    let created = 0
+
+    // Build groups: one entry per unique matter fingerprint, in original order.
+    const groups = new Map()
     for (const item of toCreate) {
-      if (!item.matterName.trim()) continue
-      await createItem(item)
-      // Re-read status after update — if created, count it
-      created++
+      const fp = matterFingerprint(item)
+      if (!groups.has(fp)) groups.set(fp, [])
+      groups.get(fp).push(item)
     }
-    toast.success(`${created} matter${created !== 1 ? 's' : ''} created!`)
+
+    let mattersCreated   = 0
+    let invoicesAttached = 0
+
+    // Sequential per group: first item creates the matter, the rest attach to it.
+    for (const items of groups.values()) {
+      const [first, ...rest] = items
+      const result = await createItem(first)
+      if (!result?.matterId) continue   // dupe / error / aborted — skip group
+      mattersCreated++
+      invoicesAttached++
+      for (const item of rest) {
+        const r = await attachInvoice(item, result.matterId)
+        if (r?.matterId) invoicesAttached++
+      }
+    }
+
+    if (mattersCreated > 0 || invoicesAttached > 0) {
+      const matterPart  = `${mattersCreated} matter${mattersCreated !== 1 ? 's' : ''} created`
+      const invoicePart = invoicesAttached !== mattersCreated
+        ? ` · ${invoicesAttached} invoice${invoicesAttached !== 1 ? 's' : ''} attached`
+        : ''
+      toast.success(matterPart + invoicePart)
+    }
   }
 
   // ── Selection helpers ─────────────────────────────────────────────────────
@@ -361,7 +467,7 @@ export default function BulkCreateMattersModal({ onClose }) {
                 )}
               </div>
             ) : (
-              <p className="text-sm text-slate-400 mt-0.5">Drop multiple invoice PDFs — each one becomes a new matter.</p>
+              <p className="text-sm text-slate-400 mt-0.5">Drop multiple invoice PDFs — invoices for the same matter are grouped automatically.</p>
             )}
           </div>
           <button onClick={onClose} className="ml-4 text-slate-400 hover:text-slate-600 flex-shrink-0">
@@ -386,7 +492,7 @@ export default function BulkCreateMattersModal({ onClose }) {
               ) : (
                 <>
                   <p className="font-medium text-slate-700">Drop invoice PDFs here</p>
-                  <p className="text-sm text-slate-400 mt-1">Each file creates a new matter · Multiple files supported · PDF, PNG, JPG · max 20MB</p>
+                  <p className="text-sm text-slate-400 mt-1">Invoices for the same matter are grouped automatically · PDF, PNG, JPG · max 20MB</p>
                 </>
               )}
             </div>
