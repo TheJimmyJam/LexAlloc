@@ -365,7 +365,7 @@ export default function Dashboard() {
       <div className="mt-6 card p-5">
         <h2 className="text-sm font-semibold text-slate-900 mb-3">Quick Actions</h2>
         <div className="flex flex-wrap gap-3">
-          <button onClick={() => setShowWizard(true)} className="btn-primary"><Plus className="h-4 w-4" /> New Matter</button>
+          <button onClick={() => navigate('/matters?new=1')} className="btn-primary"><Plus className="h-4 w-4" /> New Matter</button>
           <button onClick={() => setShowUploadInvoice(true)} className="btn-secondary"><Upload className="h-4 w-4" /> Upload Invoice</button>
         </div>
       </div>
