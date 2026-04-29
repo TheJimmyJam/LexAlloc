@@ -965,13 +965,13 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
       const ext  = file.name.split('.').pop()
       const path = `policy-docs/${profile.org_id}/${Date.now()}.${ext}`
       const { error: upErr } = await supabase.storage
-        .from('matter-documents')
+        .from('la_documents')
         .upload(path, file, { upsert: true })
       if (upErr) throw new Error(upErr.message)
 
       // 2. Get signed URL (1 hour)
       const { data: signed } = await supabase.storage
-        .from('matter-documents')
+        .from('la_documents')
         .createSignedUrl(path, 3600)
       const fileUrl = signed?.signedUrl
       if (!fileUrl) throw new Error('Could not get signed URL')
