@@ -50,7 +50,7 @@ const DATE_PRESETS = [
 
 const TABS = [
   { key: 'outstanding',    label: 'A/R',                     icon: AlertTriangle },
-  { key: 'collections',    label: 'AR Aging',                icon: Timer         },
+  { key: 'collections',    label: 'A/R Aging',               icon: Timer         },
   { key: 'velocity',       label: 'Payment Velocity',        icon: Clock         },
   { key: 'categories',     label: 'Invoice Categories',      icon: Layers        },
   { key: 'aging',          label: 'Matter Aging',            icon: TrendingUp    },
@@ -1977,12 +1977,13 @@ export default function Reports() {
       </div>
 
       {(() => {
-        // The Demand Letters report has a lot of columns (the per-letter
-        // detail table inside each expanded matter has 10), so when it's the
-        // active tab we drop the sidebar and let the report use the full
-        // width. The compact horizontal tab strip above keeps navigation
-        // available without eating sidebar real estate.
-        const isFullWidth = tab === 'demand_letters'
+        // Some reports have so many columns that they need the full page
+        // width — Demand Letters' grouped detail table has 10 cols inside
+        // each expanded matter, A/R Aging has 8 with sortable headers and
+        // a search box. For those tabs we drop the sidebar and show a
+        // compact horizontal tab strip above the report instead.
+        const FULL_WIDTH_TABS = new Set(['demand_letters', 'collections'])
+        const isFullWidth = FULL_WIDTH_TABS.has(tab)
 
         const reportContent = isLoading ? (
           <div className="card p-16 text-center">
