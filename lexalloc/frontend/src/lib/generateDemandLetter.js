@@ -13,7 +13,7 @@ function fmt(n) {
 function fmtPct(n) { return `${(n || 0).toFixed(2)}%` }
 function fmtDate(d) {
   if (!d) return '-'
-  return format(typeof d === 'string' ? parseISO(d) : d, 'MMMM d, yyyy')
+  return format(typeof d === 'string' ? parseISO(d) : d, 'MM/dd/yyyy')
 }
 
 // US Letter with 1-inch margins = 9360 DXA content width
@@ -103,7 +103,7 @@ function calcDescription(method, ia, pa) {
   const total = (ia.total_days   != null) ? ia.total_days   : '-'
   return 'Costs for ' + partyName + ' have been allocated on a pro-rata time-on-risk ' +
     'basis. ' + insurerName + '\'s policy was on-risk for ' + days + ' of the ' + total +
-    ' days in the applicable coverage period, representing ' + pct + ' of the total exposure.'
+    ' days in the applicable coverage period, representing ' + pct + ' of the total obligation.'
 }
 
 // --- Main generator ----------------------------------------------------------
@@ -404,6 +404,173 @@ export async function generateDemandLetterBlob(data) {
   })
 
   return Packer.toBlob(doc)
+}
+
+// ── HTML email version (mirrors PDF content) ──────────────────────────────────
+
+export function buildDemandLetterEmailHtml({ apport, invoice, pa, ia, orgName, lexallocInvoiceNumber }) {
+  const pp         = ia.insurer_policy_periods || {}
+  const method     = apport.calculation_method || 'pro_rata_time_on_risk'
+  const firmName   = orgName || '[Law Firm Name]'
+  const insurerName = (ia.insurers && ia.insurers.name) ? ia.insurers.name : 'the insurer'
+  const partyName   = (pa.parties  && pa.parties.name)  ? pa.parties.name  : 'Party'
+  const matterName  = (apport.matters && apport.matters.name) ? apport.matters.name : 'Matter'
+  const salutation  = pp.claims_rep_name ? `Dear ${pp.claims_rep_name}:` : 'Dear Sir or Madam:'
+  const paymentAmt  = fmt(ia.amount)
+
+  const servicePeriod = (() => {
+    let s = fmtDate(invoice.service_start)
+    if (invoice.service_end && invoice.service_end !== invoice.service_start)
+      s += ' through ' + fmtDate(invoice.service_end)
+    return s
+  })()
+
+  const calcDesc = calcDescription(method, ia, pa)
+
+  // Obligation table rows for all insurers under this party
+  const allInsurers = (pa.insurer_apportionments && pa.insurer_apportionments.length > 0)
+    ? pa.insurer_apportionments : [ia]
+
+  const obligationRows = allInsurers.map(eachIa => {
+    const eName    = (eachIa.insurers && eachIa.insurers.name) ? eachIa.insurers.name : 'Insurer'
+    const isTarget = eachIa.id === ia.id
+    let desc = eName
+    if (method === 'pro_rata_time_on_risk') {
+      desc += ` – ${eachIa.days_on_risk ?? '-'} / ${eachIa.total_days ?? '-'} days`
+    }
+    const weight = isTarget ? '700' : '400'
+    const bg     = isTarget ? '#f0f4ff' : '#ffffff'
+    return `<tr style="background:${bg};">
+      <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;font-weight:${weight};">${desc}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;font-weight:${weight};text-align:right;">${fmtPct(eachIa.percentage)}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;font-weight:${weight};text-align:right;">${fmt(eachIa.amount)}</td>
+    </tr>`
+  }).join('')
+
+  const infoRow = (label, value) => value
+    ? `<tr><td style="padding:5px 0;font-size:13px;color:#64748b;font-weight:600;width:200px;">${label}</td>
+       <td style="padding:5px 0;font-size:13px;color:#0f172a;">${value}</td></tr>`
+    : ''
+
+  const title = `Formal Demand for Defense Costs — ${insurerName}`
+
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${title}</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;">
+<div style="display:none;">${title} — LexAlloc</div>
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:40px 16px;">
+<tr><td align="center">
+<table width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;border-radius:14px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.1);">
+
+  <!-- Header -->
+  <tr><td style="background:linear-gradient(135deg,#0f172a,#1e1b4b);padding:24px 32px;">
+    <table width="100%" cellpadding="0" cellspacing="0"><tr>
+      <td><table cellpadding="0" cellspacing="0"><tr>
+        <td style="padding-right:12px;vertical-align:middle;">
+          <img src="https://raw.githubusercontent.com/TheJimmyJam/LexAlloc/main/frontend/public/logo-icon.png" width="48" height="48" style="display:block;border-radius:50%;" />
+        </td>
+        <td style="vertical-align:middle;">
+          <span style="color:#fff;font-size:20px;font-weight:700;">LexAlloc</span>
+        </td>
+      </tr></table></td>
+      <td align="right"><span style="background:#2E4057;color:#fff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:20px;">DEMAND LETTER</span></td>
+    </tr></table>
+  </td></tr>
+
+  <!-- Body -->
+  <tr><td style="background:#fff;padding:32px;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
+
+    <h1 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#0f172a;">${title}</h1>
+    <p style="margin:0 0 24px;font-size:12px;color:#94a3b8;">${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</p>
+
+    <!-- Re: block -->
+    <table cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+      ${infoRow('Case Name:', matterName)}
+      ${infoRow('Firm:', invoice.billing_firm || '')}
+      ${infoRow('Firm Matter No.:', apport.matters?.matter_number || '')}
+      ${infoRow('Firm Invoice No.:', invoice.invoice_number || '')}
+      ${infoRow('LexAlloc Invoice No.:', lexallocInvoiceNumber || ia.lexalloc_invoice_number || '')}
+      ${infoRow('Insurer Claim No.:', pp.claim_number || '')}
+    </table>
+
+    <p style="margin:0 0 20px;font-size:15px;color:#334155;line-height:1.7;">${salutation}</p>
+    <p style="margin:0 0 28px;font-size:14px;color:#334155;line-height:1.7;">Please review the following apportionment calculation and remit payment in the amount set forth below for the above captioned matter.</p>
+
+    <!-- Invoice Summary -->
+    <div style="border-bottom:3px solid #2E4057;padding-bottom:6px;margin-bottom:12px;">
+      <span style="font-size:13px;font-weight:700;color:#2E4057;text-transform:uppercase;letter-spacing:0.5px;">Invoice Summary</span>
+    </div>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:24px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+      <tr style="background:#edf0f5;">
+        <th style="padding:9px 12px;text-align:left;font-size:12px;font-weight:700;color:#334155;border-bottom:1px solid #e2e8f0;">Invoice Number</th>
+        <th style="padding:9px 12px;text-align:left;font-size:12px;font-weight:700;color:#334155;border-bottom:1px solid #e2e8f0;">Invoice Date</th>
+        <th style="padding:9px 12px;text-align:left;font-size:12px;font-weight:700;color:#334155;border-bottom:1px solid #e2e8f0;">Service Period</th>
+        <th style="padding:9px 12px;text-align:right;font-size:12px;font-weight:700;color:#334155;border-bottom:1px solid #e2e8f0;">Total Amount</th>
+      </tr>
+      <tr style="background:#fff;">
+        <td style="padding:9px 12px;font-size:13px;color:#0f172a;">${invoice.invoice_number || '—'}</td>
+        <td style="padding:9px 12px;font-size:13px;color:#0f172a;">${fmtDate(invoice.invoice_date)}</td>
+        <td style="padding:9px 12px;font-size:13px;color:#0f172a;">${servicePeriod}</td>
+        <td style="padding:9px 12px;font-size:13px;color:#0f172a;text-align:right;">${fmt(invoice.total_amount)}</td>
+      </tr>
+    </table>
+
+    <!-- Allocated Obligation -->
+    <div style="border-bottom:3px solid #2E4057;padding-bottom:6px;margin-bottom:12px;">
+      <span style="font-size:13px;font-weight:700;color:#2E4057;text-transform:uppercase;letter-spacing:0.5px;">Allocated Obligation</span>
+    </div>
+    <p style="margin:0 0 8px;font-size:14px;color:#334155;line-height:1.7;">
+      ${partyName} bears ${fmtPct(pa.percentage)} of the obligation for this invoice, corresponding to a total party obligation of ${fmt(pa.amount)}.
+    </p>
+    <p style="margin:0 0 16px;font-size:14px;color:#334155;line-height:1.7;">${calcDesc}</p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:24px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+      <tr style="background:#edf0f5;">
+        <th style="padding:9px 12px;text-align:left;font-size:12px;font-weight:700;color:#334155;border-bottom:1px solid #e2e8f0;">Description</th>
+        <th style="padding:9px 12px;text-align:right;font-size:12px;font-weight:700;color:#334155;border-bottom:1px solid #e2e8f0;">Percentage</th>
+        <th style="padding:9px 12px;text-align:right;font-size:12px;font-weight:700;color:#334155;border-bottom:1px solid #e2e8f0;">Amount</th>
+      </tr>
+      <tr style="background:#c8d3e0;">
+        <td style="padding:9px 12px;font-size:13px;font-weight:700;color:#2E4057;">${partyName} share of invoice</td>
+        <td style="padding:9px 12px;font-size:13px;font-weight:700;color:#2E4057;text-align:right;">${fmtPct(pa.percentage)}</td>
+        <td style="padding:9px 12px;font-size:13px;font-weight:700;color:#2E4057;text-align:right;">${fmt(pa.amount)}</td>
+      </tr>
+      ${obligationRows}
+      <tr style="background:#edf0f5;">
+        <td style="padding:9px 12px;font-size:13px;font-weight:700;color:#0f172a;" colspan="2">Total due from ${insurerName}</td>
+        <td style="padding:9px 12px;font-size:14px;font-weight:700;color:#1a4480;text-align:right;">${paymentAmt}</td>
+      </tr>
+    </table>
+
+    <!-- Payment Instructions -->
+    <div style="border-bottom:3px solid #2E4057;padding-bottom:6px;margin-bottom:12px;">
+      <span style="font-size:13px;font-weight:700;color:#2E4057;text-transform:uppercase;letter-spacing:0.5px;">Payment Instructions</span>
+    </div>
+    <p style="margin:0 0 12px;font-size:14px;color:#334155;line-height:1.7;">
+      Payment of <strong>${paymentAmt}</strong> is requested within thirty (30) days of the date of this letter.
+      Please make checks payable to <strong>${firmName}</strong> and remit to the address provided by the issuing law firm.
+    </p>
+    <p style="margin:0 0 24px;font-size:14px;color:#334155;line-height:1.7;">
+      Please reference the matter name, claim number, and invoice number on all correspondence and remittances to ensure proper application of payment.
+    </p>
+    <p style="margin:0 0 24px;font-size:14px;color:#334155;line-height:1.7;">
+      If you have any questions regarding this demand or the underlying calculation methodology, please do not hesitate to contact the undersigned.
+    </p>
+
+    <p style="margin:0 0 4px;font-size:14px;color:#334155;">Very truly yours,</p>
+    <p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#0f172a;">${firmName}</p>
+
+  </td></tr>
+
+  <!-- Footer -->
+  <tr><td style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 14px 14px;padding:16px 32px;">
+    <p style="margin:0;font-size:11px;color:#94a3b8;text-align:center;font-style:italic;">
+      ATTORNEY WORK PRODUCT — PRIVILEGED AND CONFIDENTIAL<br>
+      Legal Invoice Apportionment Platform &mdash; <a href="https://lexalloc.netlify.app" style="color:#94a3b8;">lexalloc.netlify.app</a>
+    </p>
+  </td></tr>
+
+</table>
+</td></tr></table>
+</body></html>`
 }
 
 export function getDemandLetterFilename(data) {
