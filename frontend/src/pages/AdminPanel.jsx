@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw, ChevronRight, Loader2, Key, Copy, Eye, EyeOff, Code, Terminal, Palette, Globe, Image, Wand2 } from 'lucide-react'
+import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw, ChevronRight, Loader2, Key, Copy, Eye, EyeOff, Code, Terminal, Palette, Globe, Image, Wand2, User, Lock, ShieldCheck, ShieldOff, QrCode } from 'lucide-react'
 import { applyPalette } from '../context/BrandingContext.jsx'
 import { formatCurrency } from '../lib/calculations.js'
 import { format, parseISO } from 'date-fns'
@@ -11,6 +11,8 @@ import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
 
 const TABS = [
+  { key: 'profile',      label: 'Profile',       icon: User,      dbAdminOnly: false },
+  { key: 'security',     label: 'Security',      icon: Lock,      dbAdminOnly: false },
   { key: 'users',        label: 'Users',         icon: Users,     dbAdminOnly: false },
   { key: 'orgs',         label: 'Organizations', icon: Building2, dbAdminOnly: false },
   { key: 'integrations', label: 'Integrations',  icon: Plug,      dbAdminOnly: false },
@@ -18,6 +20,135 @@ const TABS = [
   { key: 'branding',     label: 'Branding',       icon: Palette,   dbAdminOnly: false },
   { key: 'demo',         label: 'Demo Data',      icon: Wand2,     dbAdminOnly: true  },
 ]
+
+// ── 2FA Enrollment Modal ──────────────────────────────────────────────────────
+function TwoFAEnrollModal({ onClose, onEnrolled }) {
+  const [step,       setStep]       = useState('loading')
+  const [factorId,   setFactorId]   = useState(null)
+  const [qrCode,     setQrCode]     = useState(null)
+  const [secret,     setSecret]     = useState(null)
+  const [code,       setCode]       = useState('')
+  const [verifying,  setVerifying]  = useState(false)
+  const [showSecret, setShowSecret] = useState(false)
+
+  useEffect(() => {
+    async function startEnroll() {
+      const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp' })
+      if (error) { toast.error('Could not start 2FA setup: ' + error.message); onClose(); return }
+      setFactorId(data.id)
+      setQrCode(data.totp.qr_code)
+      setSecret(data.totp.secret)
+      setStep('scan')
+    }
+    startEnroll()
+  }, [])
+
+  const handleConfirm = async (e) => {
+    e?.preventDefault()
+    if (code.length < 6 || !factorId) return
+    setVerifying(true)
+    try {
+      const { data: challenge, error: cErr } = await supabase.auth.mfa.challenge({ factorId })
+      if (cErr) { toast.error(cErr.message); return }
+      const { error: vErr } = await supabase.auth.mfa.verify({ factorId, challengeId: challenge.id, code: code.trim() })
+      if (vErr) { toast.error('Incorrect code — try again'); setCode(''); return }
+      setStep('done')
+      onEnrolled()
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  const handleCodeChange = (e) => {
+    const val = e.target.value.replace(/\D/g, '').slice(0, 6)
+    setCode(val)
+    if (val.length === 6) setTimeout(() => handleConfirm(), 50)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between p-6 border-b border-slate-200">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-brand-600" />
+            <h2 className="font-semibold text-lg">Set Up Two-Factor Authentication</h2>
+          </div>
+          <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
+        </div>
+        <div className="p-6">
+          {step === 'loading' && (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-brand-600" />
+            </div>
+          )}
+          {step === 'scan' && (
+            <div className="space-y-5">
+              <div className="flex items-start gap-3 p-4 bg-brand-50 rounded-xl border border-brand-100">
+                <div className="w-6 h-6 rounded-full bg-brand-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">1</div>
+                <div>
+                  <p className="font-medium text-brand-900 text-sm">Scan the QR code</p>
+                  <p className="text-xs text-brand-700 mt-0.5">Open your authenticator app and scan the code below.</p>
+                </div>
+              </div>
+              {qrCode && (
+                <div className="flex justify-center p-4 bg-white border-2 border-slate-200 rounded-xl">
+                  <img src={qrCode} alt="2FA QR Code" className="w-44 h-44" />
+                </div>
+              )}
+              <div>
+                <button type="button" onClick={() => setShowSecret(s => !s)} className="text-xs text-brand-600 hover:text-brand-700 underline">
+                  {showSecret ? 'Hide' : "Can't scan? Enter code manually"}
+                </button>
+                {showSecret && secret && (
+                  <div className="mt-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <p className="text-xs text-slate-500 mb-1">Manual entry key:</p>
+                    <code className="text-sm font-mono font-bold text-slate-800 break-all select-all">{secret}</code>
+                  </div>
+                )}
+              </div>
+              <button onClick={() => setStep('confirm')} className="btn-primary w-full justify-center">I've scanned the code →</button>
+            </div>
+          )}
+          {step === 'confirm' && (
+            <form onSubmit={handleConfirm} className="space-y-5">
+              <div className="flex items-start gap-3 p-4 bg-brand-50 rounded-xl border border-brand-100">
+                <div className="w-6 h-6 rounded-full bg-brand-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">2</div>
+                <div>
+                  <p className="font-medium text-brand-900 text-sm">Enter the 6-digit code</p>
+                  <p className="text-xs text-brand-700 mt-0.5">Enter the code shown in your authenticator app.</p>
+                </div>
+              </div>
+              <div>
+                <label className="form-label text-center block">Authentication Code</label>
+                <input type="text" inputMode="numeric" autoComplete="one-time-code" autoFocus
+                  placeholder="000000" value={code} onChange={handleCodeChange} maxLength={6}
+                  className="form-input text-center text-2xl font-mono tracking-[0.5em]" disabled={verifying} />
+              </div>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setStep('scan')} className="btn-secondary flex-1 justify-center">← Back</button>
+                <button type="submit" disabled={verifying || code.length < 6} className="btn-primary flex-1 justify-center">
+                  {verifying ? <><Loader2 className="h-4 w-4 animate-spin" /> Confirming…</> : 'Confirm & Enable'}
+                </button>
+              </div>
+            </form>
+          )}
+          {step === 'done' && (
+            <div className="text-center py-4 space-y-4">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+                <CheckCircle2 className="h-8 w-8 text-green-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900 text-lg">2FA Enabled!</h3>
+                <p className="text-sm text-slate-500 mt-1">Your account is now protected with two-factor authentication.</p>
+              </div>
+              <button onClick={onClose} className="btn-primary w-full justify-center">Done</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 const DEMO_PREFIX = '[DEMO]'
 
@@ -820,8 +951,66 @@ function OrgDetailDrawer({ org, orgUsers, currentUserId, isPlatformAdmin, roleCo
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 export default function AdminPanel() {
-  const { profile, refetchProfile } = useAuth()
-  const [tab, setTab]             = useState('users')
+  const { profile, refetchProfile, hasTOTP, refreshMfaLevel } = useAuth()
+  const isAdmin = profile?.role === 'admin'
+
+  // ── Profile & Security state ───────────────────────────────────────────────
+  const [showEnroll,   setShowEnroll]   = useState(false)
+  const [disabling2FA, setDisabling2FA] = useState(false)
+
+  const { register: regProfile, handleSubmit: handleProfileSubmit, reset: resetProfile, formState: { isSubmitting: isProfileSubmitting } } = useForm()
+  const { register: regPwd,     handleSubmit: handlePwd,           reset: resetPwd,     formState: { isSubmitting: isPwdSubmitting }     } = useForm()
+
+  useEffect(() => {
+    if (profile) {
+      resetProfile({ first_name: profile.first_name, last_name: profile.last_name, email: profile.email, role: profile.role })
+    }
+  }, [profile])
+
+  const onSaveProfile = async (values) => {
+    const updates = { first_name: values.first_name, last_name: values.last_name }
+    if (isAdmin) updates.role = values.role
+    const { error } = await supabase.from('la_profiles').update(updates).eq('id', profile.id)
+    if (error) { toast.error(error.message); return }
+    if (isAdmin && values.email !== profile.email) {
+      const { error: emailErr } = await supabase.auth.updateUser({ email: values.email })
+      if (emailErr) toast.error('Profile saved but email update failed: ' + emailErr.message)
+      else toast.success('Profile updated! Check your new email for a confirmation link.')
+      refetchProfile(); return
+    }
+    toast.success('Profile updated!')
+    refetchProfile()
+  }
+
+  const onChangePassword = async ({ password }) => {
+    const { error } = await supabase.auth.updateUser({ password })
+    if (error) { toast.error(error.message); return }
+    toast.success('Password updated!')
+    resetPwd()
+  }
+
+  const handleDisable2FA = async () => {
+    if (!confirm('Disable two-factor authentication? Your account will be less secure.')) return
+    setDisabling2FA(true)
+    try {
+      const { data: factors, error: fErr } = await supabase.auth.mfa.listFactors()
+      if (fErr || !factors?.totp?.length) { toast.error('No 2FA factor found.'); return }
+      const { error } = await supabase.auth.mfa.unenroll({ factorId: factors.totp[0].id })
+      if (error) { toast.error('Failed to disable 2FA: ' + error.message); return }
+      await refreshMfaLevel()
+      toast.success('Two-factor authentication disabled.')
+    } finally {
+      setDisabling2FA(false)
+    }
+  }
+
+  const handleEnrolled = async () => {
+    await refreshMfaLevel()
+    setShowEnroll(false)
+    toast.success('Two-factor authentication is now active.')
+  }
+
+  const [tab, setTab]             = useState('profile')
   const [userRoleTab, setUserRoleTab] = useState('user')
 
   // Handle OAuth redirect back (?connected=quickbooks / ?error=xxx)
@@ -910,6 +1099,14 @@ export default function AdminPanel() {
   const [newKeyExpiry,     setNewKeyExpiry]     = useState('')
   const [creatingKey,      setCreatingKey]      = useState(false)
   const [copiedKey,        setCopiedKey]        = useState(false)
+  const [revealedKeys,     setRevealedKeys]     = useState(new Set())
+
+  const toggleKeyReveal = (id) =>
+    setRevealedKeys(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
 
   const { data: apiKeys = [], refetch: refetchKeys } = useQuery({
     queryKey: ['api-keys', profile?.org_id],
@@ -1527,6 +1724,123 @@ export default function AdminPanel() {
         ))}
       </div>
 
+      {/* ── Profile Tab ── */}
+      {tab === 'profile' && (
+        <div className="max-w-lg">
+          <div className="card">
+            <div className="flex items-center gap-2 p-5 border-b border-slate-100">
+              <User className="h-4 w-4 text-brand-600" />
+              <h2 className="font-semibold text-slate-900">Profile</h2>
+            </div>
+            <form onSubmit={handleProfileSubmit(onSaveProfile)} className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">First Name</label>
+                  <input className="form-input" {...regProfile('first_name')} />
+                </div>
+                <div>
+                  <label className="form-label">Last Name</label>
+                  <input className="form-input" {...regProfile('last_name')} />
+                </div>
+              </div>
+              <div>
+                <label className="form-label">
+                  Email {isAdmin && <span className="text-brand-600 text-xs ml-1">(admin editable)</span>}
+                </label>
+                {isAdmin ? (
+                  <input className="form-input" type="email" {...regProfile('email')} />
+                ) : (
+                  <input className="form-input bg-slate-50 text-slate-500 cursor-not-allowed" value={profile?.email || ''} disabled />
+                )}
+                {isAdmin && <p className="text-xs text-slate-400 mt-1">Changing email sends a confirmation link to the new address.</p>}
+              </div>
+              <div>
+                <label className="form-label">
+                  Role {isAdmin && <span className="text-brand-600 text-xs ml-1">(admin editable)</span>}
+                </label>
+                {isAdmin ? (
+                  <select className="form-input" {...regProfile('role')}>
+                    <option value="admin">Admin</option>
+                    <option value="user">User</option>
+                    <option value="client">Client</option>
+                  </select>
+                ) : (
+                  <input className="form-input bg-slate-50 text-slate-500 cursor-not-allowed capitalize" value={profile?.role || ''} disabled />
+                )}
+              </div>
+              <button type="submit" className="btn-primary" disabled={isProfileSubmitting}>
+                {isProfileSubmitting ? 'Saving…' : 'Save Changes'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Security Tab ── */}
+      {tab === 'security' && (
+        <div className="max-w-lg space-y-6">
+          {/* 2FA */}
+          <div className="card">
+            <div className="flex items-center gap-2 p-5 border-b border-slate-100">
+              <ShieldCheck className="h-4 w-4 text-brand-600" />
+              <h2 className="font-semibold text-slate-900">Two-Factor Authentication</h2>
+              {hasTOTP && (
+                <span className="ml-auto badge bg-green-100 text-green-700 text-xs">
+                  <CheckCircle2 className="h-3 w-3 inline mr-0.5" /> Enabled
+                </span>
+              )}
+            </div>
+            <div className="p-5">
+              {hasTOTP ? (
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-xl">
+                    <ShieldCheck className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-green-800 text-sm">2FA is active on your account</p>
+                      <p className="text-xs text-green-700 mt-0.5">You'll be prompted for a code each time you sign in.</p>
+                    </div>
+                  </div>
+                  <button onClick={handleDisable2FA} disabled={disabling2FA} className="btn-secondary text-red-600 hover:bg-red-50 hover:border-red-200">
+                    {disabling2FA ? <><Loader2 className="h-4 w-4 animate-spin" /> Disabling…</> : <><ShieldOff className="h-4 w-4" /> Disable Two-Factor Authentication</>}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                    <Shield className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-amber-800 text-sm">2FA is not enabled</p>
+                      <p className="text-xs text-amber-700 mt-0.5">Adds a second layer of security to your account.</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setShowEnroll(true)} className="btn-primary">
+                    <QrCode className="h-4 w-4" /> Enable Two-Factor Authentication
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Password */}
+          <div className="card">
+            <div className="flex items-center gap-2 p-5 border-b border-slate-100">
+              <Lock className="h-4 w-4 text-brand-600" />
+              <h2 className="font-semibold text-slate-900">Change Password</h2>
+            </div>
+            <form onSubmit={handlePwd(onChangePassword)} className="p-5 space-y-4">
+              <div>
+                <label className="form-label">New Password</label>
+                <input type="password" className="form-input" placeholder="Min. 8 characters"
+                  {...regPwd('password', { required: true, minLength: 8 })} />
+              </div>
+              <button type="submit" className="btn-primary" disabled={isPwdSubmitting}>
+                {isPwdSubmitting ? 'Updating…' : 'Update Password'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* ── Users Tab ── */}
       {tab === 'users' && (
         <div>
@@ -2002,7 +2316,24 @@ export default function AdminPanel() {
                         <span className="badge bg-amber-100 text-amber-700 text-xs">Expired</span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-400 mt-0.5 font-mono">{k.key_prefix}••••••••••••••••</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="text-xs text-slate-400 font-mono tracking-wider">
+                        {revealedKeys.has(k.id)
+                          ? <>{k.key_prefix}<span className="opacity-40">••••••••••••••••</span></>
+                          : '••••••••••••••••••••••••••••••••'
+                        }
+                      </p>
+                      <button
+                        onClick={() => toggleKeyReveal(k.id)}
+                        title={revealedKeys.has(k.id) ? 'Hide key prefix' : 'Show key prefix'}
+                        className="text-slate-300 hover:text-slate-600 transition-colors flex-shrink-0"
+                      >
+                        {revealedKeys.has(k.id)
+                          ? <EyeOff className="h-3.5 w-3.5" />
+                          : <Eye className="h-3.5 w-3.5" />
+                        }
+                      </button>
+                    </div>
                     <div className="flex items-center gap-3 mt-1 flex-wrap">
                       {(k.scopes || []).map(s => (
                         <span key={s} className="badge bg-slate-100 text-slate-600 text-xs">{s}</span>
@@ -2490,6 +2821,9 @@ export default function AdminPanel() {
       {showAddOrg && (
         <AddOrgModal onClose={() => setShowAddOrg(false)} />
       )}
+      {/* 2FA enrollment modal */}
+      {showEnroll && <TwoFAEnrollModal onClose={() => setShowEnroll(false)} onEnrolled={handleEnrolled} />}
+
       {assignModal && (
         <AssignUserModal
           org={assignModal}
