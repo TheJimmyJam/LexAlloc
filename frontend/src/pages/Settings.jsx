@@ -195,7 +195,9 @@ function FirmsTab({ orgId }) {
   const grouped = useMemo(() => {
     const map = {}
     for (const f of filtered) {
-      const letter = f.name[0]?.toUpperCase() || '#'
+      const displayName = f.name.replace(/^\[.*?\]\s*/, '') // strip [DEMO] etc.
+      const first = displayName[0]?.toUpperCase() || '#'
+      const letter = /[A-Z]/.test(first) ? first : '#'
       if (!map[letter]) map[letter] = []
       map[letter].push(f)
     }
@@ -278,7 +280,7 @@ function FirmsTab({ orgId }) {
         </div>
       ) : (
         <div className="space-y-8">
-          {ALPHABET.filter(l => grouped[l]).map(letter => (
+          {[...ALPHABET, '#'].filter(l => grouped[l]).map(letter => (
             <div key={letter} ref={el => sectionRefs.current[letter] = el}>
               <div className="flex items-center gap-3 mb-3">
                 <span className="text-xl font-extrabold text-slate-800 w-8 flex-shrink-0">{letter}</span>
