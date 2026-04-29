@@ -843,16 +843,16 @@ function InsurersTab({ orgId }) {
 
 // ── Main Rolodex Page ─────────────────────────────────────────────────────────
 const TABS = [
-  { key: 'organization', label: 'Organization', icon: Building2  },
   { key: 'firms',        label: 'Firms',        icon: Briefcase  },
   { key: 'insurers',     label: 'Insurers',     icon: Landmark   },
+  { key: 'organization', label: 'Organization', icon: Building2  },
 ]
 
 export default function Settings() {
   const { profile, refetchProfile } = useAuth()
   const isAdmin = profile?.role === 'admin'
 
-  const [activeTab, setActiveTab] = useState('organization')
+  const [activeTab, setActiveTab] = useState('firms')
 
   const { register: regOrg, handleSubmit: handleOrgSubmit, reset: resetOrg, formState: { isSubmitting: isOrgSubmitting } } = useForm()
 
