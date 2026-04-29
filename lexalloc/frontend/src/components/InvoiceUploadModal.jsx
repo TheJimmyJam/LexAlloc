@@ -366,14 +366,16 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
       // Every invoice is apportioned on save. If parties aren't configured yet,
       // autoApportion returns false silently — user can re-run from InvoiceDetail.
       if (parsed.service_start) {
-        autoApportion({
-          invoiceId: invoice.id,
-          invoice,
-          matterId:  effectiveMatterId,
-          orgId:     profile.org_id,
-          profile,
-          method:    effectiveMethod,
-        }).catch(() => {})
+        try {
+          await autoApportion({
+            invoiceId: invoice.id,
+            invoice,
+            matterId:  effectiveMatterId,
+            orgId:     profile.org_id,
+            profile,
+            method:    effectiveMethod,
+          })
+        } catch { /* non-fatal — user can re-run from InvoiceDetail */ }
       }
 
       update(id, { status: 'saved', expanded: false })
