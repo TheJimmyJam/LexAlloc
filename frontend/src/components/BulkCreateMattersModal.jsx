@@ -1,7 +1,7 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useMemo } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { useNavigate } from 'react-router-dom'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useQuery } from '@tanstack/react-query'
 import {
   X, Upload, Loader2, FileText, CheckCircle, AlertCircle,
   FolderOpen, Trash2, ChevronDown, ChevronUp, Save,
@@ -116,6 +116,30 @@ export default function BulkCreateMattersModal({ onClose }) {
   const [queue,      setQueue]      = useState([])
   const [processing, setProcessing] = useState(false)
   const [selected,   setSelected]   = useState(new Set())
+
+  // Existing matters in the org, indexed by normalized name-key AND number-key
+  // so the live counter knows whether a queued item would CREATE a new matter
+  // or ATTACH to an existing one. Cached for 30s; refetched after writes.
+  const { data: existingKeys } = useQuery({
+    queryKey: ['bulk-create-matter-keys', profile?.org_id],
+    enabled: !!profile?.org_id,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('la_matters')
+        .select('id, name, matter_number')
+        .eq('org_id', profile.org_id)
+        .limit(2000)
+      const set = new Set()
+      for (const m of (data || [])) {
+        const nameKey = normalizeMatterKey(m.name)
+        const numKey  = normalizeMatterKey(m.matter_number)
+        if (nameKey) set.add(`nm:${nameKey}`)
+        if (numKey)  set.add(`mn:${numKey}`)
+      }
+      return set
+    },
+  })
 
   const update = (id, patch) =>
     setQueue(q => q.map(item => item.id === id ? { ...item, ...patch } : item))
@@ -297,6 +321,7 @@ export default function BulkCreateMattersModal({ onClose }) {
       setSelected(s => { const n = new Set(s); n.delete(id); return n })
       qc.invalidateQueries({ queryKey: ['matters'] })
       qc.invalidateQueries({ queryKey: ['dashboard-stats'] })
+      qc.invalidateQueries({ queryKey: ['bulk-create-matter-keys'] })
       return { matterId: newMatter.id }
     } catch (err) {
       update(id, { status: 'error', error: err.message })
@@ -350,6 +375,7 @@ export default function BulkCreateMattersModal({ onClose }) {
       update(id, { status: 'created', matterId, expanded: false })
       setSelected(s => { const n = new Set(s); n.delete(id); return n })
       qc.invalidateQueries({ queryKey: ['matters'] })
+      qc.invalidateQueries({ queryKey: ['bulk-create-matter-keys'] })
       return { matterId }
     } catch (err) {
       update(id, { status: 'error', error: err.message })
@@ -478,6 +504,64 @@ export default function BulkCreateMattersModal({ onClose }) {
   const readyCount   = queue.filter(i => i.status === 'ready').length
   const createdCount = queue.filter(i => i.status === 'created').length
   const errorCount   = queue.filter(i => i.status === 'error').length
+
+  // ── Live preview of what the "Create" button will actually do ─────────────
+  // Groups currently-selected ready items by fingerprint and checks each
+  // group's key against the existing-matters set to decide whether it would
+  // CREATE a new matter or ATTACH to an existing one. Matches createSelected
+  // exactly so the button label is truthful.
+  const intent = useMemo(() => {
+    const ready = queue.filter(
+      i => i.status === 'ready' && selected.has(i.id) && i.matterName.trim()
+    )
+
+    const groups = new Map()
+    for (const i of ready) {
+      const fp = matterFingerprint(i)
+      if (!groups.has(fp)) groups.set(fp, [])
+      groups.get(fp).push(i)
+    }
+
+    let toCreate = 0
+    let toAttach = 0
+    let invoicesToNew      = 0
+    let invoicesToExisting = 0
+
+    if (existingKeys) {
+      for (const [, items] of groups) {
+        const first   = items[0]
+        const nameKey = normalizeMatterKey(first.matterName)
+        const numKey  = normalizeMatterKey(first.matterNumber)
+        const exists  = (nameKey && existingKeys.has(`nm:${nameKey}`)) ||
+                        (numKey  && existingKeys.has(`mn:${numKey}`))
+        if (exists) { toAttach++; invoicesToExisting += items.length }
+        else        { toCreate++; invoicesToNew      += items.length }
+      }
+    } else {
+      // Optimistic count before the existing-matters query resolves —
+      // assume all selected items would create new matters.
+      toCreate = groups.size
+      invoicesToNew = ready.length
+    }
+
+    return {
+      selectedInvoices: ready.length,
+      uniqueGroups:     groups.size,
+      toCreate,
+      toAttach,
+      invoicesToNew,
+      invoicesToExisting,
+    }
+  }, [queue, selected, existingKeys])
+
+  // Compact button label that reflects the actual outcome.
+  const intentLabel = (() => {
+    const { toCreate, toAttach, selectedInvoices } = intent
+    if (toCreate === 0 && toAttach === 0) return 'Create Matters'
+    if (toCreate >  0 && toAttach === 0) return `Create ${toCreate} Matter${toCreate !== 1 ? 's' : ''}`
+    if (toCreate === 0 && toAttach >  0) return `Add ${selectedInvoices} Invoice${selectedInvoices !== 1 ? 's' : ''} to Existing`
+    return `Create ${toCreate} New + Add to ${toAttach} Existing`
+  })()
   const busyCount    = queue.filter(i => ['uploading','parsing','creating'].includes(i.status)).length
   const doneCount    = queue.filter(i => ['created','error','dupe'].includes(i.status)).length
   const batchPct     = queue.length > 0 ? Math.round((doneCount / queue.length) * 100) : 0
@@ -880,12 +964,20 @@ export default function BulkCreateMattersModal({ onClose }) {
               </span>
             )}
 
-            {/* Batch create button */}
+            {/* Batch create button — label reflects matters-to-create vs.
+                attach-to-existing, not just selected-invoice count. */}
             {selectedCount > 0 && (
-              <button onClick={createSelected} disabled={processing} className="btn-primary">
-                <FolderOpen className="h-4 w-4" />
-                Create {selectedCount} Matter{selectedCount !== 1 ? 's' : ''}
-              </button>
+              <div className="flex flex-col items-end gap-0.5">
+                <button onClick={createSelected} disabled={processing} className="btn-primary">
+                  <FolderOpen className="h-4 w-4" />
+                  {intentLabel}
+                </button>
+                {(intent.toCreate + intent.toAttach > 0) && intent.selectedInvoices !== intent.toCreate && (
+                  <span className="text-[10px] text-slate-400">
+                    {intent.selectedInvoices} invoice{intent.selectedInvoices !== 1 ? 's' : ''} total
+                  </span>
+                )}
+              </div>
             )}
             {selectedCount === 0 && readyCount === 1 && (
               <button
