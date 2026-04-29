@@ -353,7 +353,7 @@ function EditMatterModal({ matter, onClose }) {
             <label className="form-label">Status</label>
             <select className="form-input" {...register('status')}>
               <option value="active">Active</option>
-              <option value="pending">Pending</option>
+              <option value="on_hold">On Hold</option>
               <option value="closed">Closed</option>
             </select>
           </div>
@@ -1495,9 +1495,11 @@ export default function MatterDetail() {
   const totalPartyPct = parties.reduce((s, p) => s + (p.share_percentage || 0), 0)
   const statusColors = {
     active: 'bg-green-100 text-green-700', closed: 'bg-slate-100 text-slate-600',
+    on_hold: 'bg-amber-100 text-amber-700', pending: 'bg-amber-100 text-amber-700',
     draft: 'bg-slate-100 text-slate-500', parsed: 'bg-blue-100 text-blue-700',
     apportioned: 'bg-purple-100 text-purple-700',
   }
+  const STATUS_LABELS = { active: 'Active', closed: 'Closed', on_hold: 'On Hold', pending: 'On Hold' }
 
   if (isLoading) return <div className="p-8 text-center text-slate-400">Loading matter…</div>
   if (!matter)   return <div className="p-8 text-center text-slate-400">Matter not found.</div>
@@ -1545,7 +1547,7 @@ export default function MatterDetail() {
           <div className="flex items-center gap-2">
             {isTemplate
               ? <span className="badge bg-violet-100 text-violet-700 text-sm px-3 py-1">Template</span>
-              : <span className={`badge ${statusColors[matter.status] || 'bg-slate-100 text-slate-500'} text-sm px-3 py-1`}>{matter.status}</span>
+              : <span className={`badge ${statusColors[matter.status] || 'bg-slate-100 text-slate-500'} text-sm px-3 py-1`}>{STATUS_LABELS[matter.status] ?? matter.status}</span>
             }
             {!isTemplate && (
               <button
