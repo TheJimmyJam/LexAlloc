@@ -218,7 +218,7 @@ Deno.serve(async (req: Request) => {
 
     // ── Org admins for CC ─────────────────────────────────────────────────────
     const admins = await dbGet(
-      `la_profiles?org_id=eq.${orgId}&role=in.(admin,user)&select=email`
+      `la_profiles?org_id=eq.${orgId}&role=in.(admin,user)&notifications_muted=eq.false&select=email`
     ).catch(() => [])
     const orgAdminEmails: string[] = (admins || []).map((r: any) => r.email).filter(Boolean)
 
