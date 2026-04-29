@@ -37,13 +37,17 @@ function normalizeMatterKey(s) {
     .trim()
 }
 
-// Priority: matter_number (cause/docket #) → matter_name. Items missing both
-// fall back to a per-item key so they never collide with anything else.
+// Priority: matter_name → matter_number. We prioritize NAME because the
+// matter_number we parse off invoices is typically a firm-specific file/ref
+// number (e.g. "47312-0014" on one firm's invoice, "9402.011" on another's
+// for the same litigation), so it differs across invoices for the same
+// matter. The matter caption / "Re:" line is the stable identifier.
+// Items missing both fall back to a per-item key so they never collide.
 function matterFingerprint(item) {
-  const num  = normalizeMatterKey(item.matterNumber)
   const name = normalizeMatterKey(item.matterName)
-  if (num)  return `mn:${num}`
+  const num  = normalizeMatterKey(item.matterNumber)
   if (name) return `nm:${name}`
+  if (num)  return `mn:${num}`
   return `id:${item.id}`
 }
 
@@ -348,16 +352,41 @@ export default function BulkCreateMattersModal({ onClose }) {
     }
   }
 
+  // ── Look up an existing matter for this org by name or number ─────────────
+  // Used by createSelected to attach to an existing matter instead of creating
+  // a duplicate. Returns { id, name } or null.
+  const findExistingMatter = async (item) => {
+    const name = (item.matterName || '').trim()
+    const num  = (item.matterNumber || '').trim()
+    if (name) {
+      const { data } = await supabase.from('la_matters')
+        .select('id, name, matter_number')
+        .eq('org_id', profile.org_id).ilike('name', name).limit(1)
+      if (data?.length) return data[0]
+    }
+    if (num) {
+      const { data } = await supabase.from('la_matters')
+        .select('id, name, matter_number')
+        .eq('org_id', profile.org_id).eq('matter_number', num).limit(1)
+      if (data?.length) return data[0]
+    }
+    return null
+  }
+
   // ── Create all selected ready items ───────────────────────────────────────
-  // Group items by matter fingerprint so multiple invoices for the SAME matter
-  // produce ONE matter with N invoices attached, instead of N duplicate matters.
+  // Two-step grouping prevents duplicate matters:
+  //   1. Group items in this batch by matter fingerprint (so 10 invoices for
+  //      the same matter become ONE group, not ten).
+  //   2. For each group, look up the matter in the DB. If it already exists
+  //      (either from a prior session or just created earlier in this batch
+  //      via a different group key), attach all invoices to it. Otherwise
+  //      create one matter and attach the rest.
   const createSelected = async () => {
     const toCreate = queue.filter(
       i => i.status === 'ready' && selected.has(i.id) && i.matterName.trim()
     )
     if (!toCreate.length) return
 
-    // Build groups: one entry per unique matter fingerprint, in original order.
     const groups = new Map()
     for (const item of toCreate) {
       const fp = matterFingerprint(item)
@@ -368,16 +397,27 @@ export default function BulkCreateMattersModal({ onClose }) {
     let mattersCreated   = 0
     let invoicesAttached = 0
 
-    // Sequential per group: first item creates the matter, the rest attach to it.
     for (const items of groups.values()) {
       const [first, ...rest] = items
-      const result = await createItem(first)
-      if (!result?.matterId) continue   // dupe / error / aborted — skip group
-      mattersCreated++
-      invoicesAttached++
-      for (const item of rest) {
-        const r = await attachInvoice(item, result.matterId)
-        if (r?.matterId) invoicesAttached++
+      const existing = await findExistingMatter(first)
+
+      if (existing) {
+        // Matter already exists — attach every invoice in this group to it.
+        for (const item of items) {
+          const r = await attachInvoice(item, existing.id)
+          if (r?.matterId) invoicesAttached++
+        }
+      } else {
+        // Create the matter from the first item; attach the rest.
+        // force=true skips createItem's dupe gate — we already confirmed no dupe.
+        const result = await createItem(first, true)
+        if (!result?.matterId) continue
+        mattersCreated++
+        invoicesAttached++
+        for (const item of rest) {
+          const r = await attachInvoice(item, result.matterId)
+          if (r?.matterId) invoicesAttached++
+        }
       }
     }
 
@@ -591,12 +631,33 @@ export default function BulkCreateMattersModal({ onClose }) {
 
                       {/* Actions */}
                       <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-                        {item.status === 'dupe' && (
-                          <button onClick={() => createItem(item, true)}
-                            className="flex items-center gap-1 text-xs font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-lg transition-colors">
-                            <AlertTriangle className="h-3.5 w-3.5" /> Create Anyway
-                          </button>
-                        )}
+                        {item.status === 'dupe' && (() => {
+                          // Pull the existing matter id off the first matter-level warning
+                          // (matter_number or matter_name). If found, offer "Attach" as the
+                          // primary action and keep "Create Anyway" as the fallback.
+                          const matterMatch = item.dupeWarnings?.find(
+                            w => w.type === 'matter_number' || w.type === 'matter_name'
+                          )?.match
+                          return (
+                            <>
+                              {matterMatch && (
+                                <button
+                                  onClick={() => attachInvoice(item, matterMatch.id)}
+                                  className="flex items-center gap-1 text-xs font-medium text-brand-700 hover:text-brand-900 bg-brand-50 hover:bg-brand-100 px-2 py-1 rounded-lg transition-colors"
+                                  title={`Attach this invoice to existing matter "${matterMatch.name}"`}
+                                >
+                                  <FolderOpen className="h-3.5 w-3.5" /> Attach to Existing
+                                </button>
+                              )}
+                              <button
+                                onClick={() => createItem(item, true)}
+                                className="flex items-center gap-1 text-xs font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-lg transition-colors"
+                              >
+                                <AlertTriangle className="h-3.5 w-3.5" /> Create Anyway
+                              </button>
+                            </>
+                          )
+                        })()}
                         {item.status === 'ready' && (
                           <>
                             <button onClick={() => toggleExpand(item.id)}
