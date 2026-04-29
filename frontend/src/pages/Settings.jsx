@@ -565,7 +565,7 @@ function InsurersTab({ orgId }) {
     queryFn: async () => {
       const { data } = await supabase
         .from('la_insurers')
-        .select('*, la_insurer_policy_periods(id), la_insurer_claims_reps(id)')
+        .select('*, la_insurer_policy_periods(id, matter_id, la_matters(id, la_invoices(total_amount))), la_insurer_claims_reps(id)')
         .eq('org_id', orgId)
         .order('name')
       return data || []
@@ -677,7 +677,15 @@ function InsurersTab({ orgId }) {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {grouped[letter].map(insurer => {
                   const repCount    = insurer.la_insurer_claims_reps?.length    || 0
-                  const matterCount = insurer.la_insurer_policy_periods?.length || 0
+                  const policyPeriods = insurer.la_insurer_policy_periods || []
+                  // Dedupe matters (insurer may have multiple policy periods per matter)
+                  const uniqueMatters = {}
+                  policyPeriods.forEach(pp => {
+                    if (pp.la_matters && !uniqueMatters[pp.matter_id]) uniqueMatters[pp.matter_id] = pp.la_matters
+                  })
+                  const matterCount = Object.keys(uniqueMatters).length
+                  const totalBilled = Object.values(uniqueMatters).reduce((sum, m) =>
+                    sum + (m.la_invoices?.reduce((s, inv) => s + (inv.total_amount || 0), 0) || 0), 0)
                   return (
                     <button
                       key={insurer.id}
@@ -719,7 +727,7 @@ function InsurersTab({ orgId }) {
                       </div>
 
                       {/* Footer badges */}
-                      <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-slate-100">
                         {repCount > 0 && (
                           <span className="badge bg-brand-50 text-brand-700 text-xs">
                             {repCount} rep{repCount !== 1 ? 's' : ''}
@@ -730,8 +738,13 @@ function InsurersTab({ orgId }) {
                             {matterCount} matter{matterCount !== 1 ? 's' : ''}
                           </span>
                         )}
-                        {insurer.payment_portal_url && (
+                        {totalBilled > 0 && (
                           <span className="badge bg-green-50 text-green-700 text-xs flex items-center gap-1">
+                            <DollarSign className="h-2.5 w-2.5" /> {fmtMoney(totalBilled)} billed
+                          </span>
+                        )}
+                        {insurer.payment_portal_url && (
+                          <span className="badge bg-blue-50 text-blue-600 text-xs flex items-center gap-1">
                             <ExternalLink className="h-2.5 w-2.5" /> Portal
                           </span>
                         )}
