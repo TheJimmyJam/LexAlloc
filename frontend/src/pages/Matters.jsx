@@ -387,9 +387,10 @@ export default function Matters() {
   })
 
   const statusColors = {
-    active:  'bg-green-100 text-green-700',
-    closed:  'bg-slate-100 text-slate-600',
-    pending: 'bg-yellow-100 text-yellow-700',
+    active:   'bg-green-100 text-green-700',
+    closed:   'bg-slate-100 text-slate-600',
+    on_hold:  'bg-amber-100 text-amber-700',
+    pending:  'bg-amber-100 text-amber-700', // legacy fallback
   }
 
   const handleDeleteMatter = async () => {
@@ -496,7 +497,7 @@ export default function Matters() {
             >
               <option value="all">All statuses</option>
               <option value="active">Active</option>
-              <option value="pending">Pending</option>
+              <option value="on_hold">On Hold</option>
               <option value="closed">Closed</option>
             </select>
           </div>
@@ -627,9 +628,9 @@ export default function Matters() {
                       onChange={e => quickUpdateStatus(m.id, e.target.value)}
                       className={`badge border-0 cursor-pointer text-xs font-medium rounded-full px-2.5 py-1 ${statusColors[m.status] || 'bg-slate-100 text-slate-500'}`}
                     >
-                      <option value="active">active</option>
-                      <option value="pending">pending</option>
-                      <option value="closed">closed</option>
+                      <option value="active">Active</option>
+                      <option value="on_hold">On Hold</option>
+                      <option value="closed">Closed</option>
                     </select>
                   </td>
                   <td className="hidden md:table-cell px-4 py-4 text-sm text-slate-400">{format(parseISO(m.created_at), 'MMM d, yyyy')}</td>
