@@ -579,7 +579,7 @@ export function buildDemandLetterEmailHtml({ apport, invoice, pa, ia, orgName, l
   <tr><td style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 14px 14px;padding:16px 32px;">
     <p style="margin:0;font-size:11px;color:#94a3b8;text-align:center;font-style:italic;">
       ATTORNEY WORK PRODUCT — PRIVILEGED AND CONFIDENTIAL<br>
-      Legal Invoice Apportionment Platform &mdash; <a href="https://lexalloc.netlify.app" style="color:#94a3b8;">lexalloc.netlify.app</a>
+      Legal Invoice Apportionment Platform &mdash; <a href="https://lexalloc.com" style="color:#94a3b8;">lexalloc.com</a>
     </p>
   </td></tr>
 
