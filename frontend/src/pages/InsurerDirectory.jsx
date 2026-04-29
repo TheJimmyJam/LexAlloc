@@ -9,13 +9,20 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
+function formatPhone(v) {
+  const d = (v || '').replace(/\D/g, '').slice(0, 10)
+  if (d.length <= 3) return d
+  if (d.length <= 6) return `${d.slice(0,3)}.${d.slice(3)}`
+  return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6)}`
+}
+
 // ── Add / Edit Insurer Modal ──────────────────────────────────────────────────
 function InsurerFormModal({ insurer = null, onClose }) {
   const { profile } = useAuth()
   const qc = useQueryClient()
   const isEdit = !!insurer
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({
+  const { register, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm({
     defaultValues: insurer ? {
       name:             insurer.name,
       policy_number:    insurer.policy_number  || '',
@@ -92,7 +99,8 @@ function InsurerFormModal({ insurer = null, onClose }) {
               <div>
                 <label className="form-label">Claims Rep Phone</label>
                 <input className={`form-input ${errors.claims_rep_phone ? 'border-red-400' : ''}`} placeholder="xxx.xxx.xxxx"
-                  {...register('claims_rep_phone', { validate: v => !v || v.replace(/\D/g, '').length === 10 || 'Must be 10 digits' })} />
+                  {...register('claims_rep_phone', { validate: v => !v || v.replace(/\D/g, '').length === 10 || 'Must be 10 digits' })}
+                  onBlur={e => setValue('claims_rep_phone', formatPhone(e.target.value))} />
                 {errors.claims_rep_phone && <p className="text-red-500 text-xs mt-1">{errors.claims_rep_phone.message}</p>}
               </div>
             </div>
