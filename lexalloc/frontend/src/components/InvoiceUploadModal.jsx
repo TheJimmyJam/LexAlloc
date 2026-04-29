@@ -366,6 +366,7 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
 
       // ── Run apportionment ────────────────────────────────────────────────
       let apportioned = false
+      let apportId    = null
       if (parsed.service_start) {
         try {
           const apportResult = await autoApportion({
@@ -376,7 +377,10 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
             profile,
             method:    effectiveMethod,
           })
-          apportioned = !!apportResult
+          if (apportResult) {
+            apportioned = true
+            apportId    = apportResult
+          }
         } catch { /* fall through — warn below */ }
       }
 
@@ -399,6 +403,13 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
         invoice_number: parsed.invoice_number,
         billing_firm:   parsed.billing_firm,
       }).catch(() => {})
+      if (apportioned && apportId) {
+        api.sendEvent('apportionment_run', profile.org_id, effectiveMatterId, {
+          invoice_number:   parsed.invoice_number,
+          method:           effectiveMethod,
+          apportionment_id: apportId,
+        }).catch(() => {})
+      }
     } catch (err) {
       update(id, { status: 'error', error: err.message })
     }
