@@ -1418,6 +1418,118 @@ function RequestAdjusterInfoModal({ matter, onClose }) {
   )
 }
 
+// ── Bulk-apportion confirmation modal ─────────────────────────────────────────
+// Replaces the native browser confirm() dialog with a styled summary card so
+// the user can see exactly what's about to happen before they fire off a
+// batch apportionment + demand-letter run.
+function BulkApportionConfirmModal({ invoices = [], method, parties = [], insurerPeriods = [], onCancel, onConfirm }) {
+  const methodLabel = APPORTIONMENT_METHODS.find(m => m.value === method)?.label || method
+  const methodDesc  = APPORTIONMENT_METHODS.find(m => m.value === method)?.description || ''
+
+  // Total invoiced dollars in the batch
+  const totalDollars = invoices.reduce((s, inv) => s + (parseFloat(inv.total_amount) || 0), 0)
+
+  // Estimated demand letters: per (party × insurer policy period) pair that
+  // overlaps the invoice. We can't run the math here without making the
+  // confirm slow, so we cap it at total policy periods × invoices and call
+  // it "up to" — actual will be lower (zero-share pairs are skipped).
+  const policyPeriodCount = insurerPeriods.length
+  const upperLetters      = invoices.length * policyPeriodCount
+
+  const previewLimit = 6
+  const previewRows  = invoices.slice(0, previewLimit)
+  const overflowRows = Math.max(0, invoices.length - previewLimit)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+
+        <div className="flex items-start gap-3 p-6 border-b border-slate-200">
+          <div className="w-11 h-11 bg-brand-100 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Calculator className="h-5 w-5 text-brand-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-semibold text-lg text-slate-900">Apportion all unapportioned invoices?</h2>
+            <p className="text-sm text-slate-500 mt-0.5">
+              We'll run the math, save the results, then email demand letters to every carrier with a non-zero share.
+            </p>
+          </div>
+          <button onClick={onCancel}><X className="h-5 w-5 text-slate-400" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+
+          {/* Stat tiles */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-slate-900">{invoices.length}</p>
+              <p className="text-xs text-slate-500 mt-0.5">invoice{invoices.length !== 1 ? 's' : ''}</p>
+            </div>
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-slate-900">{parties.length}<span className="text-base text-slate-400 font-medium"> × {policyPeriodCount}</span></p>
+              <p className="text-xs text-slate-500 mt-0.5">parties × policies</p>
+            </div>
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-slate-900">≤ {upperLetters}</p>
+              <p className="text-xs text-slate-500 mt-0.5">demand letter{upperLetters !== 1 ? 's' : ''}</p>
+            </div>
+          </div>
+
+          {/* Method card */}
+          <div className="bg-brand-50 border border-brand-200 rounded-lg p-3 flex items-start gap-3">
+            <Calculator className="h-4 w-4 text-brand-600 mt-0.5 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-brand-900">Method · {methodLabel}</p>
+              {methodDesc && <p className="text-xs text-brand-700 mt-0.5">{methodDesc}</p>}
+            </div>
+          </div>
+
+          {/* Invoice preview list */}
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+              Invoices to apportion · {formatCurrency(totalDollars)} total
+            </p>
+            <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-52 overflow-y-auto">
+              {previewRows.map(inv => (
+                <div key={inv.id} className="px-3 py-2 flex items-center justify-between hover:bg-slate-50">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800 truncate">{inv.invoice_number || 'Draft'}</p>
+                    <p className="text-xs text-slate-400 truncate">{inv.billing_firm || '—'}</p>
+                  </div>
+                  <p className="text-sm font-mono font-semibold text-slate-700 ml-3 flex-shrink-0">
+                    {formatCurrency(inv.total_amount)}
+                  </p>
+                </div>
+              ))}
+              {overflowRows > 0 && (
+                <div className="px-3 py-2 text-xs text-slate-400 text-center bg-slate-50">
+                  + {overflowRows} more invoice{overflowRows !== 1 ? 's' : ''}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Heads-up */}
+          <div className="flex items-start gap-2 text-xs text-slate-500 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
+            <span>
+              Demand letters are sent immediately via email. Make sure parties, policy periods, and claims-rep emails are set up correctly. Apportionments are saved even if some letters fail to send — you can retry letters individually from the Apportionment page.
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 p-4 border-t border-slate-200 flex-shrink-0">
+          <button onClick={onCancel} className="btn-secondary">Cancel</button>
+          <button onClick={onConfirm} className="btn-primary">
+            <Calculator className="h-4 w-4" /> Apportion {invoices.length} &amp; Send Letters
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function MatterDetail() {
   const { matterId } = useParams()
@@ -1439,15 +1551,12 @@ export default function MatterDetail() {
   const [invoiceDragOver,  setInvoiceDragOver]    = useState(false)
 
   // ── Bulk-apportion all unapportioned invoices ───────────────────────────────
-  const [bulkApportioning, setBulkApportioning] = useState(false)
-  const [bulkProgress,     setBulkProgress]     = useState({ done: 0, total: 0, label: '' })
+  const [bulkApportioning,     setBulkApportioning]     = useState(false)
+  const [bulkProgress,         setBulkProgress]         = useState({ done: 0, total: 0, label: '' })
+  const [showBulkApportionConfirm, setShowBulkApportionConfirm] = useState(false)
 
-  /**
-   * Sequentially apportion every unapportioned invoice on this matter using the
-   * matter's default method, then auto-fire demand letters for each. Returns
-   * counts so the caller can toast a summary.
-   */
-  const bulkApportionAll = async () => {
+  /** Pop the styled confirm modal. */
+  const bulkApportionAll = () => {
     const method = matter?.default_apportionment_method
     if (!method) {
       toast.error('Set a default apportionment method on this matter first (Overview → Default Method).')
@@ -1457,15 +1566,16 @@ export default function MatterDetail() {
       toast.error('Add at least one party before bulk-apportioning.')
       return
     }
-
     const todo = invoices.filter(inv => inv.status !== 'apportioned')
     if (!todo.length) { toast.success('Nothing to apportion — all invoices are done.'); return }
+    setShowBulkApportionConfirm(true)
+  }
 
-    const confirmed = window.confirm(
-      `Apportion ${todo.length} invoice${todo.length !== 1 ? 's' : ''} using ${APPORTIONMENT_METHODS.find(m => m.value === method)?.label || method}, ` +
-      `then send demand letters to every carrier with a non-zero share?`
-    )
-    if (!confirmed) return
+  /** Actually run the bulk apportion + send. Called from the confirm modal. */
+  const runBulkApportion = async () => {
+    setShowBulkApportionConfirm(false)
+    const method = matter?.default_apportionment_method
+    const todo   = invoices.filter(inv => inv.status !== 'apportioned')
 
     setBulkApportioning(true)
     setBulkProgress({ done: 0, total: todo.length, label: 'Starting…' })
@@ -3514,6 +3624,16 @@ export default function MatterDetail() {
           matterId={matterId}
           parties={parties}
           onClose={() => setShowAddInsurer(false)}
+        />
+      )}
+      {showBulkApportionConfirm && (
+        <BulkApportionConfirmModal
+          invoices={invoices.filter(i => i.status !== 'apportioned')}
+          method={matter?.default_apportionment_method}
+          parties={parties}
+          insurerPeriods={insurerPeriods}
+          onCancel={() => setShowBulkApportionConfirm(false)}
+          onConfirm={runBulkApportion}
         />
       )}
       {editingInsurer  && <EditInsurerModal pp={editingInsurer} matterId={matterId} onClose={() => setEditingInsurer(null)} />}
