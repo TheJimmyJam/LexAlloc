@@ -1594,6 +1594,9 @@ export default function AdminPanel() {
                           <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">DB Admin</th>
                         )}
                         <th className="hidden md:table-cell text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Joined</th>
+                        {isPlatformAdmin && (
+                          <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Logins</th>
+                        )}
                         {isPlatformAdmin && <th className="px-4 py-3" />}
                       </tr>
                     </thead>
@@ -1697,6 +1700,11 @@ export default function AdminPanel() {
                     <td className="hidden md:table-cell px-4 py-4 text-sm text-slate-400">
                       {u.created_at ? format(parseISO(u.created_at), 'MM/dd/yyyy') : '—'}
                     </td>
+                    {isPlatformAdmin && (
+                      <td className="px-4 py-4 text-center text-sm font-medium text-slate-600">
+                        {u.login_count ?? 0}
+                      </td>
+                    )}
                     {isPlatformAdmin && (
                       <td className="px-4 py-4">
                         <button
