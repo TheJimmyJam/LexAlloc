@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.jsx'
@@ -13,7 +13,7 @@ import {
   Users, Shield, Calculator, ChevronRight, Edit2, Check, TrendingUp, AlertTriangle,
   Paperclip, Download, ExternalLink, LayoutTemplate, Copy, BookOpen, Search,
   Bell, RefreshCcw, Loader2, Clock, Briefcase, DollarSign, Mail, Activity,
-  MessageSquare, Flag, Phone, Pin, Send, AlertCircle, Scale
+  MessageSquare, Flag, Phone, Pin, Send, AlertCircle, Scale, Sparkles, CheckCircle
 } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays, addDays, startOfYear, addYears } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -22,6 +22,7 @@ import DocumentUploadModal, { DOC_TYPES } from '../components/DocumentUploadModa
 import { UseTemplateModal } from './Matters.jsx'
 import { generateMatterSummaryReport } from '../lib/generateMatterSummaryReport.js'
 import SettlementTab from '../components/SettlementTab.jsx'
+import { useDropzone } from 'react-dropzone'
 
 // ── Policy Timeline ───────────────────────────────────────────────────────────
 const TIMELINE_COLORS = [
@@ -945,6 +946,70 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
   const [insurerReps,       setInsurerReps]       = useState([])
   const [selectedRepId,     setSelectedRepId]     = useState('') // '' = none, 'manual' = manual entry, or rep.id
 
+  // ── Policy document upload + AI parse ───────────────────────────────────────
+  const [policyFile,  setPolicyFile]  = useState(null)  // { name, path }
+  const [parsing,     setParsing]     = useState(false)
+  const [parseError,  setParseError]  = useState(null)
+  const [parsed,      setParsed]      = useState(false)
+
+  const onPolicyDrop = useCallback(async (accepted) => {
+    const file = accepted[0]
+    if (!file) return
+    setParsing(true)
+    setParseError(null)
+    setParsed(false)
+    setPolicyFile(null)
+
+    try {
+      // 1. Upload to Supabase storage
+      const ext  = file.name.split('.').pop()
+      const path = `policy-docs/${profile.org_id}/${Date.now()}.${ext}`
+      const { error: upErr } = await supabase.storage
+        .from('matter-documents')
+        .upload(path, file, { upsert: true })
+      if (upErr) throw new Error(upErr.message)
+
+      // 2. Get signed URL (1 hour)
+      const { data: signed } = await supabase.storage
+        .from('matter-documents')
+        .createSignedUrl(path, 3600)
+      const fileUrl = signed?.signedUrl
+      if (!fileUrl) throw new Error('Could not get signed URL')
+      setPolicyFile({ name: file.name, path })
+
+      // 3. Call parse-policy edge function
+      const { data, error: fnErr } = await supabase.functions.invoke('parse-policy', {
+        body: { fileUrl, fileType: file.type || 'application/pdf' },
+      })
+      if (fnErr) throw new Error(fnErr.message)
+      if (data?.error) throw new Error(data.error)
+
+      // 4. Populate form fields with parsed data
+      if (data.insurer_name)     setValue('insurer_name',     data.insurer_name)
+      if (data.policy_number)    setValue('policy_number',    data.policy_number)
+      if (data.policy_start)     setValue('policy_start',     data.policy_start)
+      if (data.policy_end)       setValue('policy_end',       data.policy_end)
+      if (data.policy_limit)     setValue('policy_limit',     String(data.policy_limit))
+      if (data.claim_number)     setValue('claim_number',     data.claim_number)
+      if (data.claims_rep_name)  setValue('claims_rep_name',  data.claims_rep_name)
+      if (data.claims_rep_email) setValue('claims_rep_email', data.claims_rep_email)
+      if (data.portal_url)       setValue('portal_url',       data.portal_url)
+
+      setParsed(true)
+    } catch (err) {
+      setParseError(err.message || 'Failed to parse policy — try again')
+    } finally {
+      setParsing(false)
+    }
+  }, [profile, setValue])
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop: onPolicyDrop,
+    accept:   { 'application/pdf': ['.pdf'], 'image/jpeg': ['.jpg', '.jpeg'], 'image/png': ['.png'] },
+    maxFiles: 1,
+    disabled: parsing,
+  })
+
   // Load reps when insurer selected from directory
   useEffect(() => {
     if (!selectedInsurerId) { setInsurerReps([]); setSelectedRepId(''); return }
@@ -1044,6 +1109,73 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
           <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
+
+          {/* ── Policy Document Drop Zone ── */}
+          {!parsed && !policyFile ? (
+            <div
+              {...getRootProps()}
+              className={`
+                relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed
+                px-4 py-5 text-center cursor-pointer transition-colors
+                ${isDragActive
+                  ? 'border-brand-400 bg-brand-50'
+                  : 'border-slate-200 bg-slate-50 hover:border-brand-300 hover:bg-brand-50/40'
+                }
+                ${parsing ? 'opacity-60 pointer-events-none' : ''}
+              `}
+            >
+              <input {...getInputProps()} />
+              {parsing ? (
+                <>
+                  <Loader2 className="h-6 w-6 text-brand-500 animate-spin" />
+                  <p className="text-sm font-medium text-brand-600">Parsing policy document…</p>
+                  <p className="text-xs text-slate-400">AI is extracting coverage details</p>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="h-4 w-4 text-brand-500" />
+                    <span className="text-sm font-semibold text-brand-700">Auto-fill from policy document</span>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    {isDragActive
+                      ? 'Drop policy PDF here'
+                      : 'Drag & drop a policy PDF, or click to browse — AI will fill the fields below'}
+                  </p>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className={`flex items-center gap-3 rounded-xl px-4 py-3 ${parsed ? 'bg-emerald-50 border border-emerald-200' : 'bg-slate-50 border border-slate-200'}`}>
+              {parsed
+                ? <CheckCircle className="h-5 w-5 text-emerald-500 flex-shrink-0" />
+                : <Loader2 className="h-5 w-5 text-brand-500 animate-spin flex-shrink-0" />
+              }
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-medium truncate ${parsed ? 'text-emerald-700' : 'text-slate-700'}`}>
+                  {parsed ? 'Policy parsed — review fields below' : 'Uploading…'}
+                </p>
+                {policyFile && (
+                  <p className="text-xs text-slate-400 truncate">{policyFile.name}</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => { setPolicyFile(null); setParsed(false); setParseError(null) }}
+                className="text-slate-400 hover:text-slate-600 flex-shrink-0"
+                title="Remove and re-upload"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+          {parseError && (
+            <p className="flex items-center gap-1.5 text-xs text-red-600">
+              <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+              {parseError}
+            </p>
+          )}
+
           <div>
             <label className="form-label">Insurer Name *</label>
             <Controller
