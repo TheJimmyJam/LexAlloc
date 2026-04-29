@@ -256,6 +256,17 @@ function exportXLSX({ sheetName, headers, rows, colWidths, currencyCols = [], fi
 }
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
+// Middle-truncate a long string for tight table columns. Always preserves
+// the head and tail so the invoice number is still recognizable at a glance.
+// Pair with a `title` attribute on the cell for the full text on hover.
+function truncateMiddle(s, head = 8, tail = 8) {
+  if (!s) return ''
+  const len = s.length
+  if (len <= head + tail + 1) return s
+  return `${s.slice(0, head)}…${s.slice(len - tail)}`
+}
+
+
 function KpiCard({ label, value, sub, color = 'text-slate-900' }) {
   // Reserve a fixed two-line label area so cards with longer labels don't
   // push their value down out of alignment with sibling cards in the same
@@ -1234,7 +1245,12 @@ function CollectionsAgingReport({ rows }) {
                     </td>
                     <td className="px-3 py-2.5 text-slate-700 truncate max-w-[140px]">{r.insurer}</td>
                     <td className="px-3 py-2.5 text-slate-500 hidden md:table-cell truncate max-w-[120px]">{r.firm}</td>
-                    <td className="px-3 py-2.5 text-slate-400 font-mono text-xs hidden lg:table-cell">{r.lexalloc_invoice_number || '—'}</td>
+                    <td
+                      className="px-3 py-2.5 text-slate-400 font-mono text-xs hidden lg:table-cell whitespace-nowrap"
+                      title={r.lexalloc_invoice_number || ''}
+                    >
+                      {r.lexalloc_invoice_number ? truncateMiddle(r.lexalloc_invoice_number, 9, 7) : '—'}
+                    </td>
                     <td className="px-3 py-2.5 text-right font-semibold text-slate-900 whitespace-nowrap">{formatCurrency(r.balance)}</td>
                     <td className="px-3 py-2.5 text-right">
                       <span className={`font-bold ${r.daysSinceDemand >= 90 ? 'text-red-600' : r.daysSinceDemand >= 60 ? 'text-orange-500' : r.daysSinceDemand >= 30 ? 'text-amber-500' : 'text-slate-700'}`}>
