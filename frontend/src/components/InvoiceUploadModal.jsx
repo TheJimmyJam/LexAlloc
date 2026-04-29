@@ -1,13 +1,24 @@
 import { useState, useCallback, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useDropzone } from 'react-dropzone'
 import {
   X, Upload, Loader2, CheckCircle, AlertCircle, FileText,
-  Trash2, ChevronDown, ChevronUp, Save, RefreshCw, Plus, RefreshCcw, AlertTriangle
+  Trash2, ChevronDown, ChevronUp, Save, RefreshCw, Plus, RefreshCcw, AlertTriangle,
+  Check, Square, CheckSquare, FolderSearch, Sparkles, Calculator,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { api } from '../lib/api.js'
+import { APPORTIONMENT_METHODS, autoApportion } from '../lib/apportionment.js'
+import DateInput from './DateInput.jsx'
 import toast from 'react-hot-toast'
+
+// Short labels for the inline method picker
+const METHOD_SHORT = {
+  pro_rata_time_on_risk: 'TOR',
+  equal_shares:          'Equal',
+  limits_proportional:   'Limits',
+}
 
 // ── Concurrency-limited parallel processor ────────────────────────────────────
 async function runWithConcurrency(tasks, limit) {
@@ -22,38 +33,143 @@ async function runWithConcurrency(tasks, limit) {
   return results
 }
 
-// ── Status badge ──────────────────────────────────────────────────────────────
-function StatusBadge({ status }) {
-  const map = {
-    queued:    { label: 'Queued',    cls: 'bg-slate-100 text-slate-500' },
-    dupe:      { label: 'Duplicate',  cls: 'bg-amber-100 text-amber-700' },
-    uploading: { label: 'Uploading', cls: 'bg-blue-100 text-blue-600',  spin: true },
-    parsing:   { label: 'Parsing',   cls: 'bg-violet-100 text-violet-600', spin: true },
-    ready:     { label: 'Ready',     cls: 'bg-amber-100 text-amber-700' },
-    saving:    { label: 'Saving',    cls: 'bg-blue-100 text-blue-600',  spin: true },
-    saved:     { label: 'Saved ✓',   cls: 'bg-green-100 text-green-700' },
-    error:     { label: 'Error',     cls: 'bg-red-100 text-red-600' },
-  }
-  const { label, cls, spin } = map[status] || map.queued
+// ── Per-file step pipeline ────────────────────────────────────────────────────
+// stages: queued → uploading → parsing → ready → saving → saved
+//                                              ↘ error    (any stage)
+//                                              ↘ dupe     (on save)
+//                                              ↘ mismatch (on save — firm/matter # don't match)
+const STEPS = [
+  { key: 'upload', label: 'Upload',   active: ['uploading'],                    done: ['parsing','ready','saving','saved','dupe','mismatch'] },
+  { key: 'parse',  label: 'AI Parse', active: ['parsing'],                      done: ['ready','saving','saved','dupe','mismatch'] },
+  { key: 'review', label: 'Review',   active: ['ready','dupe','mismatch'],      done: ['saving','saved'] },
+  { key: 'save',   label: 'Saved',    active: ['saving'],                       done: ['saved'] },
+]
+
+function StepPipeline({ status }) {
+  const isError = status === 'error'
+
   return (
-    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>
-      {spin && <Loader2 className="h-3 w-3 animate-spin" />}
-      {label}
-    </span>
+    <div className="flex items-center gap-0 flex-shrink-0">
+      {STEPS.map((step, i) => {
+        const isDone   = step.done.includes(status)
+        const isActive = step.active.includes(status)
+        const isPending = !isDone && !isActive && !isError
+
+        return (
+          <div key={step.key} className="flex items-center">
+            {i > 0 && (
+              <div className={`h-px w-4 transition-colors ${isDone ? 'bg-brand-400' : 'bg-slate-200'}`} />
+            )}
+            <div className="flex flex-col items-center gap-0.5">
+              <div className={`
+                w-6 h-6 rounded-full flex items-center justify-center transition-all
+                ${isDone    ? 'bg-brand-500 text-white'             : ''}
+                ${isActive  ? 'bg-brand-100 border-2 border-brand-400 text-brand-600' : ''}
+                ${isPending ? 'bg-slate-100 border border-slate-200 text-slate-300' : ''}
+                ${isError   ? 'bg-red-100 border border-red-200 text-red-400'       : ''}
+              `}>
+                {isDone    && <Check className="h-3 w-3" />}
+                {isActive  && <Loader2 className="h-3 w-3 animate-spin" />}
+                {isPending && <div className="w-1.5 h-1.5 rounded-full bg-slate-300" />}
+                {isError   && <AlertCircle className="h-3 w-3" />}
+              </div>
+              <span className={`text-[9px] font-medium leading-none whitespace-nowrap
+                ${isDone    ? 'text-brand-600' : ''}
+                ${isActive  ? 'text-brand-500' : ''}
+                ${isPending ? 'text-slate-300' : ''}
+                ${isError   ? 'text-red-400'   : ''}
+              `}>
+                {step.label}
+              </span>
+            </div>
+          </div>
+        )
+      })}
+
+      {isError && (
+        <div className="ml-2 flex items-center gap-1 text-xs text-red-500 font-medium">
+          <AlertCircle className="h-3.5 w-3.5" /> Failed
+        </div>
+      )}
+    </div>
   )
 }
 
 // ── Main modal ────────────────────────────────────────────────────────────────
+// matterId is OPTIONAL. When omitted, the modal matches the invoice to an
+// existing matter (by matter_number) or creates a new one automatically.
 export default function InvoiceUploadModal({ matterId, onClose }) {
   const { profile } = useAuth()
-  const [queue, setQueue]         = useState([])   // [{ id, file, status, error, fileUrl, parsed, expanded }]
+  const qc = useQueryClient()
+  const [queue, setQueue]           = useState([])
   const [processing, setProcessing] = useState(false)
+  const [selected, setSelected]     = useState(new Set())
   const nextId = useRef(0)
 
   const update = (id, patch) =>
     setQueue(q => q.map(item => item.id === id ? { ...item, ...patch } : item))
 
-  // ── Process a single file: upload → AI parse ──────────────────────────────
+  // ── Matter resolution ─────────────────────────────────────────────────────
+  // Returns { id, name, firmName, matterNumber, isNew, defaultMethod }
+  // When matterId prop is provided → always use that matter.
+  // Otherwise → try to match on matter_number, else flag as new.
+  const resolveMatter = async (parsed) => {
+    if (matterId) {
+      const { data } = await supabase
+        .from('la_matters')
+        .select('id, name, firm_name, matter_number, default_apportionment_method')
+        .eq('id', matterId)
+        .single()
+      return {
+        id:           matterId,
+        name:         data?.name         || '',
+        firmName:     data?.firm_name    || null,
+        matterNumber: data?.matter_number || null,
+        isNew:        false,
+        defaultMethod: data?.default_apportionment_method || null,
+      }
+    }
+
+    // Try to match by matter_number
+    const parsedMatterNum = (parsed?.matter_number || '').trim()
+    if (parsedMatterNum) {
+      const { data: matches } = await supabase
+        .from('la_matters')
+        .select('id, name, firm_name, matter_number, default_apportionment_method')
+        .eq('org_id', profile.org_id)
+        .ilike('matter_number', parsedMatterNum)
+        .limit(1)
+      if (matches?.length) {
+        const m = matches[0]
+        return {
+          id:           m.id,
+          name:         m.name,
+          firmName:     m.firm_name    || null,
+          matterNumber: m.matter_number || null,
+          isNew:        false,
+          defaultMethod: m.default_apportionment_method || null,
+        }
+      }
+    }
+
+    // No match — will create a new matter on save
+    const name =
+      parsed?.client_name  ||
+      parsed?.matter_name  ||
+      (parsedMatterNum ? `Matter ${parsedMatterNum}` : null) ||
+      parsed?.billing_firm ||
+      'New Matter'
+    return {
+      id:           null,
+      name,
+      firmName:     parsed?.billing_firm || null,
+      matterNumber: parsedMatterNum || null,
+      isNew:        true,
+      defaultMethod: null,
+    }
+  }
+
+  // ── Process a single file: upload → AI parse → matter resolution ──────────
   const processFile = async (item) => {
     const { id, file } = item
 
@@ -93,20 +209,42 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
       }
     }
 
-    update(id, { status: 'ready', fileUrl: publicUrl, parsed: { ...parsed, _fileUrl: publicUrl }, expanded: false })
+    // 4. Resolve matter (match existing or flag for creation)
+    let resolvedMatter = null
+    try {
+      resolvedMatter = await resolveMatter(parsed)
+    } catch {
+      // Fallback: use prop matterId if available, else flag as new
+      resolvedMatter = {
+        id: matterId || null, name: 'Unknown', firmName: null, matterNumber: null,
+        isNew: !matterId, defaultMethod: null,
+      }
+    }
+
+    update(id, {
+      status:         'ready',
+      fileUrl:        publicUrl,
+      parsed:         { ...parsed, _fileUrl: publicUrl },
+      expanded:       false,
+      resolvedMatter,
+      selectedMethod: null,
+    })
+    setSelected(s => new Set([...s, id]))
   }
 
   // ── Drop handler ──────────────────────────────────────────────────────────
   const onDrop = useCallback(async (acceptedFiles) => {
     if (!acceptedFiles.length) return
     const newItems = acceptedFiles.map(file => ({
-      id:       nextId.current++,
+      id:             nextId.current++,
       file,
-      status:   'queued',
-      error:    null,
-      fileUrl:  null,
-      parsed:   null,
-      expanded: false,
+      status:         'queued',
+      error:          null,
+      fileUrl:        null,
+      parsed:         null,
+      expanded:       false,
+      resolvedMatter: null,
+      selectedMethod: null,
     }))
     setQueue(q => [...q, ...newItems])
     setProcessing(true)
@@ -122,7 +260,15 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
 
   // ── Save a single item ────────────────────────────────────────────────────
   const saveItem = async (item, force = false) => {
-    const { id, parsed, fileUrl } = item
+    const { id, parsed, fileUrl, resolvedMatter, selectedMethod } = item
+
+    // Must have a method before saving
+    const effectiveMethod = resolvedMatter?.defaultMethod || selectedMethod
+    if (!effectiveMethod) {
+      toast.error('Select an apportionment method before saving.')
+      return
+    }
+
     update(id, { status: 'saving' })
     try {
       // ── Dupe check ──────────────────────────────────────────────────────
@@ -135,27 +281,73 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
           .eq('billing_firm', parsed.billing_firm)
           .limit(1)
         if (existing?.length) {
-          update(id, {
-            status: 'dupe',
-            dupeMatch: existing[0],
-          })
+          update(id, { status: 'dupe', dupeMatch: existing[0] })
           return
         }
       }
 
-      const { data: invoice, error: invErr } = await supabase.from('la_invoices').insert({
-        matter_id:      matterId,
-        org_id:         profile.org_id,
-        file_url:       fileUrl,
-        invoice_number: parsed.invoice_number,
-        invoice_date:   parsed.invoice_date,
-        billing_firm:   parsed.billing_firm,
-        total_amount:   parseFloat(parsed.total_amount) || 0,
-        service_start:  parsed.service_start,
-        service_end:    parsed.service_end,
-        status:         'parsed',
-        parsed_data:    parsed,
-      }).select().single()
+      // ── Mismatch check (only when opened from a specific matter) ────────
+      if (matterId && !force && resolvedMatter) {
+        const normalize = s => (s || '').toLowerCase().trim()
+        const mismatches = {}
+        if (resolvedMatter.firmName && parsed.billing_firm &&
+            normalize(parsed.billing_firm) !== normalize(resolvedMatter.firmName)) {
+          mismatches.firm = { invoiceValue: parsed.billing_firm, matterValue: resolvedMatter.firmName }
+        }
+        if (resolvedMatter.matterNumber && parsed.matter_number &&
+            normalize(parsed.matter_number) !== normalize(resolvedMatter.matterNumber)) {
+          mismatches.matter_number = { invoiceValue: parsed.matter_number, matterValue: resolvedMatter.matterNumber }
+        }
+        if (Object.keys(mismatches).length > 0) {
+          update(id, { status: 'mismatch', mismatchData: mismatches })
+          return
+        }
+      }
+
+      // ── Resolve effective matter ID (create if new) ─────────────────────
+      let effectiveMatterId = resolvedMatter?.id
+
+      if (resolvedMatter?.isNew) {
+        const { data: newMatter, error: mErr } = await supabase
+          .from('la_matters')
+          .insert({
+            org_id:                       profile.org_id,
+            name:                         resolvedMatter.name,
+            matter_number:                resolvedMatter.matterNumber || null,
+            firm_name:                    resolvedMatter.firmName     || null,
+            status:                       'active',
+            default_apportionment_method: effectiveMethod,
+          })
+          .select()
+          .single()
+        if (mErr) throw mErr
+        effectiveMatterId = newMatter.id
+      } else if (!resolvedMatter?.defaultMethod && effectiveMatterId) {
+        // Existing matter with no method set — save it as the default now
+        await supabase
+          .from('la_matters')
+          .update({ default_apportionment_method: effectiveMethod })
+          .eq('id', effectiveMatterId)
+      }
+
+      // ── Save invoice ─────────────────────────────────────────────────────
+      const { data: invoice, error: invErr } = await supabase
+        .from('la_invoices')
+        .insert({
+          matter_id:      effectiveMatterId,
+          org_id:         profile.org_id,
+          file_url:       fileUrl,
+          invoice_number: parsed.invoice_number,
+          invoice_date:   parsed.invoice_date,
+          billing_firm:   parsed.billing_firm,
+          total_amount:   parseFloat(parsed.total_amount) || 0,
+          service_start:  parsed.service_start,
+          service_end:    parsed.service_end,
+          status:         'parsed',
+          parsed_data:    parsed,
+        })
+        .select()
+        .single()
       if (invErr) throw invErr
 
       if (parsed.line_items?.length > 0) {
@@ -172,8 +364,38 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
         await supabase.from('la_invoice_line_items').insert(lineItems)
       }
 
+      // ── Run apportionment ────────────────────────────────────────────────
+      let apportioned = false
+      if (parsed.service_start) {
+        try {
+          const apportResult = await autoApportion({
+            invoiceId: invoice.id,
+            invoice,
+            matterId:  effectiveMatterId,
+            orgId:     profile.org_id,
+            profile,
+            method:    effectiveMethod,
+          })
+          apportioned = !!apportResult
+        } catch { /* fall through — warn below */ }
+      }
+
+      // Invalidate all relevant caches so the UI reflects the new status immediately
+      qc.invalidateQueries({ queryKey: ['matter-invoices', effectiveMatterId] })
+      qc.invalidateQueries({ queryKey: ['matter-apportionments', effectiveMatterId] })
+      qc.invalidateQueries({ queryKey: ['invoice', invoice.id] })
+
+      if (!apportioned) {
+        toast('Invoice saved — apportionment skipped. Add parties & insurer periods to this matter, then re-run from the invoice.', {
+          icon: '⚠️',
+          duration: 8000,
+          style: { maxWidth: '440px' },
+        })
+      }
+
       update(id, { status: 'saved', expanded: false })
-      api.sendEvent('invoice_parsed', profile.org_id, matterId, {
+      setSelected(s => { const n = new Set(s); n.delete(id); return n })
+      api.sendEvent('invoice_parsed', profile.org_id, effectiveMatterId, {
         invoice_number: parsed.invoice_number,
         billing_firm:   parsed.billing_firm,
       }).catch(() => {})
@@ -182,18 +404,34 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
     }
   }
 
-  // ── Save all ready items ──────────────────────────────────────────────────
-  const saveAll = async () => {
-    const ready = queue.filter(i => i.status === 'ready')
-    await Promise.all(ready.map(item => saveItem(item)))
-    const saved = queue.filter(i => i.status === 'saved').length + ready.length
-    toast.success(`${ready.length} invoice${ready.length !== 1 ? 's' : ''} saved!`)
+  // ── Save selected items ───────────────────────────────────────────────────
+  const saveSelected = async () => {
+    const toSave = queue.filter(i => i.status === 'ready' && selected.has(i.id))
+    if (!toSave.length) return
+    await Promise.all(toSave.map(item => saveItem(item)))
+    toast.success(`${toSave.length} invoice${toSave.length !== 1 ? 's' : ''} saved!`)
   }
 
-  const removeItem = (id) => setQueue(q => q.filter(i => i.id !== id))
-  const retryItem  = (item) => { update(item.id, { status: 'queued', error: null }); processFile(item) }
-  const toggleExpand = (id) => update(id, { expanded: !queue.find(i => i.id === id)?.expanded })
-  const editParsed = (id, field, value) =>
+  // ── Selection helpers ─────────────────────────────────────────────────────
+  const readyItems   = queue.filter(i => i.status === 'ready')
+  const allSelected  = readyItems.length > 0 && readyItems.every(i => selected.has(i.id))
+  const someSelected = readyItems.some(i => selected.has(i.id))
+
+  const toggleSelect   = (id) =>
+    setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelected(s => { const n = new Set(s); readyItems.forEach(i => n.delete(i.id)); return n })
+    } else {
+      setSelected(s => new Set([...s, ...readyItems.map(i => i.id)]))
+    }
+  }
+
+  const removeItem    = (id) => { setQueue(q => q.filter(i => i.id !== id)); setSelected(s => { const n = new Set(s); n.delete(id); return n }) }
+  const retryItem     = (item) => { update(item.id, { status: 'queued', error: null }); processFile(item) }
+  const toggleExpand  = (id) => update(id, { expanded: !queue.find(i => i.id === id)?.expanded })
+  const editParsed    = (id, field, value) =>
     setQueue(q => q.map(i => i.id === id ? { ...i, parsed: { ...i.parsed, [field]: value } } : i))
 
   // ── Line item helpers ─────────────────────────────────────────────────────
@@ -202,7 +440,6 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
       if (i.id !== id) return i
       const items = [...(i.parsed?.line_items || [])]
       items[idx] = { ...items[idx], [field]: value }
-      // Auto-recalc total from sum of amounts
       const newTotal = items.reduce((s, li) => s + (parseFloat(li.amount) || 0), 0)
       return { ...i, parsed: { ...i.parsed, line_items: items, total_amount: parseFloat(newTotal.toFixed(2)) } }
     }))
@@ -232,35 +469,58 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
       return { ...i, parsed: { ...i.parsed, total_amount: parseFloat(total.toFixed(2)) } }
     }))
 
-  const readyCount  = queue.filter(i => i.status === 'ready').length
-  const savedCount  = queue.filter(i => i.status === 'saved').length
-  const errorCount  = queue.filter(i => i.status === 'error').length
-  const busyCount   = queue.filter(i => ['uploading','parsing','saving'].includes(i.status)).length
-  const allDone     = queue.length > 0 && queue.every(i => ['saved','error'].includes(i.status))
+  // ── Derived counts ────────────────────────────────────────────────────────
+  const readyCount    = queue.filter(i => i.status === 'ready').length
+  const savedCount    = queue.filter(i => i.status === 'saved').length
+  const errorCount    = queue.filter(i => i.status === 'error').length
+  const busyCount     = queue.filter(i => ['uploading','parsing','saving'].includes(i.status)).length
+  const selectedCount = readyItems.filter(i => selected.has(i.id)).length
+  const doneCount     = queue.filter(i => ['saved','error','dupe','mismatch'].includes(i.status)).length
+  const allDone       = queue.length > 0 && queue.every(i => ['saved','error'].includes(i.status))
+  const batchPct      = queue.length > 0 ? Math.round((doneCount / queue.length) * 100) : 0
+
+  // An item needs a method selection when its matter has no default and the user hasn't picked one
+  const needsMethod = (item) =>
+    item.status === 'ready' && item.resolvedMatter && !item.resolvedMatter.defaultMethod && !item.selectedMethod
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
 
-        {/* Header */}
+        {/* ── Header ── */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200 flex-shrink-0">
-          <div>
+          <div className="flex-1 min-w-0">
             <h2 className="font-semibold text-lg text-slate-900">Upload Invoices</h2>
             {queue.length > 0 && (
-              <p className="text-xs text-slate-400 mt-0.5">
-                {queue.length} file{queue.length !== 1 ? 's' : ''}
-                {busyCount  > 0 && ` · ${busyCount} processing`}
-                {readyCount > 0 && ` · ${readyCount} ready to save`}
-                {savedCount > 0 && ` · ${savedCount} saved`}
-                {errorCount > 0 && ` · ${errorCount} failed`}
-              </p>
+              <div className="mt-2 space-y-1.5">
+                <p className="text-xs text-slate-400">
+                  {queue.length} file{queue.length !== 1 ? 's' : ''}
+                  {busyCount  > 0 && <span className="text-violet-500 font-medium"> · {busyCount} processing</span>}
+                  {readyCount > 0 && <span className="text-amber-600 font-medium"> · {readyCount} ready</span>}
+                  {savedCount > 0 && <span className="text-green-600 font-medium"> · {savedCount} saved</span>}
+                  {errorCount > 0 && <span className="text-red-500 font-medium"> · {errorCount} failed</span>}
+                </p>
+                {(busyCount > 0 || doneCount > 0) && (
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-brand-500 rounded-full transition-all duration-500"
+                        style={{ width: `${batchPct}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-slate-400 w-10 text-right">{batchPct}%</span>
+                  </div>
+                )}
+              </div>
             )}
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
+          <button onClick={onClose} className="ml-4 text-slate-400 hover:text-slate-600 flex-shrink-0">
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {/* Drop zone */}
+          {/* ── Drop zone ── */}
           <div className="p-6 border-b border-slate-100">
             <div
               {...getRootProps()}
@@ -275,89 +535,234 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
               ) : (
                 <>
                   <p className="font-medium text-slate-700">Drop invoice PDFs here</p>
-                  <p className="text-sm text-slate-400 mt-1">Multiple files supported · PDF, PNG, JPG · max 20MB each</p>
+                  <p className="text-sm text-slate-400 mt-1">
+                    {matterId
+                      ? 'Invoices will be saved to this matter'
+                      : 'Invoices are matched to existing matters or a new matter is created'
+                    }
+                  </p>
+                  <p className="text-xs text-slate-300 mt-1">PDF, PNG, JPG · max 20MB each · up to 3 parsed simultaneously</p>
                 </>
               )}
             </div>
           </div>
 
-          {/* Queue */}
+          {/* ── Select-all bar (shown when ≥2 ready items) ── */}
+          {readyItems.length >= 2 && (
+            <div className="px-6 py-2 bg-amber-50 border-b border-amber-100 flex items-center justify-between">
+              <button
+                onClick={toggleSelectAll}
+                className="flex items-center gap-2 text-xs font-medium text-amber-800 hover:text-amber-900"
+              >
+                {allSelected
+                  ? <CheckSquare className="h-3.5 w-3.5 text-brand-500" />
+                  : <Square className="h-3.5 w-3.5 text-slate-400" />
+                }
+                {allSelected ? 'Deselect All' : 'Select All'} ready invoices
+              </button>
+              {someSelected && (
+                <span className="text-xs text-amber-700">
+                  {selectedCount} of {readyItems.length} selected
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* ── Queue ── */}
           {queue.length > 0 && (
             <div className="divide-y divide-slate-100">
               {queue.map(item => (
                 <div key={item.id}>
-                  {/* Row summary */}
-                  <div className="flex items-center gap-3 px-6 py-3 hover:bg-slate-50">
-                    <FileText className="h-4 w-4 text-slate-400 flex-shrink-0" />
+                  {/* ── Row summary ── */}
+                  <div className={`flex items-start gap-3 px-6 py-3 transition-colors ${
+                    item.status === 'ready' && selected.has(item.id) ? 'bg-brand-50/40' : 'hover:bg-slate-50'
+                  }`}>
+
+                    {/* Checkbox (ready items only) */}
+                    <div className="flex-shrink-0 mt-0.5">
+                      {item.status === 'ready' ? (
+                        <button
+                          onClick={() => toggleSelect(item.id)}
+                          className="text-slate-400 hover:text-brand-600 transition-colors"
+                          title={selected.has(item.id) ? 'Deselect' : 'Select for batch save'}
+                        >
+                          {selected.has(item.id)
+                            ? <CheckSquare className="h-4 w-4 text-brand-500" />
+                            : <Square className="h-4 w-4" />
+                          }
+                        </button>
+                      ) : (
+                        <FileText className="h-4 w-4 text-slate-300" />
+                      )}
+                    </div>
+
+                    {/* File name + size + matter badge */}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-800 truncate">{item.file.name}</p>
                       <p className="text-xs text-slate-400">{(item.file.size / 1024 / 1024).toFixed(1)} MB</p>
+
+                      {/* Matter resolution badge */}
+                      {item.resolvedMatter && (item.status === 'ready' || item.status === 'saving' || item.status === 'saved') && (
+                        <div className="flex items-center gap-1 mt-1">
+                          {item.resolvedMatter.isNew ? (
+                            <>
+                              <Sparkles className="h-3 w-3 text-amber-500 flex-shrink-0" />
+                              <span className="text-xs text-amber-600 font-medium truncate">
+                                New matter: {item.resolvedMatter.name}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <FolderSearch className="h-3 w-3 text-green-600 flex-shrink-0" />
+                              <span className="text-xs text-green-700 font-medium truncate">
+                                {item.resolvedMatter.name}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Inline method picker — shown when matter has no default */}
+                      {needsMethod(item) && (
+                        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                          <span className="text-xs text-amber-700 font-medium">Set method:</span>
+                          {APPORTIONMENT_METHODS.map(m => (
+                            <button
+                              key={m.value}
+                              onClick={() => update(item.id, { selectedMethod: m.value })}
+                              className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                                item.selectedMethod === m.value
+                                  ? 'bg-brand-600 text-white border-brand-600'
+                                  : 'border-slate-300 text-slate-600 hover:border-brand-400 hover:text-brand-600'
+                              }`}
+                            >
+                              {METHOD_SHORT[m.value]}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Confirmed method (when selected) */}
+                      {item.status === 'ready' && item.resolvedMatter && !item.resolvedMatter.defaultMethod && item.selectedMethod && (
+                        <div className="flex items-center gap-1 mt-1.5">
+                          <Check className="h-3 w-3 text-brand-500" />
+                          <span className="text-xs text-brand-600 font-medium">
+                            {APPORTIONMENT_METHODS.find(m => m.value === item.selectedMethod)?.label}
+                            {' '}&mdash; will be set as matter default
+                          </span>
+                          <button
+                            onClick={() => update(item.id, { selectedMethod: null })}
+                            className="text-slate-300 hover:text-slate-500 ml-1"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Method from matter default */}
+                      {item.status === 'ready' && item.resolvedMatter?.defaultMethod && (
+                        <div className="flex items-center gap-1 mt-1">
+                          <Check className="h-3 w-3 text-green-500" />
+                          <span className="text-xs text-slate-500">
+                            {APPORTIONMENT_METHODS.find(m => m.value === item.resolvedMatter.defaultMethod)?.label} (matter default)
+                          </span>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Parsed summary (when ready/saved) */}
-                    {(item.status === 'ready' || item.status === 'saved') && item.parsed && (
-                      <div className="hidden sm:flex items-center gap-4 text-xs text-slate-500">
-                        {item.parsed.invoice_number && <span className="font-mono">#{item.parsed.invoice_number}</span>}
-                        {item.parsed.total_amount   && <span className="font-semibold text-slate-700">${parseFloat(item.parsed.total_amount).toLocaleString()}</span>}
-                        {item.parsed.line_items?.length > 0 && <span>{item.parsed.line_items.length} lines</span>}
-                        {item.parsed._parseFailed && <span className="text-amber-600">Manual entry needed</span>}
-                      </div>
-                    )}
-
-                    {item.status === 'error' && (
-                      <p className="text-xs text-red-500 max-w-xs truncate">{item.error}</p>
-                    )}
-
-                    {item.status === 'dupe' && item.dupeMatch && (
-                      <p className="text-xs text-amber-700 max-w-xs truncate">
-                        Duplicate of Invoice #{item.dupeMatch.invoice_number}
-                        {item.dupeMatch.la_matters?.name ? ` on "${item.dupeMatch.la_matters.name}"` : ''}
-                      </p>
-                    )}
-
-                    <StatusBadge status={item.status} />
-
-                    {/* Actions */}
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {item.status === 'dupe' && (
-                        <button
-                          onClick={() => saveItem(item, true)}
-                          className="flex items-center gap-1 text-xs font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-lg transition-colors"
-                        >
-                          <AlertTriangle className="h-3.5 w-3.5" /> Save Anyway
-                        </button>
+                    {/* Right side: parsed summary + status */}
+                    <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                      {/* Parsed summary */}
+                      {(item.status === 'ready' || item.status === 'saved') && item.parsed && (
+                        <div className="hidden md:flex items-center gap-3 text-xs text-slate-500">
+                          {item.parsed.invoice_number && <span className="font-mono">#{item.parsed.invoice_number}</span>}
+                          {item.parsed.total_amount   && <span className="font-semibold text-slate-700">${parseFloat(item.parsed.total_amount).toLocaleString()}</span>}
+                          {item.parsed.line_items?.length > 0 && <span>{item.parsed.line_items.length} lines</span>}
+                          {item.parsed._parseFailed && <span className="text-amber-600">Manual entry needed</span>}
+                        </div>
                       )}
-                      {item.status === 'ready' && (
-                        <>
-                          <button
-                            onClick={() => toggleExpand(item.id)}
-                            className="p-1 text-slate-400 hover:text-slate-600"
-                            title={item.expanded ? 'Collapse' : 'Review / Edit'}
-                          >
-                            {item.expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                          </button>
-                          <button
-                            onClick={() => saveItem(item)}
-                            className="flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-800 bg-brand-50 hover:bg-brand-100 px-2 py-1 rounded-lg transition-colors"
-                          >
-                            <Save className="h-3.5 w-3.5" /> Save
-                          </button>
-                        </>
-                      )}
+
                       {item.status === 'error' && (
-                        <button onClick={() => retryItem(item)} className="p-1 text-slate-400 hover:text-brand-600" title="Retry">
-                          <RefreshCw className="h-4 w-4" />
-                        </button>
+                        <p className="text-xs text-red-500 max-w-xs truncate">{item.error}</p>
                       )}
-                      {!['uploading','parsing','saving'].includes(item.status) && (
-                        <button onClick={() => removeItem(item.id)} className="p-1 text-slate-300 hover:text-red-500" title="Remove">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+
+                      {item.status === 'dupe' && item.dupeMatch && (
+                        <p className="text-xs text-amber-700 max-w-xs truncate">
+                          Duplicate of #{item.dupeMatch.invoice_number}
+                          {item.dupeMatch.la_matters?.name ? ` on "${item.dupeMatch.la_matters.name}"` : ''}
+                        </p>
                       )}
+
+                      {item.status === 'mismatch' && item.mismatchData && (
+                        <div className="text-xs text-orange-700 max-w-xs space-y-0.5">
+                          {item.mismatchData.firm && (
+                            <p className="truncate">Firm mismatch: "{item.mismatchData.firm.invoiceValue}" ≠ "{item.mismatchData.firm.matterValue}"</p>
+                          )}
+                          {item.mismatchData.matter_number && (
+                            <p className="truncate">Matter # mismatch: "{item.mismatchData.matter_number.invoiceValue}" ≠ "{item.mismatchData.matter_number.matterValue}"</p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Step pipeline */}
+                      <StepPipeline status={item.status} />
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-1">
+                        {item.status === 'dupe' && (
+                          <button
+                            onClick={() => saveItem(item, true)}
+                            className="flex items-center gap-1 text-xs font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-lg transition-colors"
+                          >
+                            <AlertTriangle className="h-3.5 w-3.5" /> Save Anyway
+                          </button>
+                        )}
+                        {item.status === 'mismatch' && (
+                          <button
+                            onClick={() => saveItem(item, true)}
+                            className="flex items-center gap-1 text-xs font-medium text-orange-700 hover:text-orange-900 bg-orange-50 hover:bg-orange-100 px-2 py-1 rounded-lg transition-colors"
+                          >
+                            <AlertTriangle className="h-3.5 w-3.5" /> Save Anyway
+                          </button>
+                        )}
+                        {item.status === 'ready' && (
+                          <>
+                            <button
+                              onClick={() => toggleExpand(item.id)}
+                              className="p-1 text-slate-400 hover:text-slate-600"
+                              title={item.expanded ? 'Collapse' : 'Review / Edit'}
+                            >
+                              {item.expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            </button>
+                            <button
+                              onClick={() => saveItem(item)}
+                              disabled={needsMethod(item)}
+                              className={`flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg transition-colors ${
+                                needsMethod(item)
+                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                  : 'text-brand-600 hover:text-brand-800 bg-brand-50 hover:bg-brand-100'
+                              }`}
+                              title={needsMethod(item) ? 'Choose an apportionment method first' : 'Run apportionment and save invoice'}
+                            >
+                              <Calculator className="h-3.5 w-3.5" /> Apportion & Save
+                            </button>
+                          </>
+                        )}
+                        {item.status === 'error' && (
+                          <button onClick={() => retryItem(item)} className="p-1 text-slate-400 hover:text-brand-600" title="Retry">
+                            <RefreshCw className="h-4 w-4" />
+                          </button>
+                        )}
+                        {!['uploading','parsing','saving'].includes(item.status) && (
+                          <button onClick={() => removeItem(item.id)} className="p-1 text-slate-300 hover:text-red-500" title="Remove">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Expanded edit form */}
+                  {/* ── Expanded edit form ── */}
                   {item.expanded && item.status === 'ready' && item.parsed && (
                     <div className="px-6 pb-5 bg-slate-50 border-t border-slate-100">
                       {item.parsed._parseFailed && (
@@ -365,6 +770,33 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
                           ⚠ AI couldn't parse this file automatically — please fill in the fields below.
                         </div>
                       )}
+
+                      {/* Matter name editor (for new matters or when no matterId prop) */}
+                      {!matterId && item.resolvedMatter && (
+                        <div className="mt-3 mb-1">
+                          <label className="form-label text-xs">
+                            {item.resolvedMatter.isNew ? 'New Matter Name' : 'Matched Matter'}
+                          </label>
+                          {item.resolvedMatter.isNew ? (
+                            <input
+                              type="text"
+                              className="form-input text-sm py-1.5"
+                              value={item.resolvedMatter.name}
+                              onChange={e => setQueue(q => q.map(i =>
+                                i.id === item.id
+                                  ? { ...i, resolvedMatter: { ...i.resolvedMatter, name: e.target.value } }
+                                  : i
+                              ))}
+                              placeholder="Matter name"
+                            />
+                          ) : (
+                            <p className="form-input text-sm py-1.5 bg-slate-100 text-slate-600 cursor-default">
+                              {item.resolvedMatter.name}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
                       <div className="grid grid-cols-2 gap-3 pt-3">
                         {[
                           { label: 'Invoice Number', field: 'invoice_number', type: 'text' },
@@ -376,16 +808,25 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
                         ].map(({ label, field, type }) => (
                           <div key={field}>
                             <label className="form-label text-xs">{label}</label>
-                            <input
-                              type={type}
-                              step={type === 'number' ? '0.01' : undefined}
-                              className="form-input text-sm py-1.5"
-                              value={item.parsed[field] || ''}
-                              onChange={e => editParsed(item.id, field, e.target.value)}
-                            />
+                            {type === 'date' ? (
+                              <DateInput
+                                value={item.parsed[field] || ''}
+                                onChange={v => editParsed(item.id, field, v)}
+                                className="w-full"
+                              />
+                            ) : (
+                              <input
+                                type={type}
+                                step={type === 'number' ? '0.01' : undefined}
+                                className="form-input text-sm py-1.5"
+                                value={item.parsed[field] || ''}
+                                onChange={e => editParsed(item.id, field, e.target.value)}
+                              />
+                            )}
                           </div>
                         ))}
                       </div>
+
                       {/* ── Line Items Editor ── */}
                       <div className="mt-4">
                         <div className="flex items-center justify-between mb-2">
@@ -443,11 +884,10 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
                                 {item.parsed.line_items.map((li, idx) => (
                                   <tr key={idx} className="hover:bg-slate-50 group">
                                     <td className="px-1 py-1">
-                                      <input
-                                        type="date"
-                                        className="w-full border border-transparent hover:border-slate-200 focus:border-brand-400 rounded px-1 py-0.5 text-xs bg-transparent focus:bg-white outline-none"
+                                      <DateInput
                                         value={li.date_of_service || li.date || ''}
-                                        onChange={e => editLineItem(item.id, idx, 'date_of_service', e.target.value)}
+                                        onChange={v => editLineItem(item.id, idx, 'date_of_service', v)}
+                                        className="w-full text-xs"
                                       />
                                     </td>
                                     <td className="px-1 py-1">
@@ -544,7 +984,7 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
           )}
         </div>
 
-        {/* Footer */}
+        {/* ── Footer ── */}
         <div className="border-t border-slate-200 p-4 flex-shrink-0 flex items-center justify-between gap-3">
           <button onClick={onClose} className="btn-secondary">
             {allDone ? 'Done' : 'Cancel'}
@@ -552,24 +992,28 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
 
           {queue.length > 0 && (
             <div className="flex items-center gap-3">
-              {readyCount > 1 && (
+              {selectedCount > 0 && (
                 <button
-                  onClick={saveAll}
-                  disabled={processing}
-                  className="btn-primary"
+                  onClick={saveSelected}
+                  disabled={processing || readyItems.filter(i => selected.has(i.id)).some(needsMethod)}
+                  className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Save className="h-4 w-4" />
-                  Save All ({readyCount})
+                  <Calculator className="h-4 w-4" />
+                  Apportion & Save Selected ({selectedCount})
                 </button>
               )}
-              {readyCount === 1 && (
-                <button
-                  onClick={() => saveItem(queue.find(i => i.status === 'ready'))}
-                  className="btn-primary"
-                >
-                  <Save className="h-4 w-4" /> Save Invoice
-                </button>
-              )}
+              {selectedCount === 0 && readyCount === 1 && (() => {
+                const single = queue.find(i => i.status === 'ready')
+                return (
+                  <button
+                    onClick={() => saveItem(single)}
+                    disabled={needsMethod(single)}
+                    className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Calculator className="h-4 w-4" /> Apportion & Save Invoice
+                  </button>
+                )
+              })()}
               {readyCount === 0 && savedCount > 0 && errorCount === 0 && (
                 <span className="text-sm font-medium text-green-600 flex items-center gap-1.5">
                   <CheckCircle className="h-4 w-4" /> All invoices saved
