@@ -40,10 +40,11 @@ const STATUS_COLORS = {
 }
 
 const DATE_PRESETS = [
-  { label: 'Last 30 days',   days: 30  },
-  { label: 'Last 90 days',   days: 90  },
-  { label: 'Last 12 months', days: 365 },
-  { label: 'All time',       days: null },
+  { label: 'Last 30 days',   days: 30     },
+  { label: 'Last 90 days',   days: 90     },
+  { label: 'Last 12 months', days: 365    },
+  { label: 'All time',       days: null   },
+  { label: 'Custom',         days: 'custom' },
 ]
 
 const TABS = [
@@ -1502,16 +1503,34 @@ function DemandLettersReport({ rows, sendLog, dateLabel }) {
 // Main Page
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function Reports() {
-  const [tab,    setTab]    = useState('outstanding')
-  const [preset, setPreset] = useState(2)
+  const [tab,        setTab]        = useState('outstanding')
+  const [preset,     setPreset]     = useState(2)
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo,   setCustomTo]   = useState('')
+
+  const isCustom = DATE_PRESETS[preset]?.days === 'custom'
 
   const dateFrom = useMemo(() => {
+    if (isCustom) return customFrom ? customFrom + 'T00:00:00' : null
     const days = DATE_PRESETS[preset].days
     return days ? subDays(new Date(), days).toISOString() : null
-  }, [preset])
+  }, [preset, isCustom, customFrom])
+
+  const dateTo = useMemo(() => {
+    if (isCustom && customTo) return customTo + 'T23:59:59'
+    return null
+  }, [isCustom, customTo])
+
+  const dateLabel = useMemo(() => {
+    if (isCustom && customFrom && customTo) {
+      return `${format(parseISO(customFrom), 'MM/dd/yy')} – ${format(parseISO(customTo), 'MM/dd/yy')}`
+    }
+    if (isCustom) return 'Custom range'
+    return DATE_PRESETS[preset]?.label || 'All time'
+  }, [preset, isCustom, customFrom, customTo])
 
   const { data: obligations = [], isLoading: obLoading } = useQuery({
-    queryKey: ['report-obligations', dateFrom],
+    queryKey: ['report-obligations', dateFrom, dateTo],
     queryFn: async () => {
       let q = supabase
         .from('la_insurer_apportionments')
@@ -1524,6 +1543,7 @@ export default function Reports() {
           )
         `)
       if (dateFrom) q = q.gte('created_at', dateFrom)
+      if (dateTo)   q = q.lte('created_at', dateTo)
       const { data, error } = await q
       if (error) throw error
       return data || []
@@ -1606,13 +1626,14 @@ export default function Reports() {
   })
 
   const { data: lineItems = [], isLoading: liLoading } = useQuery({
-    queryKey: ['report-line-items', dateFrom],
+    queryKey: ['report-line-items', dateFrom, dateTo],
     enabled:  tab === 'categories',
     queryFn: async () => {
       let q = supabase
         .from('la_invoice_line_items')
         .select('id, amount, category, hours, date_of_service')
       if (dateFrom) q = q.gte('date_of_service', dateFrom.split('T')[0])
+      if (dateTo)   q = q.lte('date_of_service', dateTo.split('T')[0])
       const { data, error } = await q
       if (error) throw error
       return data || []
@@ -1728,18 +1749,40 @@ export default function Reports() {
             <p className="text-sm text-slate-500">Aggregated views across matters, obligations, and payments</p>
           </div>
         </div>
-        <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-xl p-1 self-start sm:self-auto">
-          {DATE_PRESETS.map((p, i) => (
-            <button
-              key={i}
-              onClick={() => setPreset(i)}
-              className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
-                preset === i ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div className="flex flex-col gap-2 self-start sm:self-auto">
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-xl p-1">
+            {DATE_PRESETS.map((p, i) => (
+              <button
+                key={i}
+                onClick={() => setPreset(i)}
+                className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
+                  preset === i ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {isCustom && (
+            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2">
+              <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">From</span>
+              <input
+                type="date"
+                value={customFrom}
+                max={customTo || undefined}
+                onChange={e => setCustomFrom(e.target.value)}
+                className="form-input text-xs py-1 h-auto flex-1 min-w-0"
+              />
+              <span className="text-xs text-slate-500 dark:text-slate-400">to</span>
+              <input
+                type="date"
+                value={customTo}
+                min={customFrom || undefined}
+                onChange={e => setCustomTo(e.target.value)}
+                className="form-input text-xs py-1 h-auto flex-1 min-w-0"
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -1769,13 +1812,13 @@ export default function Reports() {
         </div>
       ) : (
         <>
-          {tab === 'outstanding'    && <OutstandingReport       data={outstandingByInsurer}  dateLabel={DATE_PRESETS[preset].label} />}
+          {tab === 'outstanding'    && <OutstandingReport       data={outstandingByInsurer}  dateLabel={dateLabel} />}
           {tab === 'collections'    && <CollectionsAgingReport  rows={agingRows} />}
-          {tab === 'velocity'    && <VelocityReport      data={velocityByInsurer}     dateLabel={DATE_PRESETS[preset].label} />}
-          {tab === 'categories'  && <CategoriesReport    data={categoryBreakdown}     dateLabel={DATE_PRESETS[preset].label} />}
-          {tab === 'aging'       && <AgingReport         data={matterAging}           dateLabel={DATE_PRESETS[preset].label} />}
-          {tab === 'settlements'    && <SettlementReport    data={settlementComparison} />}
-          {tab === 'demand_letters' && <DemandLettersReport rows={demandLetters} sendLog={sendLog} dateLabel={DATE_PRESETS[preset].label} />}
+          {tab === 'velocity'       && <VelocityReport          data={velocityByInsurer}     dateLabel={dateLabel} />}
+          {tab === 'categories'     && <CategoriesReport        data={categoryBreakdown}     dateLabel={dateLabel} />}
+          {tab === 'aging'          && <AgingReport             data={matterAging}           dateLabel={dateLabel} />}
+          {tab === 'settlements'    && <SettlementReport         data={settlementComparison} />}
+          {tab === 'demand_letters' && <DemandLettersReport      rows={demandLetters} sendLog={sendLog} dateLabel={dateLabel} />}
         </>
       )}
     </div>
