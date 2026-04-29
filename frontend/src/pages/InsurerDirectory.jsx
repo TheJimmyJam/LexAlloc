@@ -91,7 +91,7 @@ function InsurerFormModal({ insurer = null, onClose }) {
               </div>
               <div>
                 <label className="form-label">Claims Rep Phone</label>
-                <input className="form-input" placeholder="(555) 867-5309"
+                <input className="form-input" placeholder="xxx.xxx.xxxx"
                   {...register('claims_rep_phone')} />
               </div>
             </div>
