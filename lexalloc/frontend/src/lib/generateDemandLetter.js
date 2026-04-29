@@ -305,28 +305,45 @@ export async function generateDemandLetterBlob(data) {
   // ── Assemble document ─────────────────────────────────────────────────────────
   const children = []
 
-  // Logo (if available)
-  if (logoBuffer) {
-    children.push(new Paragraph({
-      spacing: { before: 0, after: 100 },
-      children: [new ImageRun({
-        data: logoBuffer,
-        transformation: { width: 60, height: 60 },
-        type: 'png',
-      })]
-    }))
-  }
+  // ── Header: logo left, date right — two-cell borderless table with bottom rule ─
+  const NO_BORDER   = { style: BorderStyle.NONE,   size: 0, color: 'FFFFFF' }
+  const HDR_BOTTOM  = { style: BorderStyle.SINGLE, size: 8, color: '2E4057', space: 1 }
+  const HALF = Math.floor(W / 2)
 
-  // Letterhead: firm name left, date right-aligned
-  children.push(new Paragraph({
-    spacing: { before: 0, after: 0 },
-    border: { bottom: { style: BorderStyle.SINGLE, size: 8, color: '2E4057', space: 1 } },
-    children: [
-      new TextRun({ text: firmName, bold: true, font: 'Arial', size: 28, color: '2E4057' }),
-      new TextRun('\t'),
-      new TextRun({ text: today, font: 'Arial', size: 20, color: '555555' }),
-    ],
-    tabStops: [{ type: TabStopType.RIGHT, position: W }],
+  const logoPara = logoBuffer
+    ? new Paragraph({
+        spacing: { before: 0, after: 0 },
+        children: [new ImageRun({ data: logoBuffer, transformation: { width: 60, height: 60 }, type: 'png' })]
+      })
+    : new Paragraph({ children: [] })
+
+  const datePara = new Paragraph({
+    alignment: AlignmentType.RIGHT,
+    spacing:   { before: 0, after: 0 },
+    children:  [new TextRun({ text: today, font: 'Arial', size: 20, color: '555555' })]
+  })
+
+  children.push(new Table({
+    width: { size: W, type: WidthType.DXA },
+    columnWidths: [HALF, W - HALF],
+    rows: [new TableRow({
+      children: [
+        new TableCell({
+          width: { size: HALF, type: WidthType.DXA },
+          verticalAlign: VerticalAlign.BOTTOM,
+          borders: { top: NO_BORDER, left: NO_BORDER, right: NO_BORDER, bottom: HDR_BOTTOM },
+          margins: { top: 0, bottom: 60, left: 0, right: 0 },
+          children: [logoPara],
+        }),
+        new TableCell({
+          width: { size: W - HALF, type: WidthType.DXA },
+          verticalAlign: VerticalAlign.BOTTOM,
+          borders: { top: NO_BORDER, left: NO_BORDER, right: NO_BORDER, bottom: HDR_BOTTOM },
+          margins: { top: 0, bottom: 60, left: 0, right: 0 },
+          children: [datePara],
+        }),
+      ],
+    })],
   }))
 
   children.push(blank(200))
