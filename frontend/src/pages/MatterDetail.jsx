@@ -970,8 +970,10 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
 
     try {
       // 1. Upload to Supabase storage
+      // Storage RLS on la_documents requires the FIRST folder segment to
+      // equal the caller's org_id — put org_id at the root.
       const ext  = file.name.split('.').pop()
-      const path = `policy-docs/${profile.org_id}/${Date.now()}.${ext}`
+      const path = `${profile.org_id}/policy-docs/${Date.now()}.${ext}`
       const { error: upErr } = await supabase.storage
         .from('la_documents')
         .upload(path, file, { upsert: true })
