@@ -165,6 +165,8 @@ function FirmEditModal({ orgId, firm, onClose }) {
   )
 }
 
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
+
 // ── Firms Tab ─────────────────────────────────────────────────────────────────
 function FirmsTab({ orgId }) {
   const qc = useQueryClient()
@@ -620,7 +622,6 @@ function InsurerEditModal({ orgId, insurer, onClose }) {
 }
 
 // ── Insurers Tab ──────────────────────────────────────────────────────────────
-const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 
 function InsurersTab({ orgId }) {
   const qc = useQueryClient()
