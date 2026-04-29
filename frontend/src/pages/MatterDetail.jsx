@@ -6,7 +6,8 @@ import { supabase } from '../lib/supabase.js'
 import { useForm, Controller } from 'react-hook-form'
 import DateInput from '../components/DateInput.jsx'
 import { formatCurrency, exhaustionInfo } from '../lib/calculations.js'
-import { APPORTIONMENT_METHODS } from '../lib/apportionment.js'
+import { APPORTIONMENT_METHODS, autoApportion } from '../lib/apportionment.js'
+import { autoSendDemandLetters } from '../lib/autoSendDemandLetters.js'
 import { logAudit, getActionMeta } from '../lib/audit.js'
 import {
   ArrowLeft, Plus, Trash2, X, Upload, FileText,
@@ -1436,6 +1437,103 @@ export default function MatterDetail() {
   const [showUploadInvoice, setShowUploadInvoice] = useState(false)
   const [invoiceDropFiles, setInvoiceDropFiles]   = useState([])
   const [invoiceDragOver,  setInvoiceDragOver]    = useState(false)
+
+  // ── Bulk-apportion all unapportioned invoices ───────────────────────────────
+  const [bulkApportioning, setBulkApportioning] = useState(false)
+  const [bulkProgress,     setBulkProgress]     = useState({ done: 0, total: 0, label: '' })
+
+  /**
+   * Sequentially apportion every unapportioned invoice on this matter using the
+   * matter's default method, then auto-fire demand letters for each. Returns
+   * counts so the caller can toast a summary.
+   */
+  const bulkApportionAll = async () => {
+    const method = matter?.default_apportionment_method
+    if (!method) {
+      toast.error('Set a default apportionment method on this matter first (Overview → Default Method).')
+      return
+    }
+    if (!parties?.length) {
+      toast.error('Add at least one party before bulk-apportioning.')
+      return
+    }
+
+    const todo = invoices.filter(inv => inv.status !== 'apportioned')
+    if (!todo.length) { toast.success('Nothing to apportion — all invoices are done.'); return }
+
+    const confirmed = window.confirm(
+      `Apportion ${todo.length} invoice${todo.length !== 1 ? 's' : ''} using ${APPORTIONMENT_METHODS.find(m => m.value === method)?.label || method}, ` +
+      `then send demand letters to every carrier with a non-zero share?`
+    )
+    if (!confirmed) return
+
+    setBulkApportioning(true)
+    setBulkProgress({ done: 0, total: todo.length, label: 'Starting…' })
+
+    let apportioned    = 0
+    let lettersSent    = 0
+    let lettersSkipped = 0
+    let lettersErrored = 0
+    const failedInvoices = []
+
+    for (let i = 0; i < todo.length; i++) {
+      const inv = todo[i]
+      setBulkProgress({ done: i, total: todo.length, label: `Apportioning ${inv.invoice_number || 'draft'} (${i + 1}/${todo.length})…` })
+
+      const apportId = await autoApportion({
+        invoiceId: inv.id,
+        invoice:   inv,
+        matterId,
+        orgId:     profile.org_id,
+        profile,
+        method,
+      })
+
+      if (!apportId) {
+        failedInvoices.push(inv.invoice_number || inv.id.slice(0, 8))
+        continue
+      }
+      apportioned++
+
+      try {
+        setBulkProgress({ done: i, total: todo.length, label: `Sending demand letters for ${inv.invoice_number || 'draft'}…` })
+        const result = await autoSendDemandLetters({
+          apportionmentId: apportId,
+          orgName:         profile.la_organizations?.name || '',
+          download:        false,
+        })
+        lettersSent    += result?.sent    || 0
+        lettersSkipped += result?.skipped || 0
+        lettersErrored += (result?.errors?.length || 0)
+      } catch {
+        // Non-fatal — apportionment still saved
+        lettersErrored++
+      }
+    }
+
+    setBulkApportioning(false)
+    setBulkProgress({ done: 0, total: 0, label: '' })
+
+    qc.invalidateQueries({ queryKey: ['matter-invoices',         matterId] })
+    qc.invalidateQueries({ queryKey: ['matter-apportionments',   matterId] })
+    qc.invalidateQueries({ queryKey: ['matter-insurers',         matterId] })
+    qc.invalidateQueries({ queryKey: ['matter-parties',          matterId] })
+
+    const failedMsg = failedInvoices.length
+      ? ` · ${failedInvoices.length} skipped (no parties/policies overlap their service period)`
+      : ''
+    if (apportioned > 0) {
+      const letterMsg =
+        lettersSent || lettersSkipped || lettersErrored
+          ? ` · ${lettersSent} demand letter${lettersSent !== 1 ? 's' : ''} sent` +
+            (lettersSkipped ? `, ${lettersSkipped} skipped` : '') +
+            (lettersErrored ? `, ${lettersErrored} failed`  : '')
+          : ''
+      toast.success(`${apportioned} invoice${apportioned !== 1 ? 's' : ''} apportioned${letterMsg}${failedMsg}.`)
+    } else {
+      toast.error(`Could not apportion any invoices${failedMsg}. Check that parties and insurer policy periods overlap each invoice's service period.`)
+    }
+  }
   const [showUseTemplate, setShowUseTemplate] = useState(false)
   const [showAdjusterModal, setShowAdjusterModal] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -2737,10 +2835,44 @@ export default function MatterDetail() {
                     <span className="text-xs font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">{unapportioned.length}</span>
                   )}
                 </div>
-                <button onClick={() => setShowUploadInvoice(true)} className="btn-primary">
-                  <Upload className="h-4 w-4" /> Upload Invoice
-                </button>
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                  {unapportioned.length > 0 && (
+                    <button
+                      onClick={bulkApportionAll}
+                      disabled={bulkApportioning || !matter?.default_apportionment_method || parties.length === 0}
+                      title={
+                        !matter?.default_apportionment_method
+                          ? 'Set a default apportionment method on this matter first.'
+                          : parties.length === 0
+                          ? 'Add at least one party before bulk-apportioning.'
+                          : `Apportion all ${unapportioned.length} unapportioned invoice${unapportioned.length !== 1 ? 's' : ''} and send demand letters.`
+                      }
+                      className="btn-secondary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {bulkApportioning
+                        ? <><Loader2 className="h-4 w-4 animate-spin" /> {bulkProgress.label || 'Working…'}</>
+                        : <><Calculator className="h-4 w-4" /> Apportion All ({unapportioned.length}) &amp; Send Letters</>
+                      }
+                    </button>
+                  )}
+                  <button onClick={() => setShowUploadInvoice(true)} className="btn-primary">
+                    <Upload className="h-4 w-4" /> Upload Invoice
+                  </button>
+                </div>
               </div>
+              {bulkApportioning && bulkProgress.total > 0 && (
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-brand-500 rounded-full transition-all duration-300"
+                      style={{ width: `${(bulkProgress.done / bulkProgress.total) * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-slate-400 w-24 text-right">
+                    {bulkProgress.done} / {bulkProgress.total}
+                  </span>
+                </div>
+              )}
               <div className="card overflow-hidden">
                 {unapportioned.length === 0 ? (
                   <div className="p-10 text-center text-slate-400">
