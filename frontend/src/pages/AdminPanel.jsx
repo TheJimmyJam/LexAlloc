@@ -173,20 +173,16 @@ const DEMO_PARTY_NAMES = [
   'Crestline Contractors Inc.','Monarch Industrial Partners','Blue Ridge Equipment Co.',
 ]
 
-const DEMO_INSURERS = [
-  { name: 'Hartford Insurance Co.',    policyPrefix: 'HIC' },
-  { name: 'Allstate Insurance',         policyPrefix: 'ALI' },
-  { name: 'State Farm Mutual',          policyPrefix: 'SFM' },
-  { name: 'Liberty Mutual Group',       policyPrefix: 'LMG' },
-  { name: 'Travelers Insurance',        policyPrefix: 'TRV' },
-  { name: 'Nationwide Mutual',          policyPrefix: 'NWM' },
-  { name: 'Progressive Corp',           policyPrefix: 'PRG' },
-  { name: 'USAA Insurance',             policyPrefix: 'USA' },
-  { name: 'Farmers Insurance Exchange', policyPrefix: 'FIE' },
-  { name: 'CNA Financial',              policyPrefix: 'CNA' },
-  { name: 'Zurich Insurance Group',     policyPrefix: 'ZIG' },
-  { name: 'Chubb Limited',              policyPrefix: 'CHB' },
-]
+// Derive a short claim-number prefix from an insurer's name (e.g. "Travelers Insurance" → "TI")
+function insurerPrefix(name) {
+  return (name || '')
+    .split(/\s+/)
+    .map(w => w[0] ?? '')
+    .join('')
+    .toUpperCase()
+    .replace(/[^A-Z]/g, '')
+    .slice(0, 3) || 'INS'
+}
 
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min }
 function randAmount(min, max) { return Math.round((Math.random() * (max - min) + min) * 100) / 100 }
@@ -1226,16 +1222,16 @@ export default function AdminPanel() {
         .from('la_parties').insert(partyRows).select('id, matter_id, responsible_start, responsible_end')
       if (pErr) throw pErr
 
-      // ── 3. Demo insurers (org-level) ────────────────────────────────────
-      setDemoProgress('Creating demo insurers…')
-      const insurerInserts = DEMO_INSURERS.map(ins => ({
-        org_id: orgId,
-        name:   `${DEMO_PREFIX} ${ins.name}`,
-        policy_number: null,
-      }))
+      // ── 3. Load real org insurers (no demo copies created) ─────────────
+      setDemoProgress('Loading your insurers…')
       const { data: insurers, error: insErr } = await supabase
-        .from('la_insurers').insert(insurerInserts).select('id, name')
+        .from('la_insurers')
+        .select('id, name')
+        .eq('org_id', orgId)
+        .not('name', 'ilike', `${DEMO_PREFIX}%`)
+        .order('name')
       if (insErr) throw insErr
+      if (!insurers?.length) throw new Error('No insurers found in your Rolodex. Add insurers under Settings → Rolodex → Insurers first, then generate demo data.')
 
       // ── 4. Insurer policy periods (2–3 insurers per party) ──────────────
       setDemoProgress('Assigning insurer policy periods…')
@@ -1251,7 +1247,7 @@ export default function AdminPanel() {
 
         // Divide responsible period into overlapping policy windows
         ins2use.forEach((ins, i) => {
-          const demoIns = DEMO_INSURERS.find(d => `${DEMO_PREFIX} ${d.name}` === ins.name) || { policyPrefix: 'POL' }
+          const prefix = insurerPrefix(ins.name)
           // Policy windows: first covers early period, last covers later, middle overlaps both
           const winStart = new Date(pStart)
           winStart.setFullYear(winStart.getFullYear() + Math.max(0, i * Math.floor(spanYrs / ins2use.length) - 1))
@@ -1267,7 +1263,7 @@ export default function AdminPanel() {
             policy_start:  winStart.toISOString().split('T')[0],
             policy_end:    winEnd.toISOString().split('T')[0],
             policy_limit:  randAmount(500000, 5000000),
-            claim_number:  `${demoIns.policyPrefix}-${new Date().getFullYear()}-${seqNum}`,
+            claim_number:  `${prefix}-${new Date().getFullYear()}-${seqNum}`,
           })
         })
       }
@@ -1442,13 +1438,6 @@ export default function AdminPanel() {
       }
       await supabase.from('la_invoices').delete().in('matter_id', mIds)
       await supabase.from('la_matters').delete().in('id', mIds)
-
-      // ── Demo insurers (org-level, prefixed [DEMO]) ───────────────────────
-      setDemoProgress('Removing demo insurers…')
-      await supabase.from('la_insurers')
-        .delete()
-        .ilike('name', `${DEMO_PREFIX}%`)
-        .eq('org_id', profile.org_id)
 
       setDemoStats(null)
       setDemoProgress('')
@@ -2627,12 +2616,12 @@ export default function AdminPanel() {
               <div className="grid grid-cols-2 gap-x-8 gap-y-1">
                 <span>✦ 20 demo matters (legal cases)</span>
                 <span>✦ 2–4 parties per matter with service dates</span>
-                <span>✦ 12 demo insurers (org-level)</span>
+                <span>✦ Uses your actual Rolodex insurers</span>
                 <span>✦ 2–3 insurer policy periods per party</span>
                 <span>✦ 1–3 invoices per matter with real line items</span>
                 <span>✦ Mixed payment statuses &amp; amounts</span>
               </div>
-              <p className="text-xs text-slate-400 mt-2">All demo records are tagged <code className="bg-slate-200 px-1 rounded">[DEMO]</code> and can be cleared at any time. Matters are fully configured — open any one and click <strong>Run Apportionment</strong> or ask the <strong>AI Advisor</strong>.</p>
+              <p className="text-xs text-slate-400 mt-2">All demo records are tagged <code className="bg-slate-200 px-1 rounded">[DEMO]</code> and can be cleared at any time. Requires at least one insurer in your Rolodex. Matters are fully configured — open any one and click <strong>Run Apportionment</strong> or ask the <strong>AI Advisor</strong>.</p>
             </div>
 
             {demoProgress && (
