@@ -2,8 +2,8 @@
 // Uses Anthropic Claude to extract structured data from an insurance policy PDF.
 //
 // POST body: { fileUrl: string, fileType?: string }
-// Returns: { insurer_name, policy_number, policy_start, policy_end, policy_limit,
-//             claim_number, claims_rep_name, claims_rep_email, portal_url }
+// Returns: { named_insured, insurer_name, policy_number, policy_start, policy_end,
+//             policy_limit, claim_number, claims_rep_name, claims_rep_email, portal_url }
 
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY') ?? ''
 
@@ -16,6 +16,7 @@ const corsHeaders = {
 const SYSTEM_PROMPT = `You are an insurance policy parsing assistant for a legal claims management system.
 Extract structured data from insurance policy documents and return ONLY valid JSON with this exact schema — no markdown, no commentary:
 {
+  "named_insured":     "string or null (the FIRST named insured / policyholder, e.g. 'ABC General Contractors, Inc.'). This is the entity the policy COVERS — NOT the insurance company issuing it.",
   "insurer_name":      "string or null (the insurance company name, e.g. 'Travelers Insurance', 'USAA')",
   "policy_number":     "string or null (the policy number, e.g. 'GL-2019-001234')",
   "policy_start":      "YYYY-MM-DD or null (the policy period start / effective date)",
@@ -28,6 +29,7 @@ Extract structured data from insurance policy documents and return ONLY valid JS
 }
 
 Rules:
+- named_insured is the policyholder — look for "Named Insured", "Insured", "Policyholder", or "Insured Name" labels. Use the FIRST named insured if multiple are listed. Drop trailing role descriptors like " — additional insured" or "(loss payee)" if present.
 - insurer_name is the insurance company issuing the policy — NOT a law firm or the insured party.
 - policy_limit should be the largest stated per-occurrence or per-claim limit. If multiple limits exist, prefer the combined single limit. Return as a plain number (no $ or commas).
 - policy_start and policy_end are the policy period dates — look for "Policy Period", "Effective Date", "Expiration Date".
