@@ -665,7 +665,7 @@ function InsurerPolicyFields({ register, control, errors = {}, watch, partyRespo
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4 items-end">
         <div>
           <label className="form-label">Coverage Start *</label>
           <Controller name="policy_start" control={control}
