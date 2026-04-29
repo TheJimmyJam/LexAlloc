@@ -1351,10 +1351,10 @@ export default function AdminPanel() {
           .from('la_invoice_line_items').insert(allLineItemRows.slice(i, i + 100))
         if (liErr) throw liErr
       }
-      // Back-fill total_amount on each invoice
+      // Back-fill total_amount + mark as apportioned
       await Promise.all(
         invoices.map(inv =>
-          supabase.from('la_invoices').update({ total_amount: invoiceTotals[inv.id] }).eq('id', inv.id)
+          supabase.from('la_invoices').update({ total_amount: invoiceTotals[inv.id], status: 'apportioned' }).eq('id', inv.id)
         )
       )
 
