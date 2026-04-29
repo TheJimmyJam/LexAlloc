@@ -19,6 +19,7 @@ import { format, parseISO, differenceInCalendarDays, addDays, startOfYear, addYe
 import toast from 'react-hot-toast'
 import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
 import DocumentUploadModal, { DOC_TYPES } from '../components/DocumentUploadModal.jsx'
+import AddFromPolicyModal from '../components/AddFromPolicyModal.jsx'
 import { UseTemplateModal } from './Matters.jsx'
 import { generateMatterSummaryReport } from '../lib/generateMatterSummaryReport.js'
 import SettlementTab from '../components/SettlementTab.jsx'
@@ -1343,6 +1344,7 @@ export default function MatterDetail() {
   const [editingPct, setEditingPct] = useState({})   // { [partyId]: stringValue }
   const [showAddInsurer, setShowAddInsurer] = useState(false)
   const [addInsurerForParty, setAddInsurerForParty] = useState(null) // party object — opens modal pre-scoped
+  const [showAddFromPolicy, setShowAddFromPolicy] = useState(false)  // unified party + insurer from policy PDF
   const [expandedParties, setExpandedParties] = useState(new Set())
   const [showUploadDoc, setShowUploadDoc] = useState(false)
   const [editingInsurer, setEditingInsurer] = useState(null)
@@ -2163,6 +2165,9 @@ export default function MatterDetail() {
                   <Check className="h-4 w-4" /> Equalize
                 </button>
               )}
+              <button onClick={() => setShowAddFromPolicy(true)} className="btn-secondary text-sm">
+                <Sparkles className="h-4 w-4" /> Add from Policy
+              </button>
               <button onClick={() => setShowAddParty(true)} className="btn-primary">
                 <Plus className="h-4 w-4" /> Add Party
               </button>
@@ -2190,6 +2195,9 @@ export default function MatterDetail() {
                 <div className="flex items-center justify-center gap-3 flex-wrap">
                   <button onClick={() => setShowAddParty(true)} className="btn-primary">
                     <Plus className="h-4 w-4" /> Add Party
+                  </button>
+                  <button onClick={() => setShowAddFromPolicy(true)} className="btn-secondary">
+                    <Sparkles className="h-4 w-4" /> Add from Policy PDF
                   </button>
                   <button onClick={() => setShowAdjusterModal(true)} className="btn-secondary">
                     <Mail className="h-4 w-4" /> Request Info from Relevant Parties
@@ -2427,6 +2435,9 @@ export default function MatterDetail() {
                     : <><Bell className="h-4 w-4" /> Check Limits</>}
                 </button>
               )}
+              <button onClick={() => setShowAddFromPolicy(true)} className="btn-secondary">
+                <Sparkles className="h-4 w-4" /> Add from Policy
+              </button>
               <button onClick={() => setShowAddInsurer(true)} className="btn-primary" disabled={parties.length === 0}>
                 <Plus className="h-4 w-4" /> Add Insurer
               </button>
@@ -3270,7 +3281,8 @@ export default function MatterDetail() {
 
       {/* Modals */}
       {showEditMatter  && <EditMatterModal matter={matter} onClose={() => setShowEditMatter(false)} />}
-      {showAddParty    && <AddPartyModal   matterId={matterId} existingParties={parties} onClose={() => setShowAddParty(false)} />}
+      {showAddParty       && <AddPartyModal       matterId={matterId} existingParties={parties} onClose={() => setShowAddParty(false)} />}
+      {showAddFromPolicy  && <AddFromPolicyModal  matterId={matterId} parties={parties}        onClose={() => setShowAddFromPolicy(false)} />}
       {showAdjusterModal && matter && <RequestAdjusterInfoModal matter={matter} onClose={() => setShowAdjusterModal(false)} />}
       {editingParty    && <EditPartyModal  party={editingParty} matterId={matterId} allParties={parties} onClose={() => setEditingParty(null)} />}
       {(showAddInsurer || addInsurerForParty) && (
