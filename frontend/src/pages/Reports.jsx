@@ -7,7 +7,7 @@ import autoTable from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
 import {
   AlertTriangle, Clock, Layers, TrendingUp, BarChart3,
-  Download, FileSpreadsheet, FileText, ChevronDown, Scale,
+  Download, FileSpreadsheet, FileText, ChevronDown, Scale, Mail,
 } from 'lucide-react'
 import { formatCurrency } from '../lib/calculations.js'
 import {
@@ -46,12 +46,24 @@ const DATE_PRESETS = [
 ]
 
 const TABS = [
-  { key: 'outstanding', label: 'Outstanding Obligations', icon: AlertTriangle },
-  { key: 'velocity',    label: 'Payment Velocity',        icon: Clock         },
-  { key: 'categories',  label: 'Invoice Categories',      icon: Layers        },
-  { key: 'aging',       label: 'Matter Aging',            icon: TrendingUp    },
-  { key: 'settlements', label: 'Settlements',             icon: Scale         },
+  { key: 'outstanding',    label: 'Outstanding Obligations', icon: AlertTriangle },
+  { key: 'velocity',       label: 'Payment Velocity',        icon: Clock         },
+  { key: 'categories',     label: 'Invoice Categories',      icon: Layers        },
+  { key: 'aging',          label: 'Matter Aging',            icon: TrendingUp    },
+  { key: 'settlements',    label: 'Settlements',             icon: Scale         },
+  { key: 'demand_letters', label: 'Demand Letters',          icon: Mail          },
 ]
+
+const DELINQUENCY_BANDS = [
+  { max: 30,  label: '0–30 days',   cls: 'bg-green-100 text-green-700'  },
+  { max: 60,  label: '31–60 days',  cls: 'bg-amber-100 text-amber-700'  },
+  { max: 90,  label: '61–90 days',  cls: 'bg-orange-100 text-orange-700' },
+  { max: Infinity, label: '90+ days', cls: 'bg-red-100 text-red-700'    },
+]
+
+function delinquencyBand(days) {
+  return DELINQUENCY_BANDS.find(b => days <= b.max) || DELINQUENCY_BANDS[DELINQUENCY_BANDS.length - 1]
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PDF export helper
@@ -943,6 +955,266 @@ function SettlementReport({ data }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Report 6 — Demand Letters
+// ═══════════════════════════════════════════════════════════════════════════════
+function DemandLettersReport({ rows, sendLog, dateLabel }) {
+  // Build map: insurer_apportionment_id → sorted send events
+  const sendMap = useMemo(() => {
+    const m = {}
+    for (const s of sendLog) {
+      const key = s.insurer_apportionment_id
+      if (!m[key]) m[key] = []
+      m[key].push(s)
+    }
+    for (const key of Object.keys(m)) {
+      m[key].sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at))
+    }
+    return m
+  }, [sendLog])
+
+  const today = new Date()
+
+  const enriched = useMemo(() => rows.map(r => {
+    const sends      = sendMap[r.id] || []
+    const lastSend   = sends[0]
+    const demanded   = r.demanded_at ? parseISO(r.demanded_at) : null
+    const isPaid     = r.payment_status === 'paid'
+    const daysOut    = demanded
+      ? isPaid && r.payment_date
+        ? differenceInDays(parseISO(r.payment_date), demanded)
+        : differenceInDays(today, demanded)
+      : null
+    const balance    = Number(r.amount || 0) - Number(r.amount_paid || 0)
+    return { ...r, sends, lastSend, daysOut, balance, isPaid }
+  }), [rows, sendMap])
+
+  // Sort unpaid first, then by days outstanding desc
+  const sorted = useMemo(() =>
+    [...enriched].sort((a, b) => {
+      if (a.isPaid !== b.isPaid) return a.isPaid ? 1 : -1
+      return (b.daysOut ?? 0) - (a.daysOut ?? 0)
+    }),
+  [enriched])
+
+  const unpaid = sorted.filter(r => !r.isPaid)
+  const kpis   = useMemo(() => ({
+    total:        sorted.length,
+    outstanding:  unpaid.reduce((s, r) => s + r.balance, 0),
+    delinquent:   unpaid.filter(r => r.daysOut >= 90).length,
+    collected:    sorted.reduce((s, r) => s + Number(r.amount_paid || 0), 0),
+  }), [sorted, unpaid])
+
+  const bandData = useMemo(() => {
+    return DELINQUENCY_BANDS.map(b => ({
+      ...b,
+      count: unpaid.filter(r => {
+        const d = r.daysOut ?? 0
+        const prevMax = DELINQUENCY_BANDS[DELINQUENCY_BANDS.indexOf(b) - 1]?.max ?? 0
+        return d > prevMax && d <= b.max
+      }).length,
+      amount: unpaid.filter(r => {
+        const d = r.daysOut ?? 0
+        const prevMax = DELINQUENCY_BANDS[DELINQUENCY_BANDS.indexOf(b) - 1]?.max ?? 0
+        return d > prevMax && d <= b.max
+      }).reduce((s, r) => s + r.balance, 0),
+    }))
+  }, [unpaid])
+
+  const headers   = ['LexAlloc Invoice No.', 'Matter', 'Insurer', 'Amount', 'Paid', 'Balance', 'Status', 'Date Demanded', 'Days Out', 'Emails Sent', 'Last Email']
+  const xlsxRows  = sorted.map(r => [
+    r.lexalloc_invoice_number || '—',
+    r.la_apportionments?.la_matters?.name || '—',
+    r.la_insurers?.name || '—',
+    Number(r.amount || 0),
+    Number(r.amount_paid || 0),
+    r.balance,
+    r.payment_status || '—',
+    r.demanded_at ? format(parseISO(r.demanded_at), 'MM/dd/yyyy') : '—',
+    r.daysOut ?? '—',
+    r.sends.length,
+    r.lastSend ? format(parseISO(r.lastSend.sent_at), 'MM/dd/yyyy') : '—',
+  ])
+
+  const pdfRows = sorted.map(r => [
+    r.lexalloc_invoice_number || '—',
+    (r.la_apportionments?.la_matters?.name || '—').slice(0, 28),
+    (r.la_insurers?.name || '—').slice(0, 22),
+    formatCurrency(Number(r.amount || 0)),
+    formatCurrency(Number(r.amount_paid || 0)),
+    formatCurrency(r.balance),
+    r.payment_status || '—',
+    r.demanded_at ? format(parseISO(r.demanded_at), 'MM/dd/yy') : '—',
+    r.daysOut != null ? `${r.daysOut}d` : '—',
+    r.sends.length,
+    r.lastSend ? format(parseISO(r.lastSend.sent_at), 'MM/dd/yy') : '—',
+  ])
+
+  const kpiList = [
+    { label: 'Letters Sent',    value: kpis.total },
+    { label: 'Outstanding',     value: formatCurrency(kpis.outstanding) },
+    { label: 'Delinquent 90+',  value: kpis.delinquent },
+    { label: 'Total Collected', value: formatCurrency(kpis.collected) },
+  ]
+
+  const handlePDF = async () => exportPDF({
+    title:    'Demand Letters',
+    dateLabel,
+    kpis:     kpiList,
+    columns:  headers,
+    rows:     pdfRows,
+    filename: `demand-letters-${format(new Date(), 'yyyy-MM-dd')}.pdf`,
+  })
+
+  const handleExcel = () => exportXLSX({
+    sheetName:    'Demand Letters',
+    headers,
+    rows:         xlsxRows,
+    colWidths:    [22, 30, 24, 14, 14, 14, 14, 14, 10, 12, 14],
+    currencyCols: [3, 4, 5],
+    filename:     `demand-letters-${format(new Date(), 'yyyy-MM-dd')}.xlsx`,
+  })
+
+  if (!sorted.length) return (
+    <div className="card p-12 text-center text-slate-400">
+      <Mail className="h-8 w-8 mx-auto mb-2 text-slate-300" />
+      <p className="mb-1">No demand letters sent yet.</p>
+      <p className="text-xs">Letters appear here once you generate and send them from the Apportionment tab.</p>
+    </div>
+  )
+
+  return (
+    <div className="space-y-6">
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <KpiCard label="Letters Sent"    value={kpis.total.toLocaleString()} />
+        <KpiCard label="Outstanding"     value={formatCurrency(kpis.outstanding)} color="text-red-600" />
+        <KpiCard label="Delinquent 90+"  value={kpis.delinquent.toLocaleString()} color={kpis.delinquent > 0 ? 'text-red-600' : 'text-slate-900'} />
+        <KpiCard label="Total Collected" value={formatCurrency(kpis.collected)} color="text-green-600" />
+      </div>
+
+      {/* Delinquency bar chart */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="card p-5">
+          <p className="text-sm font-semibold text-slate-700 mb-4">Outstanding by Age Bucket</p>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={bandData} margin={{ top: 4, right: 16, left: 16, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+              <YAxis tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fontSize: 11 }} />
+              <Tooltip formatter={v => formatCurrency(v)} />
+              <Bar dataKey="amount" name="Outstanding" radius={[4,4,0,0]}>
+                {bandData.map((b, i) => (
+                  <Cell key={i} fill={['#16a34a','#d97706','#ea580c','#dc2626'][i]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="card p-5">
+          <p className="text-sm font-semibold text-slate-700 mb-3">Delinquency Summary</p>
+          <div className="space-y-3">
+            {bandData.map((b, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap w-24 text-center ${b.cls}`}>
+                  {b.label}
+                </span>
+                <div className="flex-1 bg-slate-100 rounded-full h-2">
+                  <div
+                    className="h-2 rounded-full transition-all"
+                    style={{
+                      width: unpaid.length > 0 ? `${Math.min((b.count / unpaid.length) * 100, 100)}%` : '0%',
+                      backgroundColor: ['#16a34a','#d97706','#ea580c','#dc2626'][i],
+                    }}
+                  />
+                </div>
+                <span className="text-sm font-semibold text-slate-700 w-6 text-right">{b.count}</span>
+                <span className="text-xs text-slate-400 w-24 text-right">{formatCurrency(b.amount)}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-slate-400 mt-4">Unpaid letters only · days since demand date</p>
+        </div>
+      </div>
+
+      {/* Detail table */}
+      <div className="card overflow-hidden">
+        <SectionHeader title={`${sorted.length} demand letter${sorted.length !== 1 ? 's' : ''}`} onPDF={handlePDF} onExcel={handleExcel} />
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50 text-left">
+                {['LexAlloc Invoice No.', 'Matter', 'Insurer', 'Amount', 'Paid', 'Balance', 'Status', 'Date Demanded', 'Days Out', 'Emails', 'Last Sent'].map(h => (
+                  <th key={h} className="px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {sorted.map((r, i) => {
+                const band = r.daysOut != null && !r.isPaid ? delinquencyBand(r.daysOut) : null
+                return (
+                  <tr key={i} className={`hover:bg-slate-50 ${r.isPaid ? 'opacity-70' : ''}`}>
+                    <td className="px-4 py-3 font-mono text-xs text-slate-700 whitespace-nowrap">
+                      {r.lexalloc_invoice_number || <span className="text-slate-400">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-slate-800 max-w-[200px]">
+                      <p className="truncate font-medium">{r.la_apportionments?.la_matters?.name || '—'}</p>
+                      {r.la_apportionments?.la_matters?.matter_number && (
+                        <p className="text-xs text-slate-400 font-mono">{r.la_apportionments.la_matters.matter_number}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700 max-w-[180px]">
+                      <p className="truncate">{r.la_insurers?.name || '—'}</p>
+                    </td>
+                    <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{formatCurrency(Number(r.amount || 0))}</td>
+                    <td className="px-4 py-3 text-green-600 whitespace-nowrap">{formatCurrency(Number(r.amount_paid || 0))}</td>
+                    <td className="px-4 py-3 font-semibold whitespace-nowrap">
+                      <span className={r.isPaid ? 'text-green-600' : 'text-red-600'}>{formatCurrency(r.balance)}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`badge text-xs capitalize ${STATUS_COLORS[r.payment_status] ?? 'bg-slate-100 text-slate-600'}`}>
+                        {(r.payment_status || '—').replace('_', ' ')}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                      {r.demanded_at ? format(parseISO(r.demanded_at), 'MM/dd/yyyy') : '—'}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {r.daysOut != null ? (
+                        r.isPaid
+                          ? <span className="text-green-600 font-semibold">{r.daysOut}d</span>
+                          : <span className={`font-semibold ${band?.cls?.replace('bg-', 'text-').split(' ')[0] ?? 'text-slate-700'}`}>
+                              {r.daysOut}d
+                            </span>
+                      ) : '—'}
+                      {!r.isPaid && band && (
+                        <span className={`ml-1.5 text-xs font-medium px-1.5 py-0.5 rounded-full ${band.cls}`}>{band.label}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 text-center">{r.sends.length || '—'}</td>
+                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap text-xs">
+                      {r.lastSend
+                        ? <div>
+                            <p>{format(parseISO(r.lastSend.sent_at), 'MM/dd/yyyy')}</p>
+                            {r.lastSend.email_to && <p className="text-slate-400 truncate max-w-[140px]">{r.lastSend.email_to}</p>}
+                          </div>
+                        : <span className="text-slate-300">—</span>}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-xs text-slate-400 px-5 pb-3 pt-2">
+          Days outstanding measured from demand date. Paid rows show time from demand to payment receipt.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Main Page
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function Reports() {
@@ -986,6 +1258,41 @@ export default function Reports() {
           allocations:la_settlement_allocations(original_demand, reserve_amount, settlement_amount)
         `)
         .order('settlement_date', { ascending: false })
+      if (error) throw error
+      return data || []
+    },
+  })
+
+  const { data: demandLetters = [], isLoading: dlLoading } = useQuery({
+    queryKey: ['report-demand-letters'],
+    enabled:  tab === 'demand_letters',
+    queryFn:  async () => {
+      const { data, error } = await supabase
+        .from('la_insurer_apportionments')
+        .select(`
+          id, amount, amount_paid, payment_status, demanded_at, payment_date,
+          lexalloc_invoice_number, insurer_id,
+          la_insurers(id, name),
+          la_apportionments(
+            id, matter_id,
+            la_matters(id, name, matter_number)
+          )
+        `)
+        .not('demanded_at', 'is', null)
+        .order('demanded_at', { ascending: false })
+      if (error) throw error
+      return data || []
+    },
+  })
+
+  const { data: sendLog = [], isLoading: slLoading } = useQuery({
+    queryKey: ['report-send-log'],
+    enabled:  tab === 'demand_letters',
+    queryFn:  async () => {
+      const { data, error } = await supabase
+        .from('la_payment_reminders')
+        .select('id, insurer_apportionment_id, email_to, sent_at, triggered_by, status, schedule_type')
+        .order('sent_at', { ascending: false })
       if (error) throw error
       return data || []
     },
@@ -1096,7 +1403,10 @@ export default function Reports() {
     }
   }), [settlements])
 
-  const isLoading = obLoading || (tab === 'categories' && liLoading) || (tab === 'settlements' && settlementLoading)
+  const isLoading = obLoading
+    || (tab === 'categories'     && liLoading)
+    || (tab === 'settlements'    && settlementLoading)
+    || (tab === 'demand_letters' && (dlLoading || slLoading))
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
@@ -1155,7 +1465,8 @@ export default function Reports() {
           {tab === 'velocity'    && <VelocityReport      data={velocityByInsurer}     dateLabel={DATE_PRESETS[preset].label} />}
           {tab === 'categories'  && <CategoriesReport    data={categoryBreakdown}     dateLabel={DATE_PRESETS[preset].label} />}
           {tab === 'aging'       && <AgingReport         data={matterAging}           dateLabel={DATE_PRESETS[preset].label} />}
-          {tab === 'settlements' && <SettlementReport    data={settlementComparison} />}
+          {tab === 'settlements'    && <SettlementReport    data={settlementComparison} />}
+          {tab === 'demand_letters' && <DemandLettersReport rows={demandLetters} sendLog={sendLog} dateLabel={DATE_PRESETS[preset].label} />}
         </>
       )}
     </div>
