@@ -1166,6 +1166,8 @@ export default function MatterDetail() {
   const [showUploadDoc, setShowUploadDoc] = useState(false)
   const [editingInsurer, setEditingInsurer] = useState(null)
   const [showUploadInvoice, setShowUploadInvoice] = useState(false)
+  const [invoiceDropFiles, setInvoiceDropFiles]   = useState([])
+  const [invoiceDragOver,  setInvoiceDragOver]    = useState(false)
   const [showUseTemplate, setShowUseTemplate] = useState(false)
   const [showAdjusterModal, setShowAdjusterModal] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -2422,6 +2424,34 @@ export default function MatterDetail() {
 
         return (
           <div className="space-y-6">
+            {/* ── Drag-to-upload zone ── */}
+            <div
+              onDragOver={e  => { e.preventDefault(); setInvoiceDragOver(true)  }}
+              onDragLeave={() => setInvoiceDragOver(false)}
+              onDrop={e => {
+                e.preventDefault()
+                setInvoiceDragOver(false)
+                const files = Array.from(e.dataTransfer.files).filter(f =>
+                  f.type === 'application/pdf' || f.type.startsWith('image/')
+                )
+                if (!files.length) return
+                setInvoiceDropFiles(files)
+                setShowUploadInvoice(true)
+              }}
+              className={`rounded-2xl border-2 border-dashed transition-all px-6 py-8 text-center cursor-pointer
+                ${invoiceDragOver
+                  ? 'border-brand-500 bg-brand-50 scale-[1.01]'
+                  : 'border-slate-200 bg-slate-50 hover:border-brand-300 hover:bg-brand-50/40'
+                }`}
+              onClick={() => setShowUploadInvoice(true)}
+            >
+              <Upload className={`h-7 w-7 mx-auto mb-2 transition-colors ${invoiceDragOver ? 'text-brand-500' : 'text-slate-300'}`} />
+              <p className={`text-sm font-medium transition-colors ${invoiceDragOver ? 'text-brand-700' : 'text-slate-500'}`}>
+                {invoiceDragOver ? 'Drop to upload' : 'Drop an invoice here, or click to browse'}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">PDF or image · up to 20 MB</p>
+            </div>
+
             {/* ── Unapportioned ── */}
             <div>
               <div className="flex items-center justify-between mb-3">
@@ -3072,7 +3102,8 @@ export default function MatterDetail() {
       {showUploadInvoice && (
         <InvoiceUploadModal
           matterId={matterId}
-          onClose={() => { setShowUploadInvoice(false); qc.invalidateQueries({ queryKey: ['matter-invoices', matterId] }) }}
+          initialFiles={invoiceDropFiles}
+          onClose={() => { setShowUploadInvoice(false); setInvoiceDropFiles([]); qc.invalidateQueries({ queryKey: ['matter-invoices', matterId] }) }}
         />
       )}
       {showUploadDoc && (
