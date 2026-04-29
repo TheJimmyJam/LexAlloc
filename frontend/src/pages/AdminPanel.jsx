@@ -1777,7 +1777,7 @@ export default function AdminPanel() {
       <div className="flex flex-col lg:flex-row gap-6">
 
         {/* Sidebar nav */}
-        <aside className="lg:w-56 lg:flex-shrink-0">
+        <aside className="lg:w-48 lg:flex-shrink-0">
           <nav className="flex flex-col gap-0.5 lg:sticky lg:top-6 bg-white lg:bg-transparent border lg:border-0 border-slate-200 rounded-xl p-2 lg:p-0">
             {TABS.filter(t => !t.dbAdminOnly || isPlatformAdmin).map(({ key, label, icon: Icon, dbAdminOnly }) => {
               const active = tab === key
