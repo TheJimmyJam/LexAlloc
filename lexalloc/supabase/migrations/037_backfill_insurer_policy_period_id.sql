@@ -8,11 +8,16 @@
 -- ============================================================
 
 UPDATE public.la_insurer_apportionments
-SET insurer_policy_period_id = ipp.id
-FROM public.la_apportionments        a
-JOIN public.la_insurer_policy_periods ipp
-  ON ipp.insurer_id = la_insurer_apportionments.insurer_id
- AND ipp.matter_id  = a.matter_id
-WHERE la_insurer_apportionments.apportionment_id         = a.id
-  AND la_insurer_apportionments.insurer_policy_period_id IS NULL
-  AND la_insurer_apportionments.insurer_id               IS NOT NULL;
+SET insurer_policy_period_id = sub.ipp_id
+FROM (
+  SELECT
+    ia.id    AS ia_id,
+    ipp.id   AS ipp_id
+  FROM public.la_insurer_apportionments  ia
+  JOIN public.la_apportionments           a   ON a.id         = ia.apportionment_id
+  JOIN public.la_insurer_policy_periods   ipp ON ipp.insurer_id = ia.insurer_id
+                                             AND ipp.matter_id  = a.matter_id
+  WHERE ia.insurer_policy_period_id IS NULL
+    AND ia.insurer_id               IS NOT NULL
+) sub
+WHERE public.la_insurer_apportionments.id = sub.ia_id;
