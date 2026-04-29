@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { useForm, Controller } from 'react-hook-form'
+import DateInput from '../components/DateInput.jsx'
 import { formatCurrency, exhaustionInfo } from '../lib/calculations.js'
 import { APPORTIONMENT_METHODS } from '../lib/apportionment.js'
 import { logAudit, getActionMeta } from '../lib/audit.js'
@@ -370,7 +371,7 @@ function EditMatterModal({ matter, onClose }) {
 // ── Edit Party Modal ──────────────────────────────────────────────────────────
 function EditPartyModal({ party, matterId, allParties = [], onClose }) {
   const qc = useQueryClient()
-  const { register, watch, handleSubmit, formState: { errors, isSubmitting } } = useForm({
+  const { register, control, watch, handleSubmit, formState: { errors, isSubmitting } } = useForm({
     defaultValues: {
       name:               party.name,
       share_percentage:   party.share_percentage,
@@ -441,17 +442,14 @@ function EditPartyModal({ party, matterId, allParties = [], onClose }) {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="form-label text-xs">From</label>
-                <input type="date" className="form-input text-sm" {...register('responsible_start')} />
+                <Controller name="responsible_start" control={control}
+                  render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} className="w-full" />} />
               </div>
               <div>
                 <label className="form-label text-xs">To</label>
-                <input type="date" className="form-input text-sm"
-                  {...register('responsible_end', {
-                    validate: v => {
-                      const start = watch('responsible_start')
-                      return !v || !start || v >= start || 'End date must be on or after start date'
-                    }
-                  })} />
+                <Controller name="responsible_end" control={control}
+                  rules={{ validate: v => { const start = watch('responsible_start'); return !v || !start || v >= start || 'End date must be on or after start date' } }}
+                  render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} hasError={!!errors.responsible_end} className="w-full" />} />
                 {errors.responsible_end && <p className="text-red-500 text-xs mt-1">{errors.responsible_end.message}</p>}
               </div>
             </div>
@@ -476,7 +474,7 @@ function EditPartyModal({ party, matterId, allParties = [], onClose }) {
 function AddPartyModal({ matterId, existingParties = [], onClose }) {
   const { profile } = useAuth()
   const qc = useQueryClient()
-  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm({
+  const { register, control, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm({
     defaultValues: { share_percentage: '', equalize: existingParties.length > 0 },
   })
   const currentTotal = existingParties.reduce((s, p) => s + (p.share_percentage || 0), 0)
@@ -575,17 +573,14 @@ function AddPartyModal({ matterId, existingParties = [], onClose }) {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="form-label text-xs">From</label>
-                <input type="date" className="form-input text-sm" {...register('responsible_start')} />
+                <Controller name="responsible_start" control={control}
+                  render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} className="w-full" />} />
               </div>
               <div>
                 <label className="form-label text-xs">To</label>
-                <input type="date" className={`form-input text-sm ${errors.responsible_end ? 'border-red-400' : ''}`}
-                  {...register('responsible_end', {
-                    validate: v => {
-                      const start = watch('responsible_start')
-                      return !v || !start || v >= start || 'End date must be on or after start date'
-                    }
-                  })} />
+                <Controller name="responsible_end" control={control}
+                  rules={{ validate: v => { const start = watch('responsible_start'); return !v || !start || v >= start || 'End date must be on or after start date' } }}
+                  render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} hasError={!!errors.responsible_end} className="w-full" />} />
                 {errors.responsible_end && <p className="text-red-500 text-xs mt-1">{errors.responsible_end.message}</p>}
               </div>
             </div>
@@ -646,17 +641,16 @@ function InsurerPolicyFields({ register, control, errors = {}, watch }) {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="form-label">Policy Start *</label>
-          <input type="date" className={`form-input ${errors.policy_start ? 'border-red-400 focus:ring-red-300' : ''}`}
-            {...register('policy_start', { required: 'Start date is required to calculate time on risk' })} />
+          <Controller name="policy_start" control={control}
+            rules={{ required: 'Start date is required to calculate time on risk' }}
+            render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} hasError={!!errors.policy_start} className="w-full" />} />
           {errors.policy_start && <p className="text-red-500 text-xs mt-1">{errors.policy_start.message}</p>}
         </div>
         <div>
           <label className="form-label">Policy End *</label>
-          <input type="date" className={`form-input ${errors.policy_end ? 'border-red-400 focus:ring-red-300' : ''}`}
-            {...register('policy_end', {
-              required: 'End date is required to calculate time on risk',
-              validate: v => !policyStart || v >= policyStart || 'End date must be on or after the start date',
-            })} />
+          <Controller name="policy_end" control={control}
+            rules={{ required: 'End date is required to calculate time on risk', validate: v => !policyStart || v >= policyStart || 'End date must be on or after the start date' }}
+            render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} hasError={!!errors.policy_end} className="w-full" />} />
           {errors.policy_end && <p className="text-red-500 text-xs mt-1">{errors.policy_end.message}</p>}
         </div>
       </div>
@@ -666,14 +660,14 @@ function InsurerPolicyFields({ register, control, errors = {}, watch }) {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="form-label text-xs">From</label>
-            <input type="date" className="form-input text-sm" {...register('responsible_start')} />
+            <Controller name="responsible_start" control={control}
+              render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} className="w-full" />} />
           </div>
           <div>
             <label className="form-label text-xs">To</label>
-            <input type="date" className={`form-input text-sm ${errors.responsible_end ? 'border-red-400' : ''}`}
-              {...register('responsible_end', {
-                validate: v => !v || !responsibleStart || v >= responsibleStart || 'End date must be on or after start date',
-              })} />
+            <Controller name="responsible_end" control={control}
+              rules={{ validate: v => !v || !responsibleStart || v >= responsibleStart || 'End date must be on or after start date' }}
+              render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} hasError={!!errors.responsible_end} className="w-full" />} />
             {errors.responsible_end && <p className="text-red-500 text-xs mt-1">{errors.responsible_end.message}</p>}
           </div>
         </div>

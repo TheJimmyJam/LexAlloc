@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { api } from '../lib/api.js'
 import { APPORTIONMENT_METHODS, autoApportion } from '../lib/apportionment.js'
+import DateInput from './DateInput.jsx'
 import toast from 'react-hot-toast'
 
 // Short labels for the inline method picker
@@ -790,13 +791,21 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
                         ].map(({ label, field, type }) => (
                           <div key={field}>
                             <label className="form-label text-xs">{label}</label>
-                            <input
-                              type={type}
-                              step={type === 'number' ? '0.01' : undefined}
-                              className="form-input text-sm py-1.5"
-                              value={item.parsed[field] || ''}
-                              onChange={e => editParsed(item.id, field, e.target.value)}
-                            />
+                            {type === 'date' ? (
+                              <DateInput
+                                value={item.parsed[field] || ''}
+                                onChange={v => editParsed(item.id, field, v)}
+                                className="w-full"
+                              />
+                            ) : (
+                              <input
+                                type={type}
+                                step={type === 'number' ? '0.01' : undefined}
+                                className="form-input text-sm py-1.5"
+                                value={item.parsed[field] || ''}
+                                onChange={e => editParsed(item.id, field, e.target.value)}
+                              />
+                            )}
                           </div>
                         ))}
                       </div>
@@ -858,11 +867,10 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
                                 {item.parsed.line_items.map((li, idx) => (
                                   <tr key={idx} className="hover:bg-slate-50 group">
                                     <td className="px-1 py-1">
-                                      <input
-                                        type="date"
-                                        className="w-full border border-transparent hover:border-slate-200 focus:border-brand-400 rounded px-1 py-0.5 text-xs bg-transparent focus:bg-white outline-none"
+                                      <DateInput
                                         value={li.date_of_service || li.date || ''}
-                                        onChange={e => editLineItem(item.id, idx, 'date_of_service', e.target.value)}
+                                        onChange={v => editLineItem(item.id, idx, 'date_of_service', v)}
+                                        className="w-full text-xs"
                                       />
                                     </td>
                                     <td className="px-1 py-1">
