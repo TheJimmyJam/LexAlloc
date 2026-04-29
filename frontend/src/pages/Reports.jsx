@@ -394,38 +394,43 @@ function OutstandingReport({ data, dateLabel }) {
       <div className="card overflow-hidden">
         <SectionHeader title="Detail by Carrier" onPDF={handlePDF} onExcel={handleExcel} />
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm tabular-nums">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50 text-left">
-                {headers.map(h => (
-                  <th key={h} className="px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                ))}
+                <th className="px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Carrier</th>
+                <th className="px-2 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide text-center">#</th>
+                <th className="px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide text-right">Obligated</th>
+                <th className="px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide text-right">Paid</th>
+                <th className="px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide text-right">Outstanding</th>
+                <th className="px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide text-right">Demanded</th>
+                <th className="px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide text-right">Disputed</th>
+                <th className="px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide text-right">Pending</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {data.map((r, i) => (
                 <tr key={i} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-medium text-slate-800">{r.name}</td>
-                  <td className="px-4 py-3 text-slate-600">{r.count}</td>
-                  <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{formatCurrency(r.total)}</td>
-                  <td className="px-4 py-3 text-green-600 whitespace-nowrap">{formatCurrency(r.paid)}</td>
-                  <td className="px-4 py-3 font-semibold text-red-600 whitespace-nowrap">{formatCurrency(r.total - r.paid)}</td>
-                  <td className="px-4 py-3 text-orange-600 whitespace-nowrap">{formatCurrency(r.demanded)}</td>
-                  <td className="px-4 py-3 text-amber-600 whitespace-nowrap">{formatCurrency(r.disputed)}</td>
-                  <td className="px-4 py-3 text-amber-500 whitespace-nowrap">{formatCurrency(r.pending)}</td>
+                  <td className="px-3 py-2.5 font-medium text-slate-800">{r.name}</td>
+                  <td className="px-2 py-2.5 text-slate-600 text-center">{r.count}</td>
+                  <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap text-right">{formatCurrency(r.total)}</td>
+                  <td className="px-3 py-2.5 text-green-600 whitespace-nowrap text-right">{formatCurrency(r.paid)}</td>
+                  <td className="px-3 py-2.5 font-semibold text-red-600 whitespace-nowrap text-right">{formatCurrency(r.total - r.paid)}</td>
+                  <td className="px-3 py-2.5 text-orange-600 whitespace-nowrap text-right">{formatCurrency(r.demanded)}</td>
+                  <td className="px-3 py-2.5 text-amber-600 whitespace-nowrap text-right">{formatCurrency(r.disputed)}</td>
+                  <td className="px-3 py-2.5 text-amber-500 whitespace-nowrap text-right">{formatCurrency(r.pending)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-slate-200 bg-slate-50 font-semibold">
-                <td className="px-4 py-3 text-slate-700">Total</td>
-                <td className="px-4 py-3 text-slate-600">{totals.obligations}</td>
-                <td className="px-4 py-3 whitespace-nowrap">{formatCurrency(data.reduce((s,r)=>s+r.total,0))}</td>
-                <td className="px-4 py-3 text-green-600 whitespace-nowrap">{formatCurrency(data.reduce((s,r)=>s+r.paid,0))}</td>
-                <td className="px-4 py-3 text-red-600 whitespace-nowrap">{formatCurrency(totals.outstanding)}</td>
-                <td className="px-4 py-3 text-orange-600 whitespace-nowrap">{formatCurrency(totals.demanded)}</td>
-                <td className="px-4 py-3 text-amber-600 whitespace-nowrap">{formatCurrency(data.reduce((s,r)=>s+r.disputed,0))}</td>
-                <td className="px-4 py-3 text-amber-500 whitespace-nowrap">{formatCurrency(data.reduce((s,r)=>s+r.pending,0))}</td>
+                <td className="px-3 py-2.5 text-slate-700">Total</td>
+                <td className="px-2 py-2.5 text-slate-600 text-center">{totals.obligations}</td>
+                <td className="px-3 py-2.5 whitespace-nowrap text-right">{formatCurrency(data.reduce((s,r)=>s+r.total,0))}</td>
+                <td className="px-3 py-2.5 text-green-600 whitespace-nowrap text-right">{formatCurrency(data.reduce((s,r)=>s+r.paid,0))}</td>
+                <td className="px-3 py-2.5 text-red-600 whitespace-nowrap text-right">{formatCurrency(totals.outstanding)}</td>
+                <td className="px-3 py-2.5 text-orange-600 whitespace-nowrap text-right">{formatCurrency(totals.demanded)}</td>
+                <td className="px-3 py-2.5 text-amber-600 whitespace-nowrap text-right">{formatCurrency(data.reduce((s,r)=>s+r.disputed,0))}</td>
+                <td className="px-3 py-2.5 text-amber-500 whitespace-nowrap text-right">{formatCurrency(data.reduce((s,r)=>s+r.pending,0))}</td>
               </tr>
             </tfoot>
           </table>
@@ -1906,7 +1911,7 @@ export default function Reports() {
     || (tab === 'demand_letters' && (dlLoading || slLoading))
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+    <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-xl bg-brand-100 flex items-center justify-center">
