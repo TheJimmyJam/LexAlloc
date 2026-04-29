@@ -2248,6 +2248,9 @@ export default function MatterDetail() {
                   <Check className="h-4 w-4" /> Equalize
                 </button>
               )}
+              <button onClick={() => setShowAddInsurer(true)} className="btn-secondary text-sm">
+                <Sparkles className="h-4 w-4" /> Add Insurers from Policies
+              </button>
               <button onClick={() => setShowAddParty(true)} className="btn-primary">
                 <Plus className="h-4 w-4" /> Add Party
               </button>
@@ -2275,6 +2278,9 @@ export default function MatterDetail() {
                 <div className="flex items-center justify-center gap-3 flex-wrap">
                   <button onClick={() => setShowAddParty(true)} className="btn-primary">
                     <Plus className="h-4 w-4" /> Add Party
+                  </button>
+                  <button onClick={() => setShowAddInsurer(true)} className="btn-secondary">
+                    <Sparkles className="h-4 w-4" /> Add Insurers from Policies
                   </button>
                   <button onClick={() => setShowAdjusterModal(true)} className="btn-secondary">
                     <Mail className="h-4 w-4" /> Request Info from Relevant Parties
