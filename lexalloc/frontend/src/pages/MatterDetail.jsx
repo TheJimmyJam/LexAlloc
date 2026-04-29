@@ -643,9 +643,24 @@ function CurrencyInput({ value, onChange, onBlur, placeholder }) {
 }
 
 // ── Shared insurer policy period fields (used by Add and Edit modals) ────────
-function InsurerPolicyFields({ register, control, errors = {}, watch }) {
-  const policyStart    = watch?.('policy_start')
+// Returns true when the insurer's responsible dates extend beyond the party's.
+// "Broader" = starts earlier OR ends later OR is ongoing while the party has ended.
+function isOverbroad(instrStart, instrEnd, partyStart, partyEnd) {
+  if (!partyStart && !partyEnd) return false          // party has no dates → no constraint
+  if (partyStart && instrStart && instrStart < partyStart) return true
+  if (partyEnd   && instrEnd   && instrEnd   > partyEnd)   return true
+  if (partyEnd   && !instrEnd)                        return true  // insurer ongoing, party closed
+  return false
+}
+
+function InsurerPolicyFields({ register, control, errors = {}, watch, partyResponsibleStart, partyResponsibleEnd, isAdmin }) {
+  const policyStart      = watch?.('policy_start')
   const responsibleStart = watch?.('responsible_start')
+  const instrStart       = watch?.('responsible_start') || ''
+  const instrEnd         = watch?.('responsible_end')   || ''
+  const overrideChecked  = watch?.('date_range_override') || false
+
+  const overbroad = isOverbroad(instrStart, instrEnd, partyResponsibleStart, partyResponsibleEnd)
 
   return (
     <>
@@ -726,6 +741,36 @@ function InsurerPolicyFields({ register, control, errors = {}, watch }) {
           {errors.portal_url && <p className="text-red-500 text-xs mt-1">{errors.portal_url.message}</p>}
         </div>
       </div>
+
+      {/* ── Date-range overbroad flag ── */}
+      {overbroad && (
+        <div className={`flex items-start gap-2.5 rounded-lg p-3 text-sm border ${
+          isAdmin
+            ? 'bg-amber-50 border-amber-200 text-amber-800'
+            : 'bg-red-50 border-red-200 text-red-800'
+        }`}>
+          <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold">Insurer dates extend beyond party's responsible period</p>
+            <p className="text-xs mt-0.5 opacity-75">
+              The insurer's "Dates of Service Responsible For" is broader than the party's responsible date range.
+              This can cause incorrect apportionment results.
+            </p>
+            {isAdmin ? (
+              <label className="flex items-center gap-2 mt-2 text-xs font-medium cursor-pointer select-none">
+                <input type="checkbox" {...register('date_range_override')} className="rounded" />
+                Override — I confirm these broader dates are intentional
+              </label>
+            ) : (
+              <p className="text-xs mt-1.5 font-semibold">
+                Only an admin can override this restriction.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+      {/* Keep the override value registered even when not overbroad */}
+      {!overbroad && <input type="hidden" {...register('date_range_override')} />}
     </>
   )
 }
@@ -734,31 +779,42 @@ function InsurerPolicyFields({ register, control, errors = {}, watch }) {
 function EditInsurerModal({ pp, matterId, onClose }) {
   const qc = useQueryClient()
   const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
   const { register, control, watch, handleSubmit, formState: { errors, isSubmitting } } = useForm({
     defaultValues: {
-      policy_start:      pp.policy_start,
-      policy_end:        pp.policy_end,
-      responsible_start: pp.responsible_start || pp.parties?.responsible_start || '',
-      responsible_end:   pp.responsible_end   || pp.parties?.responsible_end   || '',
-      policy_limit:      pp.policy_limit      ? String(Math.round(pp.policy_limit))      : '',
-      claim_number:      pp.claim_number      || '',
-      claims_rep_name:   pp.claims_rep_name   || '',
-      claims_rep_email:  pp.claims_rep_email  || '',
-      portal_url:        pp.portal_url        || '',
+      policy_start:        pp.policy_start,
+      policy_end:          pp.policy_end,
+      responsible_start:   pp.responsible_start || pp.parties?.responsible_start || '',
+      responsible_end:     pp.responsible_end   || pp.parties?.responsible_end   || '',
+      policy_limit:        pp.policy_limit      ? String(Math.round(pp.policy_limit)) : '',
+      claim_number:        pp.claim_number      || '',
+      claims_rep_name:     pp.claims_rep_name   || '',
+      claims_rep_email:    pp.claims_rep_email  || '',
+      portal_url:          pp.portal_url        || '',
+      date_range_override: pp.date_range_override || false,
     }
   })
 
+  const instrStart      = watch('responsible_start') || ''
+  const instrEnd        = watch('responsible_end')   || ''
+  const overrideChecked = watch('date_range_override') || false
+  const partyStart      = pp.parties?.responsible_start || ''
+  const partyEnd        = pp.parties?.responsible_end   || ''
+  const overbroad       = isOverbroad(instrStart, instrEnd, partyStart, partyEnd)
+  const isBlocked       = overbroad && !isAdmin && !overrideChecked
+
   const onSubmit = async (values) => {
     const { error } = await supabase.from('la_insurer_policy_periods').update({
-      policy_start:      values.policy_start,
-      policy_end:        values.policy_end,
-      responsible_start: values.responsible_start || null,
-      responsible_end:   values.responsible_end   || null,
-      policy_limit:           values.policy_limit     ? parseFloat(values.policy_limit)     : null,
-      claim_number:           values.claim_number     || null,
-      claims_rep_name:        values.claims_rep_name  || null,
-      claims_rep_email:       values.claims_rep_email || null,
-      portal_url:             values.portal_url       || null,
+      policy_start:        values.policy_start,
+      policy_end:          values.policy_end,
+      responsible_start:   values.responsible_start || null,
+      responsible_end:     values.responsible_end   || null,
+      policy_limit:        values.policy_limit       ? parseFloat(values.policy_limit) : null,
+      claim_number:        values.claim_number       || null,
+      claims_rep_name:     values.claims_rep_name    || null,
+      claims_rep_email:    values.claims_rep_email   || null,
+      portal_url:          values.portal_url         || null,
+      date_range_override: values.date_range_override || false,
     }).eq('id', pp.id)
     if (error) { toast.error(error.message); return }
     logAudit({ profile, matterId, action: 'insurer.updated', entityType: 'insurer', entityId: pp.id, entityName: pp.insurers?.name, metadata: { party: pp.parties?.name, policy_limit: values.policy_limit || null } })
@@ -778,10 +834,14 @@ function EditInsurerModal({ pp, matterId, onClose }) {
           <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
-          <InsurerPolicyFields register={register} control={control} errors={errors} watch={watch} />
+          <InsurerPolicyFields
+            register={register} control={control} errors={errors} watch={watch}
+            partyResponsibleStart={partyStart} partyResponsibleEnd={partyEnd} isAdmin={isAdmin}
+          />
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
-            <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
+            <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting || isBlocked}
+              title={isBlocked ? 'Insurer dates exceed party range — admin override required' : undefined}>
               {isSubmitting ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
@@ -794,6 +854,7 @@ function EditInsurerModal({ pp, matterId, onClose }) {
 // ── Add Insurer Modal ─────────────────────────────────────────────────────────
 function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) {
   const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
   const qc = useQueryClient()
   const { register, control, watch, handleSubmit, setValue, formState: { errors, isSubmitting, dirtyFields } } = useForm({
     defaultValues: { party_id: defaultPartyId || '' },
@@ -809,6 +870,14 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
     if (!dirtyFields.responsible_end)   setValue('responsible_end',   selectedParty.responsible_end   || '')
   }, [watchedPartyId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const selectedParty   = parties?.find(p => p.id === watchedPartyId) || parties?.find(p => p.id === defaultPartyId)
+  const partyStart      = selectedParty?.responsible_start || ''
+  const partyEnd        = selectedParty?.responsible_end   || ''
+  const instrStart      = watch('responsible_start') || ''
+  const instrEnd        = watch('responsible_end')   || ''
+  const overrideChecked = watch('date_range_override') || false
+  const overbroad       = isOverbroad(instrStart, instrEnd, partyStart, partyEnd)
+  const isBlocked       = overbroad && !isAdmin && !overrideChecked
 
   const onSubmit = async (values) => {
     let insurerId = null
@@ -837,23 +906,24 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
 
     // Create policy period with contact info
     const { error: ppErr } = await supabase.from('la_insurer_policy_periods').insert({
-      insurer_id:            insurerId,
-      party_id:              values.party_id,
-      matter_id:             matterId,
-      org_id:            profile.org_id,
-      policy_start:      values.policy_start,
-      policy_end:        values.policy_end,
-      responsible_start: values.responsible_start || null,
-      responsible_end:   values.responsible_end   || null,
-      policy_limit:          values.policy_limit     ? parseFloat(values.policy_limit)     : null,
-      claim_number:          values.claim_number     || null,
-      claims_rep_name:       values.claims_rep_name  || null,
-      claims_rep_email:      values.claims_rep_email || null,
-      portal_url:            values.portal_url       || null,
+      insurer_id:          insurerId,
+      party_id:            values.party_id,
+      matter_id:           matterId,
+      org_id:              profile.org_id,
+      policy_start:        values.policy_start,
+      policy_end:          values.policy_end,
+      responsible_start:   values.responsible_start || null,
+      responsible_end:     values.responsible_end   || null,
+      policy_limit:        values.policy_limit       ? parseFloat(values.policy_limit) : null,
+      claim_number:        values.claim_number       || null,
+      claims_rep_name:     values.claims_rep_name    || null,
+      claims_rep_email:    values.claims_rep_email   || null,
+      portal_url:          values.portal_url         || null,
+      date_range_override: values.date_range_override || false,
     })
     if (ppErr) { toast.error(ppErr.message); return }
-    const selectedParty = parties.find(p => p.id === values.party_id)
-    logAudit({ profile, matterId, action: 'insurer.added', entityType: 'insurer', entityId: insurerId, entityName: values.insurer_name, metadata: { party: selectedParty?.name, policy_limit: values.policy_limit || null, policy_start: values.policy_start, policy_end: values.policy_end } })
+    const party = parties.find(p => p.id === values.party_id)
+    logAudit({ profile, matterId, action: 'insurer.added', entityType: 'insurer', entityId: insurerId, entityName: values.insurer_name, metadata: { party: party?.name, policy_limit: values.policy_limit || null, policy_start: values.policy_start, policy_end: values.policy_end } })
     toast.success('Insurer & policy period added!')
     qc.invalidateQueries({ queryKey: ['matter-insurers', matterId] })
     onClose()
@@ -867,9 +937,6 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
           <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
-
-
-                    {/* ── Manual / override fields ── */}
           <div>
             <label className="form-label">Insurer Name *</label>
             <input className="form-input" placeholder="Travelers Indemnity Company"
@@ -897,10 +964,14 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
               {errors.party_id && <p className="text-red-500 text-xs mt-1">{errors.party_id.message}</p>}
             </div>
           )}
-          <InsurerPolicyFields register={register} control={control} errors={errors} watch={watch} />
+          <InsurerPolicyFields
+            register={register} control={control} errors={errors} watch={watch}
+            partyResponsibleStart={partyStart} partyResponsibleEnd={partyEnd} isAdmin={isAdmin}
+          />
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
-            <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
+            <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting || isBlocked}
+              title={isBlocked ? 'Insurer dates exceed party range — admin override required' : undefined}>
               {isSubmitting ? 'Adding…' : 'Add Insurer'}
             </button>
           </div>
@@ -2119,9 +2190,22 @@ export default function MatterDetail() {
                     const info        = xPct !== null ? exhaustionInfo(xPct) : null
                     const alerted     = alertedThresholds[pp.id] || new Set()
                     const isExhausted = xPct !== null && xPct >= 100
+                    const ppOverbroad = isOverbroad(
+                      pp.responsible_start || '', pp.responsible_end || '',
+                      pp.parties?.responsible_start || '', pp.parties?.responsible_end || ''
+                    ) && !pp.date_range_override
                     return (
                     <tr key={pp.id} className={`hover:bg-slate-50 ${isExhausted ? 'bg-red-50/40' : ''}`}>
-                      <td className="px-5 py-4 font-medium text-slate-800">{pp.insurers?.name}</td>
+                      <td className="px-5 py-4 font-medium text-slate-800">
+                        <div className="flex items-center gap-1.5">
+                          {pp.insurers?.name}
+                          {ppOverbroad && (
+                            <span title="Insurer dates of service are broader than the party's responsible period">
+                              <AlertTriangle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-4 text-sm font-mono text-slate-500">{pp.insurers?.policy_number || '—'}</td>
                       <td className="px-4 py-4 text-sm font-mono text-slate-600">{pp.claim_number || '—'}</td>
                       <td className="px-4 py-4">
