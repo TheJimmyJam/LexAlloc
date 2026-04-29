@@ -123,6 +123,8 @@ export default function InvoiceDetail() {
         apportionment_id: apportId,
       }).catch(() => {})
 
+      qc.invalidateQueries({ queryKey: ['invoice', invoiceId] })
+      qc.invalidateQueries({ queryKey: ['matter-invoices', matterId] })
       qc.invalidateQueries({ queryKey: ['matter-apportionments', matterId] })
       navigate(`/matters/${matterId}/apportionments/${apportId}`)
     } catch (err) {
