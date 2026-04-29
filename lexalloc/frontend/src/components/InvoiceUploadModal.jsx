@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useDropzone } from 'react-dropzone'
 import {
   X, Upload, Loader2, CheckCircle, AlertCircle, FileText,
@@ -99,6 +100,7 @@ function StepPipeline({ status }) {
 // existing matter (by matter_number) or creates a new one automatically.
 export default function InvoiceUploadModal({ matterId, onClose }) {
   const { profile } = useAuth()
+  const qc = useQueryClient()
   const [queue, setQueue]           = useState([])
   const [processing, setProcessing] = useState(false)
   const [selected, setSelected]     = useState(new Set())
@@ -377,6 +379,11 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
           })
         } catch { /* non-fatal — user can re-run from InvoiceDetail */ }
       }
+
+      // Invalidate all relevant caches so the UI reflects the new status immediately
+      qc.invalidateQueries({ queryKey: ['matter-invoices', effectiveMatterId] })
+      qc.invalidateQueries({ queryKey: ['matter-apportionments', effectiveMatterId] })
+      qc.invalidateQueries({ queryKey: ['invoice', invoice.id] })
 
       update(id, { status: 'saved', expanded: false })
       setSelected(s => { const n = new Set(s); n.delete(id); return n })
