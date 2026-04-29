@@ -80,9 +80,7 @@ const statusColors = {
   apportioned: 'bg-purple-50 text-purple-700 ring-1 ring-purple-200/60',
 }
 
-// ── localStorage helpers keyed to org ────────────────────────────────────────
-const wizardKey     = (orgId) => `la_onboarding_wizard_seen_${orgId}`
-const checklistKey  = (orgId) => `la_onboarding_checklist_dismissed_${orgId}`
+// (onboarding flags now stored in la_organizations — no localStorage)
 
 export default function Dashboard() {
   const { profile } = useAuth()
@@ -92,19 +90,29 @@ export default function Dashboard() {
 
   const orgId = profile?.org_id
 
-  // ── Wizard state ────────────────────────────────────────────────────────────
-  const [showWizard,          setShowWizard]          = useState(false)
-  const [checklistDismissed,  setChecklistDismissed]  = useState(false)
-  const [showUploadInvoice,   setShowUploadInvoice]   = useState(false)
+  // ── Wizard / checklist state ────────────────────────────────────────────────
+  const [showWizard,         setShowWizard]         = useState(false)
+  const [checklistDismissed, setChecklistDismissed] = useState(false)
+  const [showUploadInvoice,  setShowUploadInvoice]  = useState(false)
 
-  // ── Sync checklist dismissed state once orgId is available ──────────────────
-  // useState initializer runs before profile loads (orgId is undefined), so we
-  // re-read localStorage as soon as we have a real orgId.
+  // ── Load onboarding flags from DB (cross-device) ─────────────────────────────
+  const { data: orgFlags } = useQuery({
+    queryKey: ['org-onboarding-flags', orgId],
+    enabled:  !!orgId,
+    queryFn:  async () => {
+      const { data } = await supabase
+        .from('la_organizations')
+        .select('onboarding_wizard_seen, onboarding_checklist_dismissed')
+        .eq('id', orgId)
+        .single()
+      return data
+    },
+  })
+
+  // Sync local state from DB once loaded
   useEffect(() => {
-    if (orgId) {
-      setChecklistDismissed(!!localStorage.getItem(checklistKey(orgId)))
-    }
-  }, [orgId])
+    if (orgFlags?.onboarding_checklist_dismissed) setChecklistDismissed(true)
+  }, [orgFlags?.onboarding_checklist_dismissed])
 
   // ── Dashboard stats (includes parties for checklist) ────────────────────────
   const { data: stats, isSuccess: statsLoaded } = useQuery({
@@ -130,23 +138,30 @@ export default function Dashboard() {
 
   // ── Auto-launch wizard for new orgs ─────────────────────────────────────────
   useEffect(() => {
-    if (!statsLoaded || !orgId) return
-    if (stats.matters === 0 && !localStorage.getItem(wizardKey(orgId))) {
+    if (!statsLoaded || !orgId || orgFlags === undefined) return
+    if (stats.matters === 0 && !orgFlags?.onboarding_wizard_seen) {
       setShowWizard(true)
     }
-  }, [statsLoaded, stats?.matters, orgId])
+  }, [statsLoaded, stats?.matters, orgId, orgFlags])
 
   // ── Wizard completed / dismissed ────────────────────────────────────────────
-  const handleWizardComplete = useCallback((createdMatterId) => {
-    if (orgId) localStorage.setItem(wizardKey(orgId), '1')
+  const handleWizardComplete = useCallback(async () => {
     setShowWizard(false)
-    // If they navigated away inside the wizard it handled navigation itself
+    if (orgId) {
+      await supabase.from('la_organizations')
+        .update({ onboarding_wizard_seen: true })
+        .eq('id', orgId)
+    }
   }, [orgId])
 
   // ── Checklist dismiss ────────────────────────────────────────────────────────
-  const handleDismissChecklist = useCallback(() => {
-    if (orgId) localStorage.setItem(checklistKey(orgId), '1')
-    setChecklistDismissed(true)
+  const handleDismissChecklist = useCallback(async () => {
+    setChecklistDismissed(true) // optimistic
+    if (orgId) {
+      await supabase.from('la_organizations')
+        .update({ onboarding_checklist_dismissed: true })
+        .eq('id', orgId)
+    }
   }, [orgId])
 
   // ── Recent data ──────────────────────────────────────────────────────────────
