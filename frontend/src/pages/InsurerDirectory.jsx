@@ -91,8 +91,9 @@ function InsurerFormModal({ insurer = null, onClose }) {
               </div>
               <div>
                 <label className="form-label">Claims Rep Phone</label>
-                <input className="form-input" placeholder="xxx.xxx.xxxx"
-                  {...register('claims_rep_phone')} />
+                <input className={`form-input ${errors.claims_rep_phone ? 'border-red-400' : ''}`} placeholder="xxx.xxx.xxxx"
+                  {...register('claims_rep_phone', { validate: v => !v || v.replace(/\D/g, '').length === 10 || 'Must be 10 digits' })} />
+                {errors.claims_rep_phone && <p className="text-red-500 text-xs mt-1">{errors.claims_rep_phone.message}</p>}
               </div>
             </div>
             <div>
