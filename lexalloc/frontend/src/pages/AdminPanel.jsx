@@ -1099,6 +1099,14 @@ export default function AdminPanel() {
   const [newKeyExpiry,     setNewKeyExpiry]     = useState('')
   const [creatingKey,      setCreatingKey]      = useState(false)
   const [copiedKey,        setCopiedKey]        = useState(false)
+  const [revealedKeys,     setRevealedKeys]     = useState(new Set())
+
+  const toggleKeyReveal = (id) =>
+    setRevealedKeys(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
 
   const { data: apiKeys = [], refetch: refetchKeys } = useQuery({
     queryKey: ['api-keys', profile?.org_id],
@@ -2308,7 +2316,24 @@ export default function AdminPanel() {
                         <span className="badge bg-amber-100 text-amber-700 text-xs">Expired</span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-400 mt-0.5 font-mono">{k.key_prefix}••••••••••••••••</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="text-xs text-slate-400 font-mono tracking-wider">
+                        {revealedKeys.has(k.id)
+                          ? <>{k.key_prefix}<span className="opacity-40">••••••••••••••••</span></>
+                          : '••••••••••••••••••••••••••••••••'
+                        }
+                      </p>
+                      <button
+                        onClick={() => toggleKeyReveal(k.id)}
+                        title={revealedKeys.has(k.id) ? 'Hide key prefix' : 'Show key prefix'}
+                        className="text-slate-300 hover:text-slate-600 transition-colors flex-shrink-0"
+                      >
+                        {revealedKeys.has(k.id)
+                          ? <EyeOff className="h-3.5 w-3.5" />
+                          : <Eye className="h-3.5 w-3.5" />
+                        }
+                      </button>
+                    </div>
                     <div className="flex items-center gap-3 mt-1 flex-wrap">
                       {(k.scopes || []).map(s => (
                         <span key={s} className="badge bg-slate-100 text-slate-600 text-xs">{s}</span>
