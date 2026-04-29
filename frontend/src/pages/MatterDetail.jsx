@@ -4,7 +4,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { useForm, Controller } from 'react-hook-form'
+import DateInput from '../components/DateInput.jsx'
 import { formatCurrency, exhaustionInfo } from '../lib/calculations.js'
+import { APPORTIONMENT_METHODS } from '../lib/apportionment.js'
 import { logAudit, getActionMeta } from '../lib/audit.js'
 import {
   ArrowLeft, Plus, Trash2, X, Upload, FileText,
@@ -34,8 +36,9 @@ const TIMELINE_COLORS = [
 function PolicyTimeline({ insurerPeriods, invoices, parties }) {
   const [hoveredId, setHoveredId] = useState(null)
 
-  // Skip rows missing dates (template periods with no dates)
-  const rows = insurerPeriods.filter(pp => pp.policy_start && pp.policy_end)
+  // Skip rows with no start date (template periods with no dates).
+  // No policy_end = policy is still in effect; use today as the right edge.
+  const rows = insurerPeriods.filter(pp => pp.policy_start)
   if (rows.length === 0) return null
 
   // Build party → color index map
@@ -52,9 +55,9 @@ function PolicyTimeline({ insurerPeriods, invoices, parties }) {
     }))
     .sort((a, b) => a.start - b.start)
 
-  // Overall date range
+  // Overall date range — ongoing policies (no end date) use today
   const allStarts = rows.map(pp => parseISO(pp.policy_start))
-  const allEnds   = rows.map(pp => parseISO(pp.policy_end))
+  const allEnds   = rows.map(pp => pp.policy_end ? parseISO(pp.policy_end) : today)
   serviceWindows.forEach(w => { allStarts.push(w.start); allEnds.push(w.end) })
   const today = new Date()
   allEnds.push(today)
@@ -115,12 +118,13 @@ function PolicyTimeline({ insurerPeriods, invoices, parties }) {
           {/* Row area */}
           <div className="flex flex-col gap-2">
             {rows.map((pp) => {
-              const color    = partyColorMap[pp.party_id] || TIMELINE_COLORS[0]
-              const start    = parseISO(pp.policy_start)
-              const end      = parseISO(pp.policy_end)
-              const leftPct  = Math.max(toPct(start), 0)
-              const rightPct = Math.min(toPct(end), 100)
-              const widthPct = Math.max(rightPct - leftPct, 0.3)
+              const color     = partyColorMap[pp.party_id] || TIMELINE_COLORS[0]
+              const start     = parseISO(pp.policy_start)
+              const isOngoing = !pp.policy_end
+              const end       = isOngoing ? today : parseISO(pp.policy_end)
+              const leftPct   = Math.max(toPct(start), 0)
+              const rightPct  = Math.min(toPct(end), 100)
+              const widthPct  = Math.max(rightPct - leftPct, 0.3)
 
               // Is this period triggered by any invoice service window?
               const triggered = serviceWindows.some(w => start <= w.end && end >= w.start)
@@ -153,21 +157,29 @@ function PolicyTimeline({ insurerPeriods, invoices, parties }) {
 
                     {/* Policy bar */}
                     <div
-                      className="absolute inset-y-1 rounded cursor-pointer transition-all"
+                      className={`absolute inset-y-1 cursor-pointer transition-all ${isOngoing ? 'rounded-l' : 'rounded'}`}
                       style={{
                         left:            `${leftPct}%`,
                         width:           `${widthPct}%`,
                         backgroundColor: isHovered ? color.bar : color.bar + 'cc',
                         boxShadow:       isHovered ? `0 0 0 2px white, 0 0 0 3px ${color.bar}` : undefined,
+                        borderRight:     isOngoing ? `2px dashed ${color.bar}` : undefined,
                       }}
                       onMouseEnter={() => setHoveredId(pp.id)}
                       onMouseLeave={() => setHoveredId(null)}
-                      title={`${pp.insurers?.name}\n${format(start, 'MM/dd/yyyy')} – ${format(end, 'MM/dd/yyyy')}\n${differenceInCalendarDays(end, start)} days`}
+                      title={`${pp.insurers?.name}\n${format(start, 'MM/dd/yyyy')} – ${isOngoing ? 'Present (ongoing)' : format(end, 'MM/dd/yyyy')}\n${differenceInCalendarDays(end, start)} days`}
                     >
                       {/* Triggered badge */}
-                      {triggered && widthPct > 8 && (
+                      {triggered && !isOngoing && widthPct > 8 && (
                         <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-white text-xs font-semibold opacity-80">
                           ✓
+                        </span>
+                      )}
+                      {/* Ongoing pulse dot */}
+                      {isOngoing && (
+                        <span className="absolute right-1 top-1/2 -translate-y-1/2 flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-white opacity-90" />
                         </span>
                       )}
                     </div>
@@ -184,7 +196,8 @@ function PolicyTimeline({ insurerPeriods, invoices, parties }) {
                   {/* Duration label */}
                   <div style={{ width: 80, minWidth: 80 }} className="text-xs text-slate-400 flex-shrink-0">
                     {differenceInCalendarDays(end, start)}d
-                    {triggered && <span className="ml-1 text-green-600 font-semibold">triggered</span>}
+                    {isOngoing && <span className="ml-1 text-emerald-600 font-semibold">Active</span>}
+                    {!isOngoing && triggered && <span className="ml-1 text-green-600 font-semibold">triggered</span>}
                   </div>
                 </div>
               )
@@ -256,21 +269,33 @@ const PAYMENT_STATUS_LABELS = {
 function EditMatterModal({ matter, onClose }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const { profile } = useAuth()
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({
     defaultValues: {
       name:          matter.name,
       matter_number: matter.matter_number || '',
-      firm_name:     matter.firm_name     || '',
+      firm_id:       matter.firm_id       || '',
       description:   matter.description  || '',
       status:        matter.status,
     }
   })
 
+  const { data: firms = [] } = useQuery({
+    queryKey: ['firms', profile?.org_id],
+    enabled: !!profile?.org_id,
+    queryFn: async () => {
+      const { data } = await supabase.from('la_firms').select('id, name').eq('org_id', profile.org_id).order('name')
+      return data || []
+    },
+  })
+
   const onSubmit = async (values) => {
+    const selectedFirm = firms.find(f => f.id === values.firm_id)
     const { error } = await supabase.from('la_matters').update({
       name:          values.name,
       matter_number: values.matter_number || null,
-      firm_name:     values.firm_name     || null,
+      firm_id:       values.firm_id       || null,
+      firm_name:     selectedFirm?.name   || null,
       description:   values.description  || null,
       status:        values.status,
       updated_at:    new Date().toISOString(),
@@ -280,6 +305,7 @@ function EditMatterModal({ matter, onClose }) {
     qc.invalidateQueries({ queryKey: ['matter', matter.id] })
     qc.invalidateQueries({ queryKey: ['matters'] })
     qc.invalidateQueries({ queryKey: ['recent-matters'] })
+    qc.invalidateQueries({ queryKey: ['dashboard-firms'] })
     onClose()
   }
 
@@ -301,9 +327,11 @@ function EditMatterModal({ matter, onClose }) {
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
           <div>
-            <label className="form-label">Firm Name</label>
-            <input className="form-input" placeholder="ABC Legal, LLP"
-              {...register('firm_name')} />
+            <label className="form-label">Firm</label>
+            <select className="form-input" {...register('firm_id')}>
+              <option value="">— No firm —</option>
+              {firms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+            </select>
           </div>
           <div>
             <label className="form-label">Matter Number</label>
@@ -354,7 +382,7 @@ function EditMatterModal({ matter, onClose }) {
 // ── Edit Party Modal ──────────────────────────────────────────────────────────
 function EditPartyModal({ party, matterId, allParties = [], onClose }) {
   const qc = useQueryClient()
-  const { register, watch, handleSubmit, formState: { errors, isSubmitting } } = useForm({
+  const { register, control, watch, handleSubmit, formState: { errors, isSubmitting } } = useForm({
     defaultValues: {
       name:               party.name,
       share_percentage:   party.share_percentage,
@@ -425,17 +453,14 @@ function EditPartyModal({ party, matterId, allParties = [], onClose }) {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="form-label text-xs">From</label>
-                <input type="date" className="form-input text-sm" {...register('responsible_start')} />
+                <Controller name="responsible_start" control={control}
+                  render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} className="w-full" />} />
               </div>
               <div>
                 <label className="form-label text-xs">To</label>
-                <input type="date" className="form-input text-sm"
-                  {...register('responsible_end', {
-                    validate: v => {
-                      const start = watch('responsible_start')
-                      return !v || !start || v >= start || 'End date must be on or after start date'
-                    }
-                  })} />
+                <Controller name="responsible_end" control={control}
+                  rules={{ validate: v => { const start = watch('responsible_start'); return !v || !start || v >= start || 'End date must be on or after start date' } }}
+                  render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} hasError={!!errors.responsible_end} className="w-full" />} />
                 {errors.responsible_end && <p className="text-red-500 text-xs mt-1">{errors.responsible_end.message}</p>}
               </div>
             </div>
@@ -460,7 +485,7 @@ function EditPartyModal({ party, matterId, allParties = [], onClose }) {
 function AddPartyModal({ matterId, existingParties = [], onClose }) {
   const { profile } = useAuth()
   const qc = useQueryClient()
-  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm({
+  const { register, control, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm({
     defaultValues: { share_percentage: '', equalize: existingParties.length > 0 },
   })
   const currentTotal = existingParties.reduce((s, p) => s + (p.share_percentage || 0), 0)
@@ -559,17 +584,14 @@ function AddPartyModal({ matterId, existingParties = [], onClose }) {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="form-label text-xs">From</label>
-                <input type="date" className="form-input text-sm" {...register('responsible_start')} />
+                <Controller name="responsible_start" control={control}
+                  render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} className="w-full" />} />
               </div>
               <div>
                 <label className="form-label text-xs">To</label>
-                <input type="date" className={`form-input text-sm ${errors.responsible_end ? 'border-red-400' : ''}`}
-                  {...register('responsible_end', {
-                    validate: v => {
-                      const start = watch('responsible_start')
-                      return !v || !start || v >= start || 'End date must be on or after start date'
-                    }
-                  })} />
+                <Controller name="responsible_end" control={control}
+                  rules={{ validate: v => { const start = watch('responsible_start'); return !v || !start || v >= start || 'End date must be on or after start date' } }}
+                  render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} hasError={!!errors.responsible_end} className="w-full" />} />
                 {errors.responsible_end && <p className="text-red-500 text-xs mt-1">{errors.responsible_end.message}</p>}
               </div>
             </div>
@@ -621,26 +643,59 @@ function CurrencyInput({ value, onChange, onBlur, placeholder }) {
 }
 
 // ── Shared insurer policy period fields (used by Add and Edit modals) ────────
-function InsurerPolicyFields({ register, control, errors = {}, watch }) {
-  const policyStart = watch?.('policy_start')
+// Returns true when the insurer's responsible dates extend beyond the party's.
+// "Broader" = starts earlier OR ends later OR is ongoing while the party has ended.
+function isOverbroad(instrStart, instrEnd, partyStart, partyEnd) {
+  if (!partyStart && !partyEnd) return false          // party has no dates → no constraint
+  if (partyStart && instrStart && instrStart < partyStart) return true
+  if (partyEnd   && instrEnd   && instrEnd   > partyEnd)   return true
+  if (partyEnd   && !instrEnd)                        return true  // insurer ongoing, party closed
+  return false
+}
+
+function InsurerPolicyFields({ register, control, errors = {}, watch, partyResponsibleStart, partyResponsibleEnd, isAdmin }) {
+  const policyStart      = watch?.('policy_start')
+  const responsibleStart = watch?.('responsible_start')
+  const instrStart       = watch?.('responsible_start') || ''
+  const instrEnd         = watch?.('responsible_end')   || ''
+  const overrideChecked  = watch?.('date_range_override') || false
+
+  const overbroad = isOverbroad(instrStart, instrEnd, partyResponsibleStart, partyResponsibleEnd)
 
   return (
     <>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="form-label">Policy Start *</label>
-          <input type="date" className={`form-input ${errors.policy_start ? 'border-red-400 focus:ring-red-300' : ''}`}
-            {...register('policy_start', { required: 'Start date is required to calculate time on risk' })} />
+          <label className="form-label">Coverage Start *</label>
+          <Controller name="policy_start" control={control}
+            rules={{ required: 'Start date is required to calculate time on risk' }}
+            render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} hasError={!!errors.policy_start} className="w-full" />} />
           {errors.policy_start && <p className="text-red-500 text-xs mt-1">{errors.policy_start.message}</p>}
         </div>
         <div>
-          <label className="form-label">Policy End *</label>
-          <input type="date" className={`form-input ${errors.policy_end ? 'border-red-400 focus:ring-red-300' : ''}`}
-            {...register('policy_end', {
-              required: 'End date is required to calculate time on risk',
-              validate: v => !policyStart || v >= policyStart || 'End date must be on or after the start date',
-            })} />
+          <label className="form-label">Coverage End <span className="text-slate-400 font-normal">(blank = still active)</span></label>
+          <Controller name="policy_end" control={control}
+            rules={{ validate: v => !v || !policyStart || v >= policyStart || 'End date must be on or after the start date' }}
+            render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} hasError={!!errors.policy_end} className="w-full" />} />
           {errors.policy_end && <p className="text-red-500 text-xs mt-1">{errors.policy_end.message}</p>}
+        </div>
+      </div>
+      <div className="border-t border-slate-100 pt-4">
+        <label className="form-label mb-1">Dates of Service Responsible For</label>
+        <p className="text-xs text-slate-400 mb-3">Only invoices whose service period overlaps this range will include this insurer in the apportionment. Leave blank to include in all invoices.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="form-label text-xs">From</label>
+            <Controller name="responsible_start" control={control}
+              render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} className="w-full" />} />
+          </div>
+          <div>
+            <label className="form-label text-xs">To</label>
+            <Controller name="responsible_end" control={control}
+              rules={{ validate: v => !v || !responsibleStart || v >= responsibleStart || 'End date must be on or after start date' }}
+              render={({ field }) => <DateInput value={field.value || ''} onChange={field.onChange} onBlur={field.onBlur} hasError={!!errors.responsible_end} className="w-full" />} />
+            {errors.responsible_end && <p className="text-red-500 text-xs mt-1">{errors.responsible_end.message}</p>}
+          </div>
         </div>
       </div>
       <div>
@@ -686,6 +741,36 @@ function InsurerPolicyFields({ register, control, errors = {}, watch }) {
           {errors.portal_url && <p className="text-red-500 text-xs mt-1">{errors.portal_url.message}</p>}
         </div>
       </div>
+
+      {/* ── Date-range overbroad flag ── */}
+      {overbroad && (
+        <div className={`flex items-start gap-2.5 rounded-lg p-3 text-sm border ${
+          isAdmin
+            ? 'bg-amber-50 border-amber-200 text-amber-800'
+            : 'bg-red-50 border-red-200 text-red-800'
+        }`}>
+          <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold">Insurer dates extend beyond party's responsible period</p>
+            <p className="text-xs mt-0.5 opacity-75">
+              The insurer's "Dates of Service Responsible For" is broader than the party's responsible date range.
+              This can cause incorrect apportionment results.
+            </p>
+            {isAdmin ? (
+              <label className="flex items-center gap-2 mt-2 text-xs font-medium cursor-pointer select-none">
+                <input type="checkbox" {...register('date_range_override')} className="rounded" />
+                Override — I confirm these broader dates are intentional
+              </label>
+            ) : (
+              <p className="text-xs mt-1.5 font-semibold">
+                Only an admin can override this restriction.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+      {/* Keep the override value registered even when not overbroad */}
+      {!overbroad && <input type="hidden" {...register('date_range_override')} />}
     </>
   )
 }
@@ -694,27 +779,42 @@ function InsurerPolicyFields({ register, control, errors = {}, watch }) {
 function EditInsurerModal({ pp, matterId, onClose }) {
   const qc = useQueryClient()
   const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
   const { register, control, watch, handleSubmit, formState: { errors, isSubmitting } } = useForm({
     defaultValues: {
-      policy_start:      pp.policy_start,
-      policy_end:        pp.policy_end,
-      policy_limit:      pp.policy_limit      ? String(Math.round(pp.policy_limit))      : '',
-      claim_number:      pp.claim_number      || '',
-      claims_rep_name:   pp.claims_rep_name   || '',
-      claims_rep_email:  pp.claims_rep_email  || '',
-      portal_url:        pp.portal_url        || '',
+      policy_start:        pp.policy_start,
+      policy_end:          pp.policy_end,
+      responsible_start:   pp.responsible_start || pp.parties?.responsible_start || '',
+      responsible_end:     pp.responsible_end   || pp.parties?.responsible_end   || '',
+      policy_limit:        pp.policy_limit      ? String(Math.round(pp.policy_limit)) : '',
+      claim_number:        pp.claim_number      || '',
+      claims_rep_name:     pp.claims_rep_name   || '',
+      claims_rep_email:    pp.claims_rep_email  || '',
+      portal_url:          pp.portal_url        || '',
+      date_range_override: pp.date_range_override || false,
     }
   })
 
+  const instrStart      = watch('responsible_start') || ''
+  const instrEnd        = watch('responsible_end')   || ''
+  const overrideChecked = watch('date_range_override') || false
+  const partyStart      = pp.parties?.responsible_start || ''
+  const partyEnd        = pp.parties?.responsible_end   || ''
+  const overbroad       = isOverbroad(instrStart, instrEnd, partyStart, partyEnd)
+  const isBlocked       = overbroad && !isAdmin && !overrideChecked
+
   const onSubmit = async (values) => {
     const { error } = await supabase.from('la_insurer_policy_periods').update({
-      policy_start:     values.policy_start,
-      policy_end:       values.policy_end,
-      policy_limit:     values.policy_limit     ? parseFloat(values.policy_limit)     : null,
-      claim_number:     values.claim_number     || null,
-      claims_rep_name:  values.claims_rep_name  || null,
-      claims_rep_email: values.claims_rep_email || null,
-      portal_url:       values.portal_url       || null,
+      policy_start:        values.policy_start,
+      policy_end:          values.policy_end,
+      responsible_start:   values.responsible_start || null,
+      responsible_end:     values.responsible_end   || null,
+      policy_limit:        values.policy_limit       ? parseFloat(values.policy_limit) : null,
+      claim_number:        values.claim_number       || null,
+      claims_rep_name:     values.claims_rep_name    || null,
+      claims_rep_email:    values.claims_rep_email   || null,
+      portal_url:          values.portal_url         || null,
+      date_range_override: values.date_range_override || false,
     }).eq('id', pp.id)
     if (error) { toast.error(error.message); return }
     logAudit({ profile, matterId, action: 'insurer.updated', entityType: 'insurer', entityId: pp.id, entityName: pp.insurers?.name, metadata: { party: pp.parties?.name, policy_limit: values.policy_limit || null } })
@@ -734,10 +834,14 @@ function EditInsurerModal({ pp, matterId, onClose }) {
           <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
-          <InsurerPolicyFields register={register} control={control} errors={errors} watch={watch} />
+          <InsurerPolicyFields
+            register={register} control={control} errors={errors} watch={watch}
+            partyResponsibleStart={partyStart} partyResponsibleEnd={partyEnd} isAdmin={isAdmin}
+          />
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
-            <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
+            <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting || isBlocked}
+              title={isBlocked ? 'Insurer dates exceed party range — admin override required' : undefined}>
               {isSubmitting ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
@@ -750,12 +854,30 @@ function EditInsurerModal({ pp, matterId, onClose }) {
 // ── Add Insurer Modal ─────────────────────────────────────────────────────────
 function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) {
   const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
   const qc = useQueryClient()
-  const { register, control, watch, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm({
+  const { register, control, watch, handleSubmit, setValue, formState: { errors, isSubmitting, dirtyFields } } = useForm({
     defaultValues: { party_id: defaultPartyId || '' },
   })
   const [selectedInsurerId, setSelectedInsurerId] = useState(null) // known id from directory
 
+  // Auto-populate responsible dates from the selected party (only if user hasn't manually overridden them)
+  const watchedPartyId = watch('party_id')
+  useEffect(() => {
+    const selectedParty = parties?.find(p => p.id === watchedPartyId)
+    if (!selectedParty) return
+    if (!dirtyFields.responsible_start) setValue('responsible_start', selectedParty.responsible_start || '')
+    if (!dirtyFields.responsible_end)   setValue('responsible_end',   selectedParty.responsible_end   || '')
+  }, [watchedPartyId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selectedParty   = parties?.find(p => p.id === watchedPartyId) || parties?.find(p => p.id === defaultPartyId)
+  const partyStart      = selectedParty?.responsible_start || ''
+  const partyEnd        = selectedParty?.responsible_end   || ''
+  const instrStart      = watch('responsible_start') || ''
+  const instrEnd        = watch('responsible_end')   || ''
+  const overrideChecked = watch('date_range_override') || false
+  const overbroad       = isOverbroad(instrStart, instrEnd, partyStart, partyEnd)
+  const isBlocked       = overbroad && !isAdmin && !overrideChecked
 
   const onSubmit = async (values) => {
     let insurerId = null
@@ -784,21 +906,24 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
 
     // Create policy period with contact info
     const { error: ppErr } = await supabase.from('la_insurer_policy_periods').insert({
-      insurer_id:       insurerId,
-      party_id:         values.party_id,
-      matter_id:        matterId,
-      org_id:           profile.org_id,
-      policy_start:     values.policy_start,
-      policy_end:       values.policy_end,
-      policy_limit:     values.policy_limit     ? parseFloat(values.policy_limit)     : null,
-      claim_number:     values.claim_number     || null,
-      claims_rep_name:  values.claims_rep_name  || null,
-      claims_rep_email: values.claims_rep_email || null,
-      portal_url:       values.portal_url       || null,
+      insurer_id:          insurerId,
+      party_id:            values.party_id,
+      matter_id:           matterId,
+      org_id:              profile.org_id,
+      policy_start:        values.policy_start,
+      policy_end:          values.policy_end,
+      responsible_start:   values.responsible_start || null,
+      responsible_end:     values.responsible_end   || null,
+      policy_limit:        values.policy_limit       ? parseFloat(values.policy_limit) : null,
+      claim_number:        values.claim_number       || null,
+      claims_rep_name:     values.claims_rep_name    || null,
+      claims_rep_email:    values.claims_rep_email   || null,
+      portal_url:          values.portal_url         || null,
+      date_range_override: values.date_range_override || false,
     })
     if (ppErr) { toast.error(ppErr.message); return }
-    const selectedParty = parties.find(p => p.id === values.party_id)
-    logAudit({ profile, matterId, action: 'insurer.added', entityType: 'insurer', entityId: insurerId, entityName: values.insurer_name, metadata: { party: selectedParty?.name, policy_limit: values.policy_limit || null, policy_start: values.policy_start, policy_end: values.policy_end } })
+    const party = parties.find(p => p.id === values.party_id)
+    logAudit({ profile, matterId, action: 'insurer.added', entityType: 'insurer', entityId: insurerId, entityName: values.insurer_name, metadata: { party: party?.name, policy_limit: values.policy_limit || null, policy_start: values.policy_start, policy_end: values.policy_end } })
     toast.success('Insurer & policy period added!')
     qc.invalidateQueries({ queryKey: ['matter-insurers', matterId] })
     onClose()
@@ -812,9 +937,6 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
           <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
-
-
-                    {/* ── Manual / override fields ── */}
           <div>
             <label className="form-label">Insurer Name *</label>
             <input className="form-input" placeholder="Travelers Indemnity Company"
@@ -842,10 +964,14 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
               {errors.party_id && <p className="text-red-500 text-xs mt-1">{errors.party_id.message}</p>}
             </div>
           )}
-          <InsurerPolicyFields register={register} control={control} errors={errors} watch={watch} />
+          <InsurerPolicyFields
+            register={register} control={control} errors={errors} watch={watch}
+            partyResponsibleStart={partyStart} partyResponsibleEnd={partyEnd} isAdmin={isAdmin}
+          />
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
-            <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
+            <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting || isBlocked}
+              title={isBlocked ? 'Insurer dates exceed party range — admin override required' : undefined}>
               {isSubmitting ? 'Adding…' : 'Add Insurer'}
             </button>
           </div>
@@ -964,7 +1090,7 @@ export default function MatterDetail() {
   const { data: matter, isLoading } = useQuery({
     queryKey: ['matter', matterId],
     queryFn: async () => {
-      const { data } = await supabase.from('la_matters').select('*').eq('id', matterId).single()
+      const { data } = await supabase.from('la_matters').select('*, la_firms(id, name)').eq('id', matterId).single()
       return data
     }
   })
@@ -982,7 +1108,7 @@ export default function MatterDetail() {
     queryFn: async () => {
       const { data } = await supabase
         .from('la_insurer_policy_periods')
-        .select('*, insurers:la_insurers(name, policy_number), parties:la_parties(name)')
+        .select('*, insurers:la_insurers(name, policy_number), parties:la_parties(name, responsible_start, responsible_end)')
         .eq('matter_id', matterId)
         .order('policy_start')
       return data || []
@@ -1317,7 +1443,7 @@ export default function MatterDetail() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{matter.name}</h1>
             <p className="text-slate-500 text-sm mt-1">
-              {matter.firm_name && <span className="mr-3 font-medium text-slate-600">{matter.firm_name}</span>}
+              {(matter.la_firms?.name || matter.firm_name) && <span className="mr-3 font-medium text-slate-600">{matter.la_firms?.name || matter.firm_name}</span>}
               {matter.matter_number && <span className="mr-3">#{matter.matter_number}</span>}
               {matter.description}
             </p>
@@ -1362,28 +1488,85 @@ export default function MatterDetail() {
       </div>
 
       {/* ── Overview Tab ── */}
-      {tab === 'overview' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="card p-5 text-center">
-            <p className="text-3xl font-bold text-brand-600">{parties.length}</p>
-            <p className="text-sm text-slate-500 mt-1">Parties</p>
+      {tab === 'overview' && (() => {
+        const setDefaultMethod = async (method) => {
+          await supabase.from('la_matters').update({ default_apportionment_method: method }).eq('id', matterId)
+          qc.invalidateQueries({ queryKey: ['matter', matterId] })
+          toast.success('Default apportionment method saved')
+        }
+
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="card p-5 text-center">
+                <p className="text-3xl font-bold text-brand-600">{parties.length}</p>
+                <p className="text-sm text-slate-500 mt-1">Parties</p>
+              </div>
+              <div className="card p-5 text-center">
+                <p className="text-3xl font-bold text-brand-600">{insurerPeriods.length}</p>
+                <p className="text-sm text-slate-500 mt-1">Policy Periods</p>
+              </div>
+              <div className="card p-5 text-center">
+                <p className="text-3xl font-bold text-brand-600">{invoices.length}</p>
+                <p className="text-sm text-slate-500 mt-1">Invoices</p>
+              </div>
+              <div className="card p-5 text-center">
+                <p className="text-3xl font-bold text-brand-600">
+                  {formatCurrency(invoices.reduce((s, i) => s + (i.total_amount || 0), 0))}
+                </p>
+                <p className="text-sm text-slate-500 mt-1">Total Invoiced</p>
+              </div>
+            </div>
+
+            {/* ── Default Apportionment Method ── */}
+            <div className="card p-5">
+              <div className="flex items-start justify-between mb-1">
+                <div>
+                  <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                    <Calculator className="h-4 w-4 text-brand-500" />
+                    Default Apportionment Method
+                  </h3>
+                  <p className="text-sm text-slate-400 mt-0.5">
+                    New invoices added to this matter will be automatically apportioned using this method. Invoices can still be re-run with a different method individually.
+                  </p>
+                </div>
+                {matter.default_apportionment_method && (
+                  <button
+                    onClick={() => setDefaultMethod(null)}
+                    className="text-xs text-slate-400 hover:text-red-500 transition-colors flex-shrink-0 ml-4"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+                {APPORTIONMENT_METHODS.map(m => (
+                  <button
+                    key={m.value}
+                    type="button"
+                    onClick={() => setDefaultMethod(m.value)}
+                    className={`text-left rounded-xl border-2 p-4 transition-all ${
+                      matter.default_apportionment_method === m.value
+                        ? 'border-brand-600 bg-brand-50'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <p className={`font-semibold text-sm ${matter.default_apportionment_method === m.value ? 'text-brand-700' : 'text-slate-800'}`}>
+                      {m.label}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">{m.description}</p>
+                  </button>
+                ))}
+              </div>
+              {!matter.default_apportionment_method && (
+                <p className="text-xs text-amber-600 mt-3 bg-amber-50 rounded-lg px-3 py-2">
+                  No default set — invoices will need to be apportioned manually from each invoice's detail page.
+                </p>
+              )}
+            </div>
           </div>
-          <div className="card p-5 text-center">
-            <p className="text-3xl font-bold text-brand-600">{insurerPeriods.length}</p>
-            <p className="text-sm text-slate-500 mt-1">Policy Periods</p>
-          </div>
-          <div className="card p-5 text-center">
-            <p className="text-3xl font-bold text-brand-600">{invoices.length}</p>
-            <p className="text-sm text-slate-500 mt-1">Invoices</p>
-          </div>
-          <div className="card p-5 text-center">
-            <p className="text-3xl font-bold text-brand-600">
-              {formatCurrency(invoices.reduce((s, i) => s + (i.total_amount || 0), 0))}
-            </p>
-            <p className="text-sm text-slate-500 mt-1">Total Invoiced</p>
-          </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* ── Financials Tab ── */}
       {tab === 'financials' && (() => {
@@ -2007,9 +2190,22 @@ export default function MatterDetail() {
                     const info        = xPct !== null ? exhaustionInfo(xPct) : null
                     const alerted     = alertedThresholds[pp.id] || new Set()
                     const isExhausted = xPct !== null && xPct >= 100
+                    const ppOverbroad = isOverbroad(
+                      pp.responsible_start || '', pp.responsible_end || '',
+                      pp.parties?.responsible_start || '', pp.parties?.responsible_end || ''
+                    ) && !pp.date_range_override
                     return (
                     <tr key={pp.id} className={`hover:bg-slate-50 ${isExhausted ? 'bg-red-50/40' : ''}`}>
-                      <td className="px-5 py-4 font-medium text-slate-800">{pp.insurers?.name}</td>
+                      <td className="px-5 py-4 font-medium text-slate-800">
+                        <div className="flex items-center gap-1.5">
+                          {pp.insurers?.name}
+                          {ppOverbroad && (
+                            <span title="Insurer dates of service are broader than the party's responsible period">
+                              <AlertTriangle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-4 text-sm font-mono text-slate-500">{pp.insurers?.policy_number || '—'}</td>
                       <td className="px-4 py-4 text-sm font-mono text-slate-600">{pp.claim_number || '—'}</td>
                       <td className="px-4 py-4">
@@ -2027,7 +2223,12 @@ export default function MatterDetail() {
                       </td>
                       <td className="px-4 py-4 text-sm text-slate-600">{pp.parties?.name}</td>
                       <td className="px-4 py-4 text-sm text-slate-600 whitespace-nowrap">
-                        {pp.policy_start ? format(parseISO(pp.policy_start), 'MM/dd/yyyy') : '—'} — {pp.policy_end ? format(parseISO(pp.policy_end), 'MM/dd/yyyy') : '—'}
+                        {pp.policy_start ? format(parseISO(pp.policy_start), 'MM/dd/yyyy') : '—'}
+                        {' — '}
+                        {pp.policy_end
+                          ? format(parseISO(pp.policy_end), 'MM/dd/yyyy')
+                          : <span className="text-emerald-600 font-medium">Present</span>
+                        }
                       </td>
                       <td className="px-4 py-4 text-right text-sm text-slate-600">
                         {pp.policy_limit ? formatCurrency(pp.policy_limit) : '—'}
@@ -2092,54 +2293,88 @@ export default function MatterDetail() {
       )}
 
       {/* ── Invoices Tab ── */}
-      {tab === 'invoices' && (
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-slate-900">Invoices</h2>
-            <button onClick={() => setShowUploadInvoice(true)} className="btn-primary">
-              <Upload className="h-4 w-4" /> Upload Invoice
-            </button>
-          </div>
-          <div className="card overflow-hidden">
-            {invoices.length === 0 ? (
-              <div className="p-10 text-center text-slate-400">
-                <FileText className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-                <p>No invoices uploaded yet.</p>
-                <button onClick={() => setShowUploadInvoice(true)} className="btn-primary mt-4">
-                  <Upload className="h-4 w-4" /> Upload First Invoice
+      {tab === 'invoices' && (() => {
+        const unapportioned = invoices.filter(inv => inv.status !== 'apportioned')
+        const apportioned   = invoices.filter(inv => inv.status === 'apportioned')
+
+        const InvoiceTable = ({ rows, showStatus = false }) => (
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50">
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Invoice #</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Billing Firm</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Date</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Amount</th>
+                {showStatus && <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Status</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows.map(inv => (
+                <tr key={inv.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => navigate(`/matters/${matterId}/invoices/${inv.id}`)}>
+                  <td className="px-5 py-4 font-medium text-slate-800">{inv.invoice_number || 'Draft'}</td>
+                  <td className="px-4 py-4 text-sm text-slate-600">{inv.billing_firm || '—'}</td>
+                  <td className="px-4 py-4 text-sm text-slate-600">
+                    {inv.invoice_date ? format(parseISO(inv.invoice_date), 'MM/dd/yyyy') : '—'}
+                  </td>
+                  <td className="px-4 py-4 text-right whitespace-nowrap font-semibold text-slate-800">{formatCurrency(inv.total_amount)}</td>
+                  {showStatus && (
+                    <td className="px-4 py-4">
+                      <span className={`badge ${statusColors[inv.status] || 'bg-slate-100 text-slate-500'}`}>{inv.status}</span>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+
+        return (
+          <div className="space-y-6">
+            {/* ── Unapportioned ── */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <h2 className="font-semibold text-slate-900">Unapportioned</h2>
+                  {unapportioned.length > 0 && (
+                    <span className="text-xs font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">{unapportioned.length}</span>
+                  )}
+                </div>
+                <button onClick={() => setShowUploadInvoice(true)} className="btn-primary">
+                  <Upload className="h-4 w-4" /> Upload Invoice
                 </button>
               </div>
-            ) : (
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50">
-                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Invoice #</th>
-                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Billing Firm</th>
-                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Date</th>
-                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Amount</th>
-                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {invoices.map(inv => (
-                    <tr key={inv.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => navigate(`/matters/${matterId}/invoices/${inv.id}`)}>
-                      <td className="px-5 py-4 font-medium text-slate-800">{inv.invoice_number || 'Draft'}</td>
-                      <td className="px-4 py-4 text-sm text-slate-600">{inv.billing_firm || '—'}</td>
-                      <td className="px-4 py-4 text-sm text-slate-600">
-                        {inv.invoice_date ? format(parseISO(inv.invoice_date), 'MM/dd/yyyy') : '—'}
-                      </td>
-                      <td className="px-4 py-4 text-right whitespace-nowrap font-semibold text-slate-800">{formatCurrency(inv.total_amount)}</td>
-                      <td className="px-4 py-4">
-                        <span className={`badge ${statusColors[inv.status] || 'bg-slate-100 text-slate-500'}`}>{inv.status}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="card overflow-hidden">
+                {unapportioned.length === 0 ? (
+                  <div className="p-10 text-center text-slate-400">
+                    <FileText className="h-8 w-8 mx-auto mb-2 text-slate-300" />
+                    <p>{invoices.length === 0 ? 'No invoices uploaded yet.' : 'All invoices have been apportioned.'}</p>
+                    {invoices.length === 0 && (
+                      <button onClick={() => setShowUploadInvoice(true)} className="btn-primary mt-4">
+                        <Upload className="h-4 w-4" /> Upload First Invoice
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <InvoiceTable rows={unapportioned} showStatus={unapportioned.some(i => i.status === 'draft')} />
+                )}
+              </div>
+            </div>
+
+            {/* ── Apportioned ── */}
+            {apportioned.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <h2 className="font-semibold text-slate-900">Apportioned</h2>
+                  <span className="text-xs font-semibold bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">{apportioned.length}</span>
+                </div>
+                <div className="card overflow-hidden">
+                  <InvoiceTable rows={apportioned} showStatus={false} />
+                </div>
+              </div>
             )}
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* ── Apportionments Tab ── */}
       {tab === 'apportionments' && (() => {
