@@ -169,6 +169,8 @@ function FirmEditModal({ orgId, firm, onClose }) {
 function FirmsTab({ orgId }) {
   const qc = useQueryClient()
   const [editModal, setEditModal] = useState(null) // null | 'new' | firm object
+  const [search, setSearch]       = useState('')
+  const sectionRefs = useRef({})
 
   const { data: firms = [], isLoading } = useQuery({
     queryKey: ['firms', orgId],
@@ -182,6 +184,27 @@ function FirmsTab({ orgId }) {
       return data || []
     },
   })
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return q ? firms.filter(f => f.name.toLowerCase().includes(q)) : firms
+  }, [firms, search])
+
+  const grouped = useMemo(() => {
+    const map = {}
+    for (const f of filtered) {
+      const letter = f.name[0]?.toUpperCase() || '#'
+      if (!map[letter]) map[letter] = []
+      map[letter].push(f)
+    }
+    return map
+  }, [filtered])
+
+  const activeLetters = useMemo(() => new Set(Object.keys(grouped)), [grouped])
+
+  const scrollToLetter = (letter) => {
+    sectionRefs.current[letter]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   const deleteFirm = async (e, firm) => {
     e.stopPropagation()
@@ -199,12 +222,42 @@ function FirmsTab({ orgId }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
-        <p className="text-sm text-slate-500">Law firms associated with your matters.</p>
+      {/* ── Toolbar ── */}
+      <div className="flex items-center gap-3 mb-5">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            className="form-input pl-9"
+            placeholder="Search firms…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
         <button onClick={() => setEditModal('new')} className="btn-primary flex-shrink-0">
           <Plus className="h-4 w-4" /> Add Firm
         </button>
       </div>
+
+      {/* ── A–Z index strip ── */}
+      {firms.length > 0 && (
+        <div className="flex overflow-x-auto gap-0.5 mb-5 pb-1">
+          {ALPHABET.map(letter => (
+            <button
+              key={letter}
+              onClick={() => scrollToLetter(letter)}
+              disabled={!activeLetters.has(letter)}
+              className={`flex-shrink-0 w-7 h-7 rounded text-xs font-semibold transition-colors ${
+                activeLetters.has(letter)
+                  ? 'bg-brand-600 text-white hover:bg-brand-700'
+                  : 'bg-slate-100 text-slate-300 cursor-default'
+              }`}
+            >
+              {letter}
+            </button>
+          ))}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="py-16 text-center"><Loader2 className="h-6 w-6 animate-spin text-slate-300 mx-auto" /></div>
@@ -216,77 +269,93 @@ function FirmsTab({ orgId }) {
             <Plus className="h-4 w-4" /> Add First Firm
           </button>
         </div>
+      ) : filtered.length === 0 ? (
+        <div className="py-12 text-center text-slate-400">
+          <p>No firms match <strong className="text-slate-600">"{search}"</strong></p>
+          <button onClick={() => setSearch('')} className="text-xs text-brand-600 hover:underline mt-2 block mx-auto">Clear search</button>
+        </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {firms.map(firm => {
-            const matterCount = firm.la_matters?.length || 0
-            const totalBilled = firm.la_matters?.reduce((sum, m) =>
-              sum + (m.la_invoices?.reduce((s, inv) => s + (inv.total_amount || 0), 0) || 0), 0) || 0
-            return (
-              <button
-                key={firm.id}
-                onClick={() => setEditModal(firm)}
-                className="text-left card p-4 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-150 group"
-              >
-                {/* Header */}
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Briefcase className="h-4 w-4 text-brand-500 flex-shrink-0 mt-0.5" />
-                    <p className="font-semibold text-slate-900 text-sm leading-snug line-clamp-2 group-hover:text-brand-700 transition-colors">
-                      {firm.name}
-                    </p>
-                  </div>
-                  <button
-                    onClick={e => deleteFirm(e, firm)}
-                    className="p-1 rounded text-slate-200 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0 opacity-0 group-hover:opacity-100"
-                    title="Delete firm"
-                  ><Trash2 className="h-3.5 w-3.5" /></button>
-                </div>
+        <div className="space-y-8">
+          {ALPHABET.filter(l => grouped[l]).map(letter => (
+            <div key={letter} ref={el => sectionRefs.current[letter] = el}>
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-xl font-extrabold text-slate-800 w-8 flex-shrink-0">{letter}</span>
+                <div className="flex-1 h-px bg-slate-200" />
+                <span className="text-xs text-slate-400">{grouped[letter].length}</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {grouped[letter].map(firm => {
+                  const matterCount = firm.la_matters?.length || 0
+                  const totalBilled = firm.la_matters?.reduce((sum, m) =>
+                    sum + (m.la_invoices?.reduce((s, inv) => s + (inv.total_amount || 0), 0) || 0), 0) || 0
+                  return (
+                    <button
+                      key={firm.id}
+                      onClick={() => setEditModal(firm)}
+                      className="text-left card p-4 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-150 group"
+                    >
+                      {/* Header */}
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Briefcase className="h-4 w-4 text-brand-500 flex-shrink-0 mt-0.5" />
+                          <p className="font-semibold text-slate-900 text-sm leading-snug line-clamp-2 group-hover:text-brand-700 transition-colors">
+                            {firm.name}
+                          </p>
+                        </div>
+                        <button
+                          onClick={e => deleteFirm(e, firm)}
+                          className="p-1 rounded text-slate-200 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0 opacity-0 group-hover:opacity-100"
+                          title="Delete firm"
+                        ><Trash2 className="h-3.5 w-3.5" /></button>
+                      </div>
 
-                {/* Contact snippet */}
-                <div className="space-y-1 mb-3">
-                  {firm.contact_name && (
-                    <p className="text-xs text-slate-600 flex items-center gap-1.5 truncate">
-                      <User className="h-3 w-3 flex-shrink-0 text-slate-400" />{firm.contact_name}
-                      {firm.contact_email && <span className="text-slate-400">· {firm.contact_email}</span>}
-                    </p>
-                  )}
-                  {firm.phone && (
-                    <p className="text-xs text-slate-500 flex items-center gap-1.5">
-                      <Phone className="h-3 w-3 flex-shrink-0 text-slate-400" />{firm.phone}
-                    </p>
-                  )}
-                  {firm.email && !firm.contact_name && (
-                    <p className="text-xs text-slate-500 flex items-center gap-1.5 truncate">
-                      <Mail className="h-3 w-3 flex-shrink-0 text-slate-400" />{firm.email}
-                    </p>
-                  )}
-                  {(firm.city || firm.state) && (
-                    <p className="text-xs text-slate-400 flex items-center gap-1.5">
-                      <MapPin className="h-3 w-3 flex-shrink-0" />{[firm.city, firm.state].filter(Boolean).join(', ')}
-                    </p>
-                  )}
-                  {firm.website && (
-                    <p className="text-xs text-slate-400 flex items-center gap-1.5 truncate">
-                      <Globe className="h-3 w-3 flex-shrink-0" />{firm.website.replace(/^https?:\/\//, '')}
-                    </p>
-                  )}
-                </div>
+                      {/* Contact snippet */}
+                      <div className="space-y-1 mb-3">
+                        {firm.contact_name && (
+                          <p className="text-xs text-slate-600 flex items-center gap-1.5 truncate">
+                            <User className="h-3 w-3 flex-shrink-0 text-slate-400" />{firm.contact_name}
+                            {firm.contact_email && <span className="text-slate-400">· {firm.contact_email}</span>}
+                          </p>
+                        )}
+                        {firm.phone && (
+                          <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                            <Phone className="h-3 w-3 flex-shrink-0 text-slate-400" />{firm.phone}
+                          </p>
+                        )}
+                        {firm.email && !firm.contact_name && (
+                          <p className="text-xs text-slate-500 flex items-center gap-1.5 truncate">
+                            <Mail className="h-3 w-3 flex-shrink-0 text-slate-400" />{firm.email}
+                          </p>
+                        )}
+                        {(firm.city || firm.state) && (
+                          <p className="text-xs text-slate-400 flex items-center gap-1.5">
+                            <MapPin className="h-3 w-3 flex-shrink-0" />{[firm.city, firm.state].filter(Boolean).join(', ')}
+                          </p>
+                        )}
+                        {firm.website && (
+                          <p className="text-xs text-slate-400 flex items-center gap-1.5 truncate">
+                            <Globe className="h-3 w-3 flex-shrink-0" />{firm.website.replace(/^https?:\/\//, '')}
+                          </p>
+                        )}
+                      </div>
 
-                {/* Footer stats */}
-                <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-slate-100">
-                  <span className="badge bg-slate-100 text-slate-600 text-xs flex items-center gap-1">
-                    <FolderOpen className="h-3 w-3" /> {matterCount} matter{matterCount !== 1 ? 's' : ''}
-                  </span>
-                  {totalBilled > 0 && (
-                    <span className="badge bg-green-50 text-green-700 text-xs flex items-center gap-1">
-                      <DollarSign className="h-3 w-3" /> {fmtMoney(totalBilled)} billed
-                    </span>
-                  )}
-                </div>
-              </button>
-            )
-          })}
+                      {/* Footer stats */}
+                      <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-slate-100">
+                        <span className="badge bg-slate-100 text-slate-600 text-xs flex items-center gap-1">
+                          <FolderOpen className="h-3 w-3" /> {matterCount} matter{matterCount !== 1 ? 's' : ''}
+                        </span>
+                        {totalBilled > 0 && (
+                          <span className="badge bg-green-50 text-green-700 text-xs flex items-center gap-1">
+                            <DollarSign className="h-3 w-3" /> {fmtMoney(totalBilled)} billed
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
