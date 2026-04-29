@@ -5,7 +5,7 @@ import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import {
   User, Lock, Building2, Shield, ShieldCheck, ShieldOff, QrCode,
-  Loader2, CheckCircle2, X, Briefcase, Plus, Trash2, FolderOpen,
+  Loader2, CheckCircle2, X, Briefcase, Plus, Trash2, FolderOpen, Landmark,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -279,12 +279,146 @@ function FirmsTab({ orgId }) {
   )
 }
 
+// ── Add Insurer Modal ─────────────────────────────────────────────────────────
+function AddInsurerModal({ orgId, onClose }) {
+  const qc = useQueryClient()
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm()
+
+  const onSubmit = async (values) => {
+    const { error } = await supabase.from('la_insurers').insert({ org_id: orgId, name: values.name.trim() })
+    if (error) { toast.error(error.message); return }
+    toast.success('Insurer added!')
+    qc.invalidateQueries({ queryKey: ['insurers', orgId] })
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+        <div className="flex items-center justify-between p-5 border-b border-slate-200">
+          <h2 className="font-semibold text-slate-900">Add Insurer</h2>
+          <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
+        </div>
+        <form onSubmit={handleSubmit(onSubmit)} className="p-5 space-y-4">
+          <div>
+            <label className="form-label">Insurer Name *</label>
+            <input className={`form-input ${errors.name ? 'border-red-400' : ''}`}
+              placeholder="Acme Insurance Co."
+              {...register('name', { required: 'Insurer name is required' })} />
+            {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
+            <button type="submit" className="btn-primary flex-1 justify-center" disabled={isSubmitting}>
+              {isSubmitting ? 'Adding…' : 'Add Insurer'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ── Insurers Tab ──────────────────────────────────────────────────────────────
+function InsurersTab({ orgId }) {
+  const qc = useQueryClient()
+  const [showAdd, setShowAdd] = useState(false)
+
+  const { data: insurers = [], isLoading } = useQuery({
+    queryKey: ['insurers', orgId],
+    enabled: !!orgId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('la_insurers')
+        .select('*, la_insurer_policy_periods(id)')
+        .eq('org_id', orgId)
+        .order('name')
+      return data || []
+    },
+  })
+
+  const deleteInsurer = async (insurer) => {
+    const usageCount = insurer.la_insurer_policy_periods?.length || 0
+    if (usageCount > 0) {
+      toast.error(`Can't delete — this insurer is assigned to ${usageCount} policy period${usageCount > 1 ? 's' : ''}. Remove those assignments first.`)
+      return
+    }
+    if (!confirm(`Delete "${insurer.name}"?`)) return
+    const { error } = await supabase.from('la_insurers').delete().eq('id', insurer.id)
+    if (error) { toast.error(error.message); return }
+    toast.success('Insurer deleted')
+    qc.invalidateQueries({ queryKey: ['insurers', orgId] })
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-slate-500">Manage the insurance carriers used across your matters.</p>
+        <button onClick={() => setShowAdd(true)} className="btn-primary">
+          <Plus className="h-4 w-4" /> Add Insurer
+        </button>
+      </div>
+
+      <div className="card overflow-hidden">
+        {isLoading ? (
+          <div className="p-8 text-center"><Loader2 className="h-5 w-5 animate-spin text-slate-300 mx-auto" /></div>
+        ) : insurers.length === 0 ? (
+          <div className="p-10 text-center text-slate-400">
+            <Landmark className="h-8 w-8 mx-auto mb-2 text-slate-300" />
+            <p>No insurers yet.</p>
+            <button onClick={() => setShowAdd(true)} className="btn-primary mt-4">
+              <Plus className="h-4 w-4" /> Add First Insurer
+            </button>
+          </div>
+        ) : (
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50">
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Insurer Name</th>
+                <th className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Policy Periods</th>
+                <th className="px-4 py-3 w-10"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {insurers.map(insurer => {
+                const count = insurer.la_insurer_policy_periods?.length || 0
+                return (
+                  <tr key={insurer.id} className="hover:bg-slate-50">
+                    <td className="px-5 py-4 font-medium text-slate-800">{insurer.name}</td>
+                    <td className="px-4 py-4 text-center">
+                      <span className="inline-flex items-center gap-1 text-sm text-slate-500">
+                        <Landmark className="h-3.5 w-3.5" /> {count}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      <button
+                        onClick={() => deleteInsurer(insurer)}
+                        className="p-1.5 rounded-md text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                        title="Delete insurer"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {showAdd && <AddInsurerModal orgId={orgId} onClose={() => setShowAdd(false)} />}
+    </div>
+  )
+}
+
 // ── Main Settings Page ────────────────────────────────────────────────────────
 const TABS = [
   { key: 'profile',      label: 'Profile',      icon: User       },
   { key: 'security',     label: 'Security',     icon: Shield     },
   { key: 'organization', label: 'Organization', icon: Building2  },
   { key: 'firms',        label: 'Firms',        icon: Briefcase  },
+  { key: 'insurers',     label: 'Insurers',     icon: Landmark   },
 ]
 
 export default function Settings() {
@@ -529,6 +663,9 @@ export default function Settings() {
 
       {/* ── Firms Tab ── */}
       {activeTab === 'firms' && <FirmsTab orgId={profile?.org_id} />}
+
+      {/* ── Insurers Tab ── */}
+      {activeTab === 'insurers' && <InsurersTab orgId={profile?.org_id} />}
 
       {/* 2FA enrollment modal */}
       {showEnroll && <TwoFAEnrollModal onClose={() => setShowEnroll(false)} onEnrolled={handleEnrolled} />}
