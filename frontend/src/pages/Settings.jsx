@@ -16,6 +16,8 @@ function fmtMoney(n) {
   if (n >= 1_000)     return `$${(n / 1_000).toFixed(0)}K`
   return `$${n.toFixed(0)}`
 }
+
+const validatePhone = v => !v || v.replace(/\D/g, '').length === 10 || 'Must be 10 digits'
 import toast from 'react-hot-toast'
 
 const ROLE_COLORS = {
@@ -93,7 +95,9 @@ function FirmEditModal({ orgId, firm, onClose }) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="form-label">Phone</label>
-                <input className="form-input" placeholder="xxx.xxx.xxxx" {...register('phone')} />
+                <input className={`form-input ${errors.phone ? 'border-red-400' : ''}`} placeholder="xxx.xxx.xxxx"
+                  {...register('phone', { validate: validatePhone })} />
+                {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone.message}</p>}
               </div>
               <div>
                 <label className="form-label">Email</label>
@@ -331,6 +335,7 @@ function InsurerEditModal({ orgId, insurer, onClose }) {
 
   const saveRep = async () => {
     if (!repName.trim()) { toast.error('Rep name required'); return }
+    if (repPhone && repPhone.replace(/\D/g, '').length !== 10) { toast.error('Phone must be 10 digits'); return }
     setSavingRep(true)
     const payload = { name: repName.trim(), email: repEmail || null, phone: repPhone || null, title: repTitle || null }
     let err
@@ -406,8 +411,9 @@ function InsurerEditModal({ orgId, insurer, onClose }) {
               </div>
               <div>
                 <label className="form-label">Phone</label>
-                <input className="form-input" placeholder="xxx.xxx.xxxx"
-                  {...register('phone')} />
+                <input className={`form-input ${errors.phone ? 'border-red-400' : ''}`} placeholder="xxx.xxx.xxxx"
+                  {...register('phone', { validate: validatePhone })} />
+                {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone.message}</p>}
               </div>
               <div>
                 <label className="form-label">Website</label>
