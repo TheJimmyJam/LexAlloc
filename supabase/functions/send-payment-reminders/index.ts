@@ -9,7 +9,7 @@ import { layout, infoRow, ctaButton, alertBox } from '../_shared/emailTemplate.t
 
 const RESEND_API_KEY  = Deno.env.get('RESEND_API_KEY')            ?? ''
 const RESEND_FROM     = Deno.env.get('RESEND_FROM_EMAIL')         ?? 'noreply@lexalloc.app'
-const FRONTEND_URL    = Deno.env.get('FRONTEND_URL')              ?? 'https://lexalloc.netlify.app'
+const FRONTEND_URL    = Deno.env.get('FRONTEND_URL')              ?? 'https://lexalloc.com'
 const SUPABASE_URL    = Deno.env.get('SUPABASE_URL')              ?? ''
 const SERVICE_KEY     = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 
