@@ -482,6 +482,21 @@ export function buildDemandLetterEmailHtml({ apport, invoice, pa, ia, orgName, l
     <h1 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#0f172a;">${title}</h1>
     <p style="margin:0 0 24px;font-size:12px;color:#94a3b8;">${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</p>
 
+    <!-- Attachment callout -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+      <tr>
+        <td style="background:#f0f4ff;border:2px solid #c7d2fe;border-radius:10px;padding:16px 20px;">
+          <table cellpadding="0" cellspacing="0"><tr>
+            <td style="padding-right:14px;vertical-align:middle;font-size:28px;">📎</td>
+            <td style="vertical-align:middle;">
+              <p style="margin:0 0 2px;font-size:14px;font-weight:700;color:#1e1b4b;">Your Demand Letter is Attached</p>
+              <p style="margin:0;font-size:12px;color:#4338ca;">${getDemandLetterFilename({ apport, invoice, ia })}</p>
+            </td>
+          </tr></table>
+        </td>
+      </tr>
+    </table>
+
     <!-- Re: block -->
     <table cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
       ${infoRow('Case Name:', matterName)}
