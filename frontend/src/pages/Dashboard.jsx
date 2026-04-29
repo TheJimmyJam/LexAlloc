@@ -3,54 +3,51 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
-import { FolderOpen, FileText, DollarSign, TrendingUp, Plus, ArrowRight, ChevronRight, Briefcase, ChevronDown, Upload } from 'lucide-react'
+import { FolderOpen, FileText, DollarSign, TrendingUp, Plus, ArrowRight, ChevronRight, Briefcase, Upload } from 'lucide-react'
 import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
 import { formatCurrency } from '../lib/calculations.js'
 import { format, parseISO } from 'date-fns'
 import OnboardingWizard from '../components/OnboardingWizard.jsx'
 import OnboardingChecklist from '../components/OnboardingChecklist.jsx'
 
-function FirmCard({ firm, statusColors }) {
-  const [expanded, setExpanded] = useState(true)
-  const matters = firm.la_matters || []
+const STATUS_LABELS = { active: 'Active', closed: 'Closed', on_hold: 'On Hold', pending: 'On Hold' }
+
+function FirmColumn({ firm, statusColors }) {
+  const matters = [...(firm.la_matters || [])].sort((a, b) => a.name.localeCompare(b.name))
 
   return (
-    <div className="card overflow-hidden">
-      <button
-        onClick={() => setExpanded(e => !e)}
-        className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-slate-50 transition-colors text-left"
-      >
-        <div className="flex items-center gap-2.5">
-          <Briefcase className="h-4 w-4 text-brand-500 flex-shrink-0" />
-          <span className="font-semibold text-slate-900 text-sm">{firm.name}</span>
-          <span className="text-xs text-slate-400 font-normal">
-            {matters.length} matter{matters.length !== 1 ? 's' : ''}
-          </span>
-        </div>
-        <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-      </button>
+    <div className="flex flex-col w-60 flex-shrink-0">
+      {/* Column header */}
+      <div className="flex items-center gap-2 px-3 py-2.5 bg-slate-100 rounded-t-xl border border-slate-200 border-b-0">
+        <Briefcase className="h-3.5 w-3.5 text-brand-500 flex-shrink-0" />
+        <span className="font-semibold text-slate-800 text-xs truncate flex-1">{firm.name}</span>
+        <span className="text-xs text-slate-400 font-normal flex-shrink-0">{matters.length}</span>
+      </div>
 
-      {expanded && (
-        matters.length === 0 ? (
-          <div className="px-5 py-4 text-sm text-slate-400 border-t border-slate-100">No matters assigned yet.</div>
+      {/* Matter cards */}
+      <div className="flex flex-col gap-1.5 p-2 bg-slate-50 border border-slate-200 rounded-b-xl min-h-[60px]">
+        {matters.length === 0 ? (
+          <p className="text-xs text-slate-400 text-center py-3">No matters</p>
         ) : (
-          <div className="border-t border-slate-100 divide-y divide-slate-50">
-            {matters.map(m => (
-              <Link
-                key={m.id}
-                to={`/matters/${m.id}`}
-                className="flex items-center justify-between px-5 py-3 hover:bg-slate-50/80 transition-colors"
-              >
-                <div className="min-w-0 mr-4">
-                  <p className="text-sm font-medium text-slate-800 truncate">{m.name}</p>
-                  {m.matter_number && <p className="text-xs text-slate-400 mt-0.5">#{m.matter_number}</p>}
-                </div>
-                <span className={`badge ${statusColors[m.status] || 'bg-slate-100 text-slate-500'} flex-shrink-0 capitalize`}>{m.status}</span>
-              </Link>
-            ))}
-          </div>
-        )
-      )}
+          matters.map(m => (
+            <Link
+              key={m.id}
+              to={`/matters/${m.id}`}
+              className="bg-white rounded-lg px-3 py-2.5 border border-slate-200 hover:border-brand-300 hover:shadow-sm transition-all block"
+            >
+              <p className="text-xs font-medium text-slate-800 leading-snug line-clamp-2">{m.name}</p>
+              <div className="flex items-center justify-between mt-1.5 gap-1">
+                {m.matter_number
+                  ? <span className="text-[10px] text-slate-400">#{m.matter_number}</span>
+                  : <span />}
+                <span className={`badge text-[10px] px-1.5 py-0.5 ${statusColors[m.status] || 'bg-slate-100 text-slate-500'} flex-shrink-0`}>
+                  {STATUS_LABELS[m.status] ?? m.status}
+                </span>
+              </div>
+            </Link>
+          ))
+        )}
+      </div>
     </div>
   )
 }
@@ -328,7 +325,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Firms */}
+      {/* Firms — Kanban */}
       {firmsWithMatters && firmsWithMatters.length > 0 && (
         <div className="mt-6">
           <div className="flex items-center justify-between mb-3">
@@ -339,10 +336,12 @@ export default function Dashboard() {
               Manage firms <ArrowRight className="h-3 w-3" />
             </Link>
           </div>
-          <div className="space-y-3">
-            {firmsWithMatters.map(firm => (
-              <FirmCard key={firm.id} firm={firm} statusColors={statusColors} />
-            ))}
+          <div className="overflow-x-auto pb-2">
+            <div className="flex gap-3" style={{ minWidth: 'max-content' }}>
+              {firmsWithMatters.map(firm => (
+                <FirmColumn key={firm.id} firm={firm} statusColors={statusColors} />
+              ))}
+            </div>
           </div>
         </div>
       )}
