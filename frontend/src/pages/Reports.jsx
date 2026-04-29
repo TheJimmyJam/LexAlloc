@@ -1954,41 +1954,55 @@ export default function Reports() {
         </div>
       </div>
 
-      <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-xl p-1 mb-6 overflow-x-auto">
-        {TABS.map(t => {
-          const Icon = t.icon
-          return (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium flex-1 justify-center transition-colors whitespace-nowrap ${
-                tab === t.key ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-              }`}
-            >
-              <Icon className="h-4 w-4 flex-shrink-0" />
-              <span className="hidden sm:inline">{t.label}</span>
-              <span className="sm:hidden">{t.label.split(' ')[0]}</span>
-            </button>
-          )
-        })}
-      </div>
+      {/* ── Two-column layout — vertical sidebar on the left, report content
+            on the right. Stacks on small screens. Mirrors AdminPanel so the
+            navigation pattern is consistent across admin-style pages. ──── */}
+      <div className="flex flex-col lg:flex-row gap-6">
 
-      {isLoading ? (
-        <div className="card p-16 text-center">
-          <div className="h-8 w-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-slate-500 text-sm">Loading report data…</p>
+        {/* Sidebar nav */}
+        <aside className="lg:w-56 lg:flex-shrink-0">
+          <nav className="flex flex-col gap-0.5 lg:sticky lg:top-6 bg-white lg:bg-transparent border lg:border-0 border-slate-200 rounded-xl p-2 lg:p-0">
+            {TABS.map(t => {
+              const Icon = t.icon
+              const active = tab === t.key
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-left transition-colors ${
+                    active
+                      ? 'bg-brand-50 text-brand-700'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <Icon className={`h-4 w-4 flex-shrink-0 ${active ? 'text-brand-600' : 'text-slate-400'}`} />
+                  <span className="flex-1 truncate">{t.label}</span>
+                </button>
+              )
+            })}
+          </nav>
+        </aside>
+
+        {/* Report content column */}
+        <div className="flex-1 min-w-0">
+          {isLoading ? (
+            <div className="card p-16 text-center">
+              <div className="h-8 w-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+              <p className="text-slate-500 text-sm">Loading report data…</p>
+            </div>
+          ) : (
+            <>
+              {tab === 'outstanding'    && <OutstandingReport       data={outstandingByInsurer}  dateLabel={dateLabel} />}
+              {tab === 'collections'    && <CollectionsAgingReport  rows={agingRows} />}
+              {tab === 'velocity'       && <VelocityReport          data={velocityByInsurer}     dateLabel={dateLabel} />}
+              {tab === 'categories'     && <CategoriesReport        data={categoryBreakdown}     dateLabel={dateLabel} />}
+              {tab === 'aging'          && <AgingReport             data={matterAging}           dateLabel={dateLabel} />}
+              {tab === 'settlements'    && <SettlementReport         data={settlementComparison} />}
+              {tab === 'demand_letters' && <DemandLettersReport      rows={demandLetters} sendLog={sendLog} dateLabel={dateLabel} />}
+            </>
+          )}
         </div>
-      ) : (
-        <>
-          {tab === 'outstanding'    && <OutstandingReport       data={outstandingByInsurer}  dateLabel={dateLabel} />}
-          {tab === 'collections'    && <CollectionsAgingReport  rows={agingRows} />}
-          {tab === 'velocity'       && <VelocityReport          data={velocityByInsurer}     dateLabel={dateLabel} />}
-          {tab === 'categories'     && <CategoriesReport        data={categoryBreakdown}     dateLabel={dateLabel} />}
-          {tab === 'aging'          && <AgingReport             data={matterAging}           dateLabel={dateLabel} />}
-          {tab === 'settlements'    && <SettlementReport         data={settlementComparison} />}
-          {tab === 'demand_letters' && <DemandLettersReport      rows={demandLetters} sendLog={sendLog} dateLabel={dateLabel} />}
-        </>
-      )}
+      </div>
     </div>
   )
 }
