@@ -24,6 +24,8 @@
 --         4. Writes a 'matter.consolidated' row to la_audit_logs.
 --       Runs as SECURITY DEFINER so it bypasses RLS on the
 --       cascade-protected updates and the audit-log insert.
+--       Verifies the calling auth.uid() is either a platform admin
+--       OR a member of p_org_id whose role is 'admin'.
 --
 -- Recommended workflow (run in the Supabase SQL Editor):
 --
@@ -54,8 +56,13 @@
 
 
 -- ── Helper: normalize a matter caption for fuzzy comparison ──
--- Lowercase, replace anything that isn't [a-z0-9 -] with a space,
--- collapse whitespace, trim. Same algorithm as the JS helper.
+-- 1. Lowercase.
+-- 2. Strip parenthesized text — engagement qualifiers like "(coverage)",
+--    "(umbrella monitoring)", "(cumis)" make captions look different even
+--    though they describe the same litigation; we want them to match.
+-- 3. Replace anything that isn't [a-z0-9 -] with a space.
+-- 4. Collapse whitespace and trim.
+-- Mirrors the JS helper in BulkCreateMattersModal.jsx so DB and app agree.
 CREATE OR REPLACE FUNCTION public.la_normalize_matter_key(s text)
 RETURNS text
 LANGUAGE sql
@@ -63,7 +70,10 @@ IMMUTABLE
 AS $$
   SELECT trim(
     regexp_replace(
-      regexp_replace(lower(coalesce(s, '')), '[^a-z0-9\s\-]', ' ', 'g'),
+      regexp_replace(
+        regexp_replace(lower(coalesce(s, '')), '\([^)]*\)', ' ', 'g'),
+        '[^a-z0-9\s\-]', ' ', 'g'
+      ),
       '\s+', ' ', 'g'
     )
   );
@@ -71,6 +81,9 @@ $$;
 
 
 -- ── Read-only preview of duplicate-matter groups ──
+-- Anyone who can read the org's matters can preview duplicates. We still
+-- fence with the same auth helper so the function returns NOTHING (rather
+-- than leaking another org's data) if called with the wrong p_org_id.
 DROP FUNCTION IF EXISTS public.la_preview_duplicate_matters(uuid);
 CREATE OR REPLACE FUNCTION public.la_preview_duplicate_matters(p_org_id uuid)
 RETURNS TABLE(
@@ -107,6 +120,9 @@ AS $$
     FROM public.la_matters
     WHERE org_id = p_org_id
       AND coalesce(public.la_normalize_matter_key(name), '') <> ''
+      -- Caller must be platform admin or org-admin of p_org_id; otherwise
+      -- this predicate is FALSE and the function returns zero rows.
+      AND public.la_can_consolidate_org(p_org_id)
   ),
   groups AS (
     SELECT
@@ -143,6 +159,27 @@ AS $$
 $$;
 
 
+-- ── Auth helper used by the consolidate function ──
+-- Returns TRUE if the calling auth.uid() is allowed to consolidate
+-- duplicates inside p_org_id: either a platform admin, or an admin
+-- member of that org. Returns FALSE otherwise.
+CREATE OR REPLACE FUNCTION public.la_can_consolidate_org(p_org_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.la_profiles
+     WHERE id = auth.uid()
+       AND (is_platform_admin = TRUE
+            OR (org_id = p_org_id AND role = 'admin'))
+  );
+$$;
+
+
 -- ── Destructive consolidation ──
 DROP FUNCTION IF EXISTS public.la_consolidate_duplicate_matters(uuid);
 CREATE OR REPLACE FUNCTION public.la_consolidate_duplicate_matters(p_org_id uuid)
@@ -162,6 +199,12 @@ DECLARE
   v_moved jsonb;
   v_count int;
 BEGIN
+  -- Auth gate: only platform admins or org-admin members may run this.
+  IF NOT public.la_can_consolidate_org(p_org_id) THEN
+    RAISE EXCEPTION 'Not authorized to consolidate matters in this organization'
+      USING ERRCODE = '42501';
+  END IF;
+
   FOR rec IN
     WITH ranked AS (
       SELECT
@@ -283,13 +326,15 @@ $$;
 
 
 -- ── Permissions ──
--- Allow the SQL editor / service role to call these. If you later
--- want to expose them via PostgREST RPC you can GRANT to authenticated
--- and add an explicit auth check inside the consolidate function.
+-- Both functions are exposed to authenticated users via PostgREST RPC.
+-- Auth is enforced INSIDE the functions via la_can_consolidate_org() so
+-- only platform admins or org-admin members can use them on a given org.
 REVOKE ALL ON FUNCTION public.la_normalize_matter_key(text)               FROM public;
+REVOKE ALL ON FUNCTION public.la_can_consolidate_org(uuid)                FROM public;
 REVOKE ALL ON FUNCTION public.la_preview_duplicate_matters(uuid)          FROM public;
 REVOKE ALL ON FUNCTION public.la_consolidate_duplicate_matters(uuid)      FROM public;
 
 GRANT EXECUTE ON FUNCTION public.la_normalize_matter_key(text)            TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.la_can_consolidate_org(uuid)             TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.la_preview_duplicate_matters(uuid)       TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.la_consolidate_duplicate_matters(uuid)   TO service_role;
+GRANT EXECUTE ON FUNCTION public.la_consolidate_duplicate_matters(uuid)   TO authenticated, service_role;
