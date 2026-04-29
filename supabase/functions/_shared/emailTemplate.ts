@@ -230,7 +230,7 @@ export function layout(opts: LayoutOptions): string {
                       color:#94a3b8;
                       line-height:1.6;
                       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
-                    ">Legal Invoice Apportionment Platform &mdash; <a href="https://lexalloc.netlify.app" style="color:#94a3b8;text-decoration:underline;">lexalloc.netlify.app</a></p>
+                    ">Legal Invoice Apportionment Platform &mdash; <a href="https://lexalloc.com" style="color:#94a3b8;text-decoration:underline;">lexalloc.com</a></p>
 
                     <p style="
                       margin:0;
