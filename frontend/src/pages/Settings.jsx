@@ -265,7 +265,7 @@ function InsurerEditModal({ orgId, insurer, onClose }) {
               </div>
               <div>
                 <label className="form-label">Phone</label>
-                <input className="form-input" placeholder="(800) 555-0100"
+                <input className="form-input" placeholder="xxx.xxx.xxxx"
                   {...register('phone')} />
               </div>
               <div>
@@ -292,12 +292,12 @@ function InsurerEditModal({ orgId, insurer, onClose }) {
                     {...register('address_line2')} />
                 </div>
                 <div>
-                  <input className="form-input" placeholder="City"
+                  <input className="form-input" placeholder="CITY"
                     {...register('city')} />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <input className="form-input" placeholder="State"
-                    {...register('state')} />
+                  <input className="form-input uppercase" placeholder="TX" maxLength={2}
+                    {...register('state', { onChange: e => e.target.value = e.target.value.toUpperCase() })} />
                   <input className="form-input" placeholder="ZIP"
                     {...register('zip')} />
                 </div>
@@ -366,7 +366,7 @@ function InsurerEditModal({ orgId, insurer, onClose }) {
                     </div>
                     <div>
                       <label className="form-label text-xs">Phone</label>
-                      <input className="form-input" value={repPhone} onChange={e => setRepPhone(e.target.value)} placeholder="(800) 555-0100" />
+                      <input className="form-input" value={repPhone} onChange={e => setRepPhone(e.target.value)} placeholder="xxx.xxx.xxxx" />
                     </div>
                   </div>
                   <div className="flex gap-2 justify-end">
