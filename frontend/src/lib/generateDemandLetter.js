@@ -109,7 +109,7 @@ function calcDescription(method, ia, pa) {
 // --- Main generator ----------------------------------------------------------
 
 export async function generateDemandLetterBlob(data) {
-  const { apport, invoice, pa, ia, orgName, logoUrl } = data
+  const { apport, invoice, pa, ia, orgName, logoUrl, lexallocInvoiceNumber } = data
   const pp       = ia.insurer_policy_periods
   const today    = format(new Date(), 'MMMM d, yyyy')
   const method   = apport.calculation_method || 'pro_rata_time_on_risk'
@@ -139,7 +139,7 @@ export async function generateDemandLetterBlob(data) {
     { label: 'Firm:',                  value: firmLabel },
     { label: 'Firm Matter No.:',       value: (apport.matters && apport.matters.matter_number) || '' },
     { label: 'Firm Invoice No.:',      value: invoice.invoice_number || '' },
-    { label: 'LexAlloc Invoice No.:', value: '' },
+    { label: 'LexAlloc Invoice No.:', value: lexallocInvoiceNumber || ia.lexalloc_invoice_number || '' },
     { label: 'Insurer Claim No.:',     value: (pp && pp.claim_number) || '' },
   ]
 
