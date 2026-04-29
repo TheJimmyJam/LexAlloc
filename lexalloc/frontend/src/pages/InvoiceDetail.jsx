@@ -5,7 +5,7 @@ import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { formatCurrency, apportionInvoice } from '../lib/calculations.js'
 import { APPORTIONMENT_METHODS, buildPartiesWithPolicies, saveApportionmentToDb } from '../lib/apportionment.js'
-import { ArrowLeft, Calculator, FileText, ExternalLink, Loader2, GitCompare, ChevronDown, ChevronUp, CheckCircle2, AlertCircle, AlertTriangle, Sparkles, Info } from 'lucide-react'
+import { ArrowLeft, Calculator, FileText, ExternalLink, Loader2, GitCompare, ChevronDown, ChevronUp, CheckCircle2, AlertCircle, AlertTriangle, Info } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
@@ -73,9 +73,6 @@ export default function InvoiceDetail() {
   const [showDupeApportWarning, setShowDupeApportWarning] = useState(false)
   const [existingApportionments, setExistingApportionments] = useState([])
   const [showPreFlight, setShowPreFlight] = useState(false)
-  const [aiRec,     setAiRec]     = useState(null)
-  const [aiLoading, setAiLoading] = useState(false)
-  const [aiOpen,    setAiOpen]    = useState(false)
 
   const handleRunApportionment = async (force = false, bypassPreflight = false) => {
     if (!bypassPreflight) {
@@ -131,40 +128,6 @@ export default function InvoiceDetail() {
       toast.error(err.message)
     } finally {
       setCalculating(false)
-    }
-  }
-
-  // ── AI Method Advisor ─────────────────────────────────────────────────────
-  const fetchAiRecommendation = async () => {
-    setAiLoading(true)
-    setAiOpen(true)
-    try {
-      const parties = partiesWithPolicies.map(p => ({
-        name:       p.name,
-        share_pct:  p.share_percentage,
-        policy_periods: (p.policy_periods || []).map(pp => ({
-          insurer_name: pp.insurer_name,
-          start:        pp.policy_start,
-          end:          pp.policy_end,
-          limit_usd:    pp.policy_limit,
-        })),
-      }))
-
-      const context = {
-        matter_name:    invoice.la_matters?.name,
-        invoice_total:  invoice.total_amount,
-        service_start:  invoice.service_start,
-        service_end:    invoice.service_end,
-        carriers_count: parties.flatMap(p => p.policy_periods).length,
-        parties,
-      }
-
-      const result = await api.recommendMethod(context)
-      setAiRec(result)
-    } catch (err) {
-      toast.error('AI analysis failed: ' + (err.message || 'Unknown error'))
-    } finally {
-      setAiLoading(false)
     }
   }
 
@@ -506,123 +469,6 @@ export default function InvoiceDetail() {
           </p>
         )}
 
-        {/* ── AI Method Advisor ── */}
-        <div className="mt-4 border-t border-slate-100 pt-4">
-          {!aiOpen && (
-            <button
-              onClick={fetchAiRecommendation}
-              disabled={aiLoading || partiesWithPolicies.length === 0}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-violet-200 bg-violet-50 hover:bg-violet-100 text-violet-700 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Sparkles className="h-4 w-4" />
-              {aiLoading ? 'Analyzing matter…' : 'AI Method Advisor — get a recommendation'}
-            </button>
-          )}
-
-          {aiOpen && (
-            <div className="rounded-xl border border-violet-200 overflow-hidden">
-              <div
-                className="flex items-center justify-between px-4 py-3 bg-violet-50 border-b border-violet-100 cursor-pointer hover:bg-violet-100 transition-colors"
-                onClick={() => setAiOpen(false)}
-              >
-                <div className="flex items-center gap-2 text-violet-700 font-semibold text-sm">
-                  <Sparkles className="h-4 w-4" />
-                  AI Method Advisor
-                </div>
-                <div className="flex items-center gap-3" onClick={e => e.stopPropagation()}>
-                  {aiRec && (
-                    <button onClick={fetchAiRecommendation} disabled={aiLoading} className="text-xs text-violet-500 hover:text-violet-700 font-medium">
-                      Re-analyze
-                    </button>
-                  )}
-                  <button onClick={() => setAiOpen(false)} className="flex items-center gap-1 text-xs text-violet-400 hover:text-violet-600 font-medium">
-                    <ChevronUp className="h-4 w-4" /> Collapse
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-4 bg-white">
-                {aiLoading && (
-                  <div className="flex items-center gap-3 text-slate-500 text-sm py-3">
-                    <Sparkles className="h-5 w-5 text-violet-400 animate-pulse" />
-                    Analyzing matter facts, policy periods, and carrier count…
-                  </div>
-                )}
-
-                {!aiLoading && !aiRec && (
-                  <div className="text-center py-4">
-                    <Sparkles className="h-7 w-7 text-violet-300 mx-auto mb-2" />
-                    <p className="text-slate-500 text-sm">Click Re-analyze to get a defensibility assessment.</p>
-                  </div>
-                )}
-
-                {!aiLoading && aiRec && (() => {
-                  const METHOD_META = {
-                    pro_rata_time_on_risk: { label: 'Pro-Rata Time on Risk',  color: 'bg-brand-100 text-brand-700',  border: 'border-brand-200'  },
-                    equal_shares:          { label: 'Equal Shares',           color: 'bg-blue-100 text-blue-700',    border: 'border-blue-200'   },
-                    limits_proportional:   { label: 'Limits Proportional',    color: 'bg-amber-100 text-amber-700',  border: 'border-amber-200'  },
-                  }
-                  const CONF_META = {
-                    high:   { label: 'High confidence',   color: 'bg-green-100 text-green-700'  },
-                    medium: { label: 'Medium confidence', color: 'bg-amber-100 text-amber-700'  },
-                    low:    { label: 'Lower confidence',  color: 'bg-slate-100 text-slate-600'  },
-                  }
-                  const meta     = METHOD_META[aiRec.recommended_method] || { label: aiRec.recommended_method, color: 'bg-slate-100 text-slate-600', border: 'border-slate-200' }
-                  const confMeta = CONF_META[aiRec.confidence] || CONF_META.medium
-                  const isCurrent = aiRec.recommended_method === calcMethod
-
-                  return (
-                    <div className="space-y-3">
-                      <div className={`flex items-start justify-between gap-4 p-3 rounded-xl border ${meta.border}`} style={{ backgroundColor: 'rgba(139,92,246,0.04)' }}>
-                        <div>
-                          <p className="text-xs text-slate-500 uppercase tracking-wide font-medium mb-1.5">Recommended Method</p>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className={`badge text-sm font-semibold px-3 py-1 ${meta.color}`}>{meta.label}</span>
-                            <span className={`badge text-xs ${confMeta.color}`}>{confMeta.label}</span>
-                            {isCurrent
-                              ? <span className="badge text-xs bg-green-100 text-green-700 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Selected</span>
-                              : <button onClick={() => setCalcMethod(aiRec.recommended_method)} className="btn-secondary text-xs py-1 px-3">Use this method</button>
-                            }
-                          </div>
-                        </div>
-                      </div>
-
-                      {aiRec.key_factors?.length > 0 && (
-                        <div>
-                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Key Factors</p>
-                          <div className="space-y-1">
-                            {aiRec.key_factors.map((f, i) => (
-                              <div key={i} className="flex items-start gap-2 text-sm text-slate-700">
-                                <CheckCircle2 className="h-3.5 w-3.5 text-violet-400 mt-0.5 flex-shrink-0" />
-                                {f}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div>
-                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Rationale</p>
-                        <p className="text-sm text-slate-700 leading-relaxed">{aiRec.rationale}</p>
-                      </div>
-
-                      {aiRec.caveats && (
-                        <div className="flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-lg p-3 text-sm text-amber-800">
-                          <Info className="h-4 w-4 mt-0.5 flex-shrink-0 text-amber-500" />
-                          <p>{aiRec.caveats}</p>
-                        </div>
-                      )}
-
-                      <p className="text-xs text-slate-400 pt-1 border-t border-slate-100">
-                        AI-assisted analysis for decision support only. Final method selection is the responsibility of counsel.
-                      </p>
-                    </div>
-                  )
-                })()}
-              </div>
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Method Comparison */}
