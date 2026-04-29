@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw, ChevronRight, Loader2, Key, Copy, Eye, EyeOff, Code, Terminal, Palette, Globe, Image, Wand2, User, Lock, ShieldCheck, ShieldOff, QrCode } from 'lucide-react'
+import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw, ChevronRight, Loader2, Key, Copy, Eye, EyeOff, Code, Terminal, Palette, Globe, Image, Wand2, User, Lock, ShieldCheck, ShieldOff, QrCode, Layers } from 'lucide-react'
+import DuplicateMattersTool from '../components/DuplicateMattersTool.jsx'
 import { applyPalette } from '../context/BrandingContext.jsx'
 import { formatCurrency } from '../lib/calculations.js'
 import { format, parseISO } from 'date-fns'
@@ -18,6 +19,7 @@ const TABS = [
   { key: 'integrations', label: 'Integrations',  icon: Plug,      dbAdminOnly: false },
   { key: 'api',          label: 'API',            icon: Key,       dbAdminOnly: false },
   { key: 'branding',     label: 'Branding',       icon: Palette,   dbAdminOnly: false },
+  { key: 'cleanup',      label: 'Cleanup',        icon: Layers,    dbAdminOnly: false },
   { key: 'demo',         label: 'Demo Data',      icon: Wand2,     dbAdminOnly: true  },
 ]
 
@@ -2660,6 +2662,11 @@ export default function AdminPanel() {
             </div>
           </details>
         </div>
+      )}
+
+      {/* ── Cleanup Tab — duplicate-matter consolidation ──────────────────── */}
+      {tab === 'cleanup' && (
+        <DuplicateMattersTool />
       )}
 
       {/* ── Demo Data Tab ─────────────────────────────────────────────────── */}
