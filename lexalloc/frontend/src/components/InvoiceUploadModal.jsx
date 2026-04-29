@@ -4,7 +4,7 @@ import { useDropzone } from 'react-dropzone'
 import {
   X, Upload, Loader2, CheckCircle, AlertCircle, FileText,
   Trash2, ChevronDown, ChevronUp, Save, RefreshCw, Plus, RefreshCcw, AlertTriangle,
-  Check, Square, CheckSquare, FolderSearch, Sparkles,
+  Check, Square, CheckSquare, FolderSearch, Sparkles, Calculator,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
@@ -364,12 +364,11 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
         await supabase.from('la_invoice_line_items').insert(lineItems)
       }
 
-      // ── Always auto-apportion ────────────────────────────────────────────
-      // Every invoice is apportioned on save. If parties aren't configured yet,
-      // autoApportion returns false silently — user can re-run from InvoiceDetail.
+      // ── Run apportionment ────────────────────────────────────────────────
+      let apportioned = false
       if (parsed.service_start) {
         try {
-          await autoApportion({
+          const apportResult = await autoApportion({
             invoiceId: invoice.id,
             invoice,
             matterId:  effectiveMatterId,
@@ -377,13 +376,22 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
             profile,
             method:    effectiveMethod,
           })
-        } catch { /* non-fatal — user can re-run from InvoiceDetail */ }
+          apportioned = !!apportResult
+        } catch { /* fall through — warn below */ }
       }
 
       // Invalidate all relevant caches so the UI reflects the new status immediately
       qc.invalidateQueries({ queryKey: ['matter-invoices', effectiveMatterId] })
       qc.invalidateQueries({ queryKey: ['matter-apportionments', effectiveMatterId] })
       qc.invalidateQueries({ queryKey: ['invoice', invoice.id] })
+
+      if (!apportioned) {
+        toast('Invoice saved — apportionment skipped. Add parties & insurer periods to this matter, then re-run from the invoice.', {
+          icon: '⚠️',
+          duration: 8000,
+          style: { maxWidth: '440px' },
+        })
+      }
 
       update(id, { status: 'saved', expanded: false })
       setSelected(s => { const n = new Set(s); n.delete(id); return n })
@@ -734,9 +742,9 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
                                   ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                                   : 'text-brand-600 hover:text-brand-800 bg-brand-50 hover:bg-brand-100'
                               }`}
-                              title={needsMethod(item) ? 'Choose an apportionment method first' : 'Save invoice'}
+                              title={needsMethod(item) ? 'Choose an apportionment method first' : 'Run apportionment and save invoice'}
                             >
-                              <Save className="h-3.5 w-3.5" /> Save
+                              <Calculator className="h-3.5 w-3.5" /> Apportion & Save
                             </button>
                           </>
                         )}
@@ -990,8 +998,8 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
                   disabled={processing || readyItems.filter(i => selected.has(i.id)).some(needsMethod)}
                   className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Save className="h-4 w-4" />
-                  Save Selected ({selectedCount})
+                  <Calculator className="h-4 w-4" />
+                  Apportion & Save Selected ({selectedCount})
                 </button>
               )}
               {selectedCount === 0 && readyCount === 1 && (() => {
@@ -1002,7 +1010,7 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
                     disabled={needsMethod(single)}
                     className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Save className="h-4 w-4" /> Save Invoice
+                    <Calculator className="h-4 w-4" /> Apportion & Save Invoice
                   </button>
                 )
               })()}
