@@ -18,7 +18,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')              ?? ''
 const SERVICE_KEY   = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-const FRONTEND_URL  = Deno.env.get('FRONTEND_URL')              ?? 'https://lexalloc.netlify.app'
+const FRONTEND_URL  = Deno.env.get('FRONTEND_URL')              ?? 'https://lexalloc.com'
 
 const QBO_CLIENT_ID     = Deno.env.get('QBO_CLIENT_ID')     ?? ''
 const QBO_CLIENT_SECRET = Deno.env.get('QBO_CLIENT_SECRET') ?? ''
