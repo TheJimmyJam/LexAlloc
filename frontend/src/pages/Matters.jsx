@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { useForm } from 'react-hook-form'
@@ -336,6 +336,15 @@ export default function Matters() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Auto-open create modal when navigated from Dashboard "New Matter" button
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setShowModal(true)
+      setSearchParams({}, { replace: true }) // clean the URL
+    }
+  }, [searchParams, setSearchParams])
   const [showImport, setShowImport] = useState(false)
   const [showFromInvoice, setShowFromInvoice] = useState(false)
   const [uploadMatterId, setUploadMatterId] = useState(null)
