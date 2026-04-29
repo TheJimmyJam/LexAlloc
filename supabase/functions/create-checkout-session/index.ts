@@ -9,7 +9,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import Stripe from 'https://esm.sh/stripe@14?target=deno'
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY') ?? ''
-const FRONTEND_URL      = Deno.env.get('FRONTEND_URL')      ?? 'https://lexalloc.netlify.app'
+const FRONTEND_URL      = Deno.env.get('FRONTEND_URL')      ?? 'https://lexalloc.com'
 const SUPABASE_URL      = Deno.env.get('SUPABASE_URL')      ?? ''
 const SERVICE_KEY       = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 
