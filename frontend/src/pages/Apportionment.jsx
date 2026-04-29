@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase.js'
 import { formatCurrency, formatPercent, exhaustionInfo } from '../lib/calculations.js'
-import { generateDemandLetterBlob, getDemandLetterFilename } from '../lib/generateDemandLetter.js'
+import { generateDemandLetterBlob, getDemandLetterFilename, buildDemandLetterEmailHtml } from '../lib/generateDemandLetter.js'
 import { generateApportionmentReport } from '../lib/generateApportionmentReport.js'
 import DemandLetterModal from '../components/DemandLetterModal.jsx'
 import { useAuth } from '../hooks/useAuth.jsx'
@@ -794,6 +794,7 @@ export default function Apportionment() {
 
         // 4. Send email with attachment + mark as demanded
         try {
+          const emailHtml = buildDemandLetterEmailHtml({ apport, invoice: inv, pa, ia, orgName, lexallocInvoiceNumber })
           const { data: fnData, error: fnErr } = await supabase.functions.invoke('send-demand-letter', {
             body: {
               insurer_apportionment_id: ia.id,
@@ -803,6 +804,7 @@ export default function Apportionment() {
               claims_rep_name:          ipp.claims_rep_name || null,
               insurer_name:             ia.insurers?.name   || null,
               lexalloc_invoice_number:  lexallocInvoiceNumber,
+              email_html:               emailHtml,
             },
           })
           if (fnErr) throw new Error(fnErr.message || JSON.stringify(fnErr))
