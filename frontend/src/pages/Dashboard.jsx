@@ -52,13 +52,20 @@ function FirmColumn({ firm, statusColors }) {
   )
 }
 
+function compactCurrency(amount) {
+  if (amount >= 1_000_000_000) return `$${(amount / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}B`
+  if (amount >= 1_000_000)     return `$${(amount / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
+  if (amount >= 1_000)         return `$${(amount / 1_000).toFixed(1).replace(/\.0$/, '')}K`
+  return `$${amount.toFixed(0)}`
+}
+
 function StatCard({ icon: Icon, label, value, gradient, to }) {
   return (
     <Link to={to} className="card p-5 block hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 group">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</p>
-          <p className="text-3xl font-semibold text-slate-900 mt-2 tracking-tight">{value}</p>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide truncate">{label}</p>
+          <p className="text-2xl font-semibold text-slate-900 mt-2 tracking-tight truncate">{value}</p>
         </div>
         <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${gradient} group-hover:scale-110 transition-transform duration-150`}>
           <Icon className="h-5 w-5 text-white" />
@@ -272,7 +279,7 @@ export default function Dashboard() {
         <StatCard icon={FolderOpen} label="Active Matters"     value={stats?.matters || 0}                       gradient="bg-gradient-to-br from-brand-500 to-brand-700"   to="/matters" />
         <StatCard icon={FileText}   label="Invoices Processed" value={stats?.invoices || 0}                      gradient="bg-gradient-to-br from-blue-400 to-blue-600"     to="/matters" />
         <StatCard icon={TrendingUp} label="Apportionments Run" value={stats?.apportionments || 0}                gradient="bg-gradient-to-br from-violet-400 to-violet-600" to="/matters" />
-        <StatCard icon={DollarSign} label="Total Invoiced"     value={formatCurrency(stats?.totalInvoiced || 0)} gradient="bg-gradient-to-br from-emerald-400 to-emerald-600" to="/matters" />
+        <StatCard icon={DollarSign} label="Total Invoiced"     value={compactCurrency(stats?.totalInvoiced || 0)} gradient="bg-gradient-to-br from-emerald-400 to-emerald-600" to="/matters" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
