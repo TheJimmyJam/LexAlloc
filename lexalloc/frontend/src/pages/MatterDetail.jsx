@@ -852,12 +852,93 @@ function EditInsurerModal({ pp, matterId, onClose }) {
 }
 
 // ── Add Insurer Modal ─────────────────────────────────────────────────────────
+// ── Insurer combobox ──────────────────────────────────────────────────────────
+function InsurerCombobox({ orgId, value, onChange, hasError }) {
+  const [query,    setQuery]    = useState(value || '')
+  const [open,     setOpen]     = useState(false)
+  const [focused,  setFocused]  = useState(false)
+  const wrapRef = React.useRef(null)
+
+  const { data: allInsurers = [] } = useQuery({
+    queryKey: ['insurers-directory', orgId],
+    queryFn:  async () => {
+      const { data } = await supabase
+        .from('la_insurers')
+        .select('id, name')
+        .eq('org_id', orgId)
+        .order('name')
+      return data || []
+    },
+    enabled: !!orgId,
+  })
+
+  const filtered = query.trim().length === 0
+    ? allInsurers
+    : allInsurers.filter(i => i.name.toLowerCase().includes(query.toLowerCase()))
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const select = (name) => {
+    setQuery(name)
+    onChange(name)
+    setOpen(false)
+  }
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <input
+        type="text"
+        className={`form-input w-full ${hasError ? 'border-red-400' : ''}`}
+        placeholder="Travelers Indemnity Company"
+        value={query}
+        onChange={e => { setQuery(e.target.value); onChange(e.target.value); setOpen(true) }}
+        onFocus={() => { setFocused(true); setOpen(true) }}
+        onBlur={() => setFocused(false)}
+        autoComplete="off"
+      />
+      {open && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-52 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <div className="px-4 py-3 text-sm text-slate-400 italic">
+              No matches — type any name to create a new insurer
+            </div>
+          ) : (
+            filtered.map(ins => (
+              <button
+                key={ins.id}
+                type="button"
+                onMouseDown={() => select(ins.name)}
+                className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
+              >
+                {ins.name}
+              </button>
+            ))
+          )}
+          {query.trim() && !allInsurers.some(i => i.name.toLowerCase() === query.trim().toLowerCase()) && (
+            <div className="border-t border-slate-100 px-4 py-2.5 text-xs text-slate-400 flex items-center gap-1.5">
+              <Plus className="h-3 w-3" />
+              <span>Press Enter or click Add to create <strong className="text-slate-600">"{query.trim()}"</strong></span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const qc = useQueryClient()
   const { register, control, watch, handleSubmit, setValue, formState: { errors, isSubmitting, dirtyFields } } = useForm({
-    defaultValues: { party_id: defaultPartyId || '' },
+    defaultValues: { party_id: defaultPartyId || '', insurer_name: '' },
   })
   const [selectedInsurerId, setSelectedInsurerId] = useState(null) // known id from directory
 
@@ -939,8 +1020,19 @@ function AddInsurerModal({ matterId, parties, defaultPartyId = null, onClose }) 
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
           <div>
             <label className="form-label">Insurer Name *</label>
-            <input className="form-input" placeholder="Travelers Indemnity Company"
-              {...register('insurer_name', { required: 'Required' })} />
+            <Controller
+              name="insurer_name"
+              control={control}
+              rules={{ required: 'Required' }}
+              render={({ field }) => (
+                <InsurerCombobox
+                  orgId={profile?.org_id}
+                  value={field.value}
+                  onChange={field.onChange}
+                  hasError={!!errors.insurer_name}
+                />
+              )}
+            />
             {errors.insurer_name && <p className="text-red-500 text-xs mt-1">{errors.insurer_name.message}</p>}
           </div>
           <div>
