@@ -103,7 +103,7 @@ function calcDescription(method, ia, pa) {
   const total = (ia.total_days   != null) ? ia.total_days   : '-'
   return 'Costs for ' + partyName + ' have been allocated on a pro-rata time-on-risk ' +
     'basis. ' + insurerName + '\'s policy was on-risk for ' + days + ' of the ' + total +
-    ' days in the applicable coverage period, representing ' + pct + ' of the total exposure.'
+    ' days in the applicable coverage period, representing ' + pct + ' of the total obligation.'
 }
 
 // --- Main generator ----------------------------------------------------------
