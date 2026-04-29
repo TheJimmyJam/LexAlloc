@@ -487,7 +487,7 @@ export default function Apportionment() {
             id, percentage, amount,
             parties:la_parties(name),
             insurer_apportionments:la_insurer_apportionments(
-              id, days_on_risk, total_days, percentage, amount,
+              id, insurer_id, days_on_risk, total_days, percentage, amount,
               payment_status, amount_paid, payment_date, demanded_at, payment_notes,
               insurer_policy_period_id,
               override_pct, override_reason, override_set_by, override_set_at,
@@ -695,6 +695,17 @@ export default function Apportionment() {
       const inv     = apport.invoices || {}
       const orgName = profile?.la_organizations?.name || ''
 
+      // Fetch policy periods for this matter indexed by insurer_id
+      // (insurer_policy_period_id is NULL on existing apportionment rows, so we match by insurer_id + matter_id)
+      const { data: ippRows = [] } = await supabase
+        .from('la_insurer_policy_periods')
+        .select('id, insurer_id, claims_rep_name, claims_rep_email, billing_address, claim_number')
+        .eq('matter_id', apport.matter_id)
+      const ippByInsurer = {}
+      for (const row of ippRows) {
+        ippByInsurer[row.insurer_id] = row
+      }
+
       for (let i = 0; i < allPairs.length; i++) {
         const { pa, ia } = allPairs[i]
         // Stagger downloads so browsers don't block them
@@ -717,17 +728,17 @@ export default function Apportionment() {
         uint8.forEach(b => { binary += String.fromCharCode(b) })
         const base64 = btoa(binary)
 
-        // 3. Send email with attachment + mark as demanded
-        // Pass contact info directly from already-loaded data — don't rely on edge fn re-query
-        const ipp = ia.insurer_policy_periods || {}
+        // 3. Resolve contact info — use policy period matched by insurer_id (FK is null on old rows)
+        const ipp         = ippByInsurer[ia.insurer_id] || ia.insurer_policy_periods || {}
         const claimsEmail = ipp.claims_rep_email || ia.insurers?.contact_email || null
+
+        // 4. Send email with attachment + mark as demanded
         try {
           const { error: fnErr } = await supabase.functions.invoke('send-demand-letter', {
             body: {
               insurer_apportionment_id: ia.id,
               attachment_base64:        base64,
               attachment_filename:      filename,
-              // Pass contact info so edge fn doesn't need to re-query
               claims_rep_email:         claimsEmail,
               claims_rep_name:          ipp.claims_rep_name || null,
               insurer_name:             ia.insurers?.name || null,
