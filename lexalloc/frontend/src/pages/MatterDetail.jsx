@@ -2387,53 +2387,217 @@ export default function MatterDetail() {
           toast.success('Apportionment deleted')
         }
 
+        // ── Aggregate dashboard data from financialRows ──────────────────────
+        const DASH_COLORS = ['#4f46e5','#0891b2','#059669','#d97706','#dc2626','#7c3aed','#db2777','#0d9488']
+        const byParty   = {}   // partyName → { amount, paid }
+        const byInsurer = {}   // `${party}::${insurer}` → { partyName, insurerName, amount, paid, statuses:{} }
+
+        financialRows.forEach(appt => {
+          ;(appt.party_apportionments || []).forEach(pa => {
+            const pname = pa.parties?.name || 'Unknown'
+            if (!byParty[pname]) byParty[pname] = { amount: 0, paid: 0 }
+            byParty[pname].amount += Number(pa.amount) || 0
+            ;(pa.insurer_apportionments || []).forEach(ia => {
+              const iname = ia.insurers?.name || 'Unknown'
+              const key   = `${pname}::${iname}`
+              if (!byInsurer[key]) byInsurer[key] = { partyName: pname, insurerName: iname, amount: 0, paid: 0, statuses: {} }
+              byInsurer[key].amount += Number(ia.amount)      || 0
+              byInsurer[key].paid   += Number(ia.amount_paid) || 0
+              byParty[pname].paid   += Number(ia.amount_paid) || 0
+              const s = ia.payment_status || 'pending'
+              byInsurer[key].statuses[s] = (byInsurer[key].statuses[s] || 0) + 1
+            })
+          })
+        })
+
+        const totalBilled   = financialRows.reduce((s, a) => s + (Number(a.invoices?.total_amount) || 0), 0)
+        const totalObligated = Object.values(byParty).reduce((s, p) => s + p.amount, 0)
+        const totalPaid      = Object.values(byParty).reduce((s, p) => s + p.paid,   0)
+        const totalOut       = totalObligated - totalPaid
+        const partyRows      = Object.entries(byParty).sort(([, a], [, b]) => b.amount - a.amount)
+        const insurerRows    = Object.values(byInsurer).sort((a, b) => b.amount - a.amount)
+        const hasDashData    = financialRows.length > 0 && partyRows.length > 0
+
+        const statusLabel = { pending:'Pending', demanded:'Demanded', paid:'Paid', partially_paid:'Partial', disputed:'Disputed' }
+        const statusColor = { pending:'bg-slate-100 text-slate-600', demanded:'bg-amber-100 text-amber-700', paid:'bg-green-100 text-green-700', partially_paid:'bg-blue-100 text-blue-700', disputed:'bg-red-100 text-red-700' }
+
         return (
-          <div>
-            <h2 className="font-semibold text-slate-900 mb-4">Apportionments</h2>
-            <div className="card overflow-hidden">
-              {apportionments.length === 0 ? (
-                <div className="p-10 text-center text-slate-400">
-                  <Calculator className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-                  <p>No apportionments calculated yet.</p>
-                  <p className="text-xs mt-1">Upload an invoice, then run an apportionment from the invoice detail page.</p>
+          <div className="space-y-6">
+
+            {/* ── Dashboard ── */}
+            {hasDashData && (<>
+
+              {/* Stat cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[
+                  { label: 'Total Billed',    value: formatCurrency(totalBilled),    sub: `${apportionments.length} apportionment${apportionments.length !== 1 ? 's' : ''}`, color: 'text-brand-700' },
+                  { label: 'Total Obligated', value: formatCurrency(totalObligated), sub: 'across all invoices',  color: 'text-slate-900' },
+                  { label: 'Total Paid',       value: formatCurrency(totalPaid),      sub: `${totalObligated > 0 ? ((totalPaid / totalObligated) * 100).toFixed(0) : 0}% collected`, color: 'text-green-700' },
+                  { label: 'Outstanding',      value: formatCurrency(totalOut),       sub: totalOut > 0 ? 'unpaid obligations' : 'fully collected!', color: totalOut > 0 ? 'text-amber-600' : 'text-green-700' },
+                ].map(({ label, value, sub, color }) => (
+                  <div key={label} className="card p-5">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{label}</p>
+                    <p className={`text-2xl font-bold mt-1 ${color}`}>{value}</p>
+                    <p className="text-xs text-slate-400 mt-1">{sub}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Party responsibilities chart */}
+              <div className="card p-5">
+                <h3 className="font-semibold text-slate-900 mb-1">Party Responsibilities</h3>
+                <p className="text-xs text-slate-400 mb-5">Total obligation across all invoices — paid vs. outstanding</p>
+                <div className="space-y-4">
+                  {partyRows.map(([name, data], i) => {
+                    const pct     = totalObligated > 0 ? (data.amount / totalObligated) * 100 : 0
+                    const paidPct = data.amount > 0 ? Math.min((data.paid / data.amount) * 100, 100) : 0
+                    const color   = DASH_COLORS[i % DASH_COLORS.length]
+                    return (
+                      <div key={name}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: color }} />
+                            <span className="text-sm font-semibold text-slate-800">{name}</span>
+                            <span className="text-xs text-slate-400">{pct.toFixed(1)}% of total</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-sm font-bold text-slate-900">{formatCurrency(data.amount)}</span>
+                            {data.paid > 0 && (
+                              <span className="text-xs text-green-600 ml-2">{formatCurrency(data.paid)} paid</span>
+                            )}
+                          </div>
+                        </div>
+                        {/* Two-layer bar: obligation width (of total billed), paid fill inside */}
+                        <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                          <div className="h-3 rounded-full relative overflow-hidden" style={{ width: `${pct}%`, background: color + '33' }}>
+                            <div className="h-3 rounded-full" style={{ width: `${paidPct}%`, background: color }} />
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-              ) : (
+                {/* Legend */}
+                <div className="flex items-center gap-4 mt-5 pt-4 border-t border-slate-100 text-xs text-slate-500">
+                  <div className="flex items-center gap-1.5"><div className="w-3 h-2 rounded-sm bg-brand-600" />Paid</div>
+                  <div className="flex items-center gap-1.5"><div className="w-3 h-2 rounded-sm bg-brand-200" />Outstanding</div>
+                </div>
+              </div>
+
+              {/* Insurer breakdown table */}
+              <div className="card overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100">
+                  <h3 className="font-semibold text-slate-900">Carrier Breakdown</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">All insurers across every apportionment on this matter</p>
+                </div>
                 <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50">
-                      <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Invoice</th>
-                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Total</th>
-                      <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Method</th>
-                      <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Calculated</th>
-                      <th className="px-4 py-3 w-10"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {apportionments.map(a => (
-                      <tr key={a.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => navigate(`/matters/${matterId}/apportionments/${a.id}`)}>
-                        <td className="px-5 py-4 font-medium text-slate-800">{a.invoices?.invoice_number || 'Invoice'}</td>
-                        <td className="px-4 py-4 text-right whitespace-nowrap font-semibold">{formatCurrency(a.invoices?.total_amount)}</td>
-                        <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-500 capitalize">{a.calculation_method?.replace('_', ' ')}</td>
-                        <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-400">
-                          {a.calculated_at ? format(parseISO(a.calculated_at), 'MM/dd/yyyy HH:mm') : '—'}
-                        </td>
-                        <td className="px-4 py-4 text-right">
-                          <button
-                            onClick={(e) => deleteApportionment(e, a)}
-                            className="p-1.5 rounded-md text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
-                            title="Delete apportionment"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50">
+                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Party</th>
+                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Insurer</th>
+                        <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Obligation</th>
+                        <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Paid</th>
+                        <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Outstanding</th>
+                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {insurerRows.map((row, i) => {
+                        const out = row.amount - row.paid
+                        const dominantStatus = Object.entries(row.statuses).sort(([, a], [, b]) => b - a)[0]?.[0] || 'pending'
+                        const partyIdx = partyRows.findIndex(([n]) => n === row.partyName)
+                        const dotColor = DASH_COLORS[partyIdx % DASH_COLORS.length]
+                        return (
+                          <tr key={i} className="hover:bg-slate-50">
+                            <td className="px-5 py-3">
+                              <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: dotColor }} />
+                                <span className="text-sm text-slate-700">{row.partyName}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm font-medium text-slate-800">{row.insurerName}</td>
+                            <td className="px-4 py-3 text-right font-bold text-slate-900 whitespace-nowrap">{formatCurrency(row.amount)}</td>
+                            <td className="px-4 py-3 text-right text-green-700 font-medium whitespace-nowrap">
+                              {row.paid > 0 ? formatCurrency(row.paid) : <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className="px-4 py-3 text-right whitespace-nowrap">
+                              {out > 0.01
+                                ? <span className="font-semibold text-amber-600">{formatCurrency(out)}</span>
+                                : <span className="text-green-600 text-sm">✓ Clear</span>}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusColor[dominantStatus] || 'bg-slate-100 text-slate-600'}`}>
+                                {statusLabel[dominantStatus] || dominantStatus}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-slate-200 bg-slate-50">
+                        <td colSpan={2} className="px-5 py-3 text-sm font-bold text-slate-700">Total</td>
+                        <td className="px-4 py-3 text-right font-bold text-slate-900">{formatCurrency(totalObligated)}</td>
+                        <td className="px-4 py-3 text-right font-bold text-green-700">{formatCurrency(totalPaid)}</td>
+                        <td className="px-4 py-3 text-right font-bold text-amber-600">{formatCurrency(totalOut)}</td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
                 </div>
-              )}
+              </div>
+            </>)}
+
+            {/* ── Apportionment list ── */}
+            <div>
+              <h2 className="font-semibold text-slate-900 mb-4">Apportionments by Invoice</h2>
+              <div className="card overflow-hidden">
+                {apportionments.length === 0 ? (
+                  <div className="p-10 text-center text-slate-400">
+                    <Calculator className="h-8 w-8 mx-auto mb-2 text-slate-300" />
+                    <p>No apportionments calculated yet.</p>
+                    <p className="text-xs mt-1">Upload an invoice, then run an apportionment from the invoice detail page.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50">
+                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Invoice</th>
+                        <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Total</th>
+                        <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Method</th>
+                        <th className="hidden sm:table-cell text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Calculated</th>
+                        <th className="px-4 py-3 w-10"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {apportionments.map(a => (
+                        <tr key={a.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => navigate(`/matters/${matterId}/apportionments/${a.id}`)}>
+                          <td className="px-5 py-4 font-medium text-slate-800">{a.invoices?.invoice_number || 'Invoice'}</td>
+                          <td className="px-4 py-4 text-right whitespace-nowrap font-semibold">{formatCurrency(a.invoices?.total_amount)}</td>
+                          <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-500 capitalize">{a.calculation_method?.replace('_', ' ')}</td>
+                          <td className="hidden sm:table-cell px-4 py-4 text-sm text-slate-400">
+                            {a.calculated_at ? format(parseISO(a.calculated_at), 'MM/dd/yyyy HH:mm') : '—'}
+                          </td>
+                          <td className="px-4 py-4 text-right">
+                            <button
+                              onClick={(e) => deleteApportionment(e, a)}
+                              className="p-1.5 rounded-md text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                              title="Delete apportionment"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  </div>
+                )}
+              </div>
             </div>
+
           </div>
         )
       })()}
