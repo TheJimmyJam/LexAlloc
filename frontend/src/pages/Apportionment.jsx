@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase.js'
 import { formatCurrency, formatPercent, exhaustionInfo } from '../lib/calculations.js'
@@ -8,7 +8,7 @@ import DemandLetterModal from '../components/DemandLetterModal.jsx'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2, AlertTriangle, AlertCircle, Mail, FileDown, Bell, Clock, BookOpen, PlugZap, Lock, Unlock, Pencil, RefreshCw } from 'lucide-react'
 import { format, parseISO, differenceInCalendarDays, addDays } from 'date-fns'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 // recharts removed — replaced by custom SankeyDiagram
 import toast from 'react-hot-toast'
@@ -632,8 +632,10 @@ function SankeyDiagram({ partyApps, totalAmount }) {
 
 export default function Apportionment() {
   const { matterId, apportionmentId } = useParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const qc = useQueryClient()
   const { profile } = useAuth()
+  const autoSentRef = useRef(false)
   const [paymentModal,   setPaymentModal]   = useState(null)   // { ia, partyName }
   const [bulkPaymentOpen, setBulkPaymentOpen] = useState(false)
   const [letterModal,    setLetterModal]    = useState(null)   // { apport, invoice, pa, ia, orgName }
@@ -670,6 +672,17 @@ export default function Apportionment() {
       return data
     }
   })
+
+  // Auto-fire demand letters when navigated here from "Run Apportionment" on a fresh invoice
+  useEffect(() => {
+    if (!apport || isLoading || autoSentRef.current) return
+    if (searchParams.get('send') !== '1') return
+    autoSentRef.current = true
+    // Clear the param so a refresh doesn't re-trigger
+    setSearchParams({}, { replace: true })
+    // Small delay to let the page finish rendering before the async work starts
+    setTimeout(() => handleGenerateAll(), 300)
+  }, [apport, isLoading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // All insurer apportionment ids in this apportionment (for reminder query)
   const iaIds = useMemo(() => {
