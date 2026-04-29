@@ -452,11 +452,11 @@ export default function Matters() {
       </div>
 
       {/* View toggle */}
-      <div className="flex gap-1 p-1 bg-slate-100 rounded-xl w-fit mb-6">
+      <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl w-fit mb-6">
         <button
           onClick={() => setView('matters')}
           className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            view === 'matters' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            view === 'matters' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
           }`}
         >
           <FolderOpen className="h-4 w-4" /> Matters
@@ -464,7 +464,7 @@ export default function Matters() {
         <button
           onClick={() => setView('templates')}
           className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            view === 'templates' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            view === 'templates' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
           }`}
         >
           <LayoutTemplate className="h-4 w-4" /> Templates
