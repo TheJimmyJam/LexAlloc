@@ -489,7 +489,7 @@ export default function Apportionment() {
             insurer_apportionments:la_insurer_apportionments(
               id, insurer_id, days_on_risk, total_days, percentage, amount,
               payment_status, amount_paid, payment_date, demanded_at, payment_notes,
-              insurer_policy_period_id,
+              insurer_policy_period_id, lexalloc_invoice_number,
               override_pct, override_reason, override_set_by, override_set_at,
               insurers:la_insurers(name, policy_number),
               insurer_policy_periods:la_insurer_policy_periods(policy_start, policy_end, policy_limit, deductible, claim_number, claims_rep_name, claims_rep_email, billing_address)
@@ -679,6 +679,41 @@ export default function Apportionment() {
     logAudit({ profile, matterId, action: 'demand_letter.generated', entityType: 'demand_letter', entityId: ia.id, entityName: ia.insurers?.name, metadata: { invoice_number: apport.invoices?.invoice_number, party: pa.parties?.name, amount: ia.amount } })
   }
 
+  // ── LexAlloc invoice number generator ────────────────────────────────────────
+  // Format: [INSURER4].[FIRM4].[MATTER].[YYYYMM].[SEQ]
+  // e.g.  : AJAX.HARR.BL0047.202404.001
+  const getOrCreateLexAllocNumber = async (ia, inv, matter) => {
+    if (ia.lexalloc_invoice_number) return ia.lexalloc_invoice_number
+
+    const abbr = (str, len) =>
+      (str || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, len).padEnd(len, 'X')
+
+    const insurerAbbr = abbr(ia.insurers?.name,  4)
+    const firmAbbr    = abbr(inv.billing_firm,    4)
+    const matterCode  = (matter?.matter_number || '')
+      .replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 8) || 'MTR'
+    const invoiceDate = inv.invoice_date ? new Date(inv.invoice_date) : new Date()
+    const dateCode    = `${invoiceDate.getFullYear()}${String(invoiceDate.getMonth() + 1).padStart(2, '0')}`
+    const prefix      = `${insurerAbbr}.${firmAbbr}.${matterCode}`
+
+    // Count existing demand numbers for this insurer × matter combo to get next sequence
+    const { count } = await supabase
+      .from('la_insurer_apportionments')
+      .select('id', { count: 'exact', head: true })
+      .not('lexalloc_invoice_number', 'is', null)
+      .like('lexalloc_invoice_number', `${prefix}.%`)
+
+    const seq    = String((count || 0) + 1).padStart(3, '0')
+    const number = `${prefix}.${dateCode}.${seq}`
+
+    await supabase
+      .from('la_insurer_apportionments')
+      .update({ lexalloc_invoice_number: number })
+      .eq('id', ia.id)
+
+    return number
+  }
+
   const handleGenerateAll = async () => {
     const allPairs = (apport.party_apportionments || []).flatMap(pa =>
       (pa.insurer_apportionments || [])
@@ -694,6 +729,7 @@ export default function Apportionment() {
     try {
       const inv     = apport.invoices || {}
       const orgName = profile?.la_organizations?.name || ''
+      const matter  = apport.matters || {}
 
       // Fetch policy periods for this matter indexed by insurer_id
       // (insurer_policy_period_id is NULL on existing apportionment rows, so we match by insurer_id + matter_id)
@@ -711,8 +747,11 @@ export default function Apportionment() {
         // Stagger downloads so browsers don't block them
         if (i > 0) await new Promise(r => setTimeout(r, 600))
 
+        // 0. Get or create the LexAlloc invoice number for this IA
+        const lexallocInvoiceNumber = await getOrCreateLexAllocNumber(ia, inv, matter)
+
         // 1. Generate blob + download to admin's machine
-        const blob     = await generateDemandLetterBlob({ apport, invoice: inv, pa, ia, orgName })
+        const blob     = await generateDemandLetterBlob({ apport, invoice: inv, pa, ia, orgName, lexallocInvoiceNumber })
         const filename = getDemandLetterFilename({ apport, invoice: inv, ia })
         const url = URL.createObjectURL(blob)
         const a   = document.createElement('a')
@@ -742,6 +781,7 @@ export default function Apportionment() {
               claims_rep_email:         claimsEmail,
               claims_rep_name:          ipp.claims_rep_name || null,
               insurer_name:             ia.insurers?.name || null,
+              lexalloc_invoice_number:  lexallocInvoiceNumber,
             },
           })
           if (fnErr) throw fnErr
