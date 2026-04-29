@@ -99,7 +99,7 @@ function StepPipeline({ status }) {
 // ── Main modal ────────────────────────────────────────────────────────────────
 // matterId is OPTIONAL. When omitted, the modal matches the invoice to an
 // existing matter (by matter_number) or creates a new one automatically.
-export default function InvoiceUploadModal({ matterId, onClose }) {
+export default function InvoiceUploadModal({ matterId, onClose, initialFiles = [] }) {
   const { profile } = useAuth()
   const qc = useQueryClient()
   const [queue, setQueue]           = useState([])
@@ -258,6 +258,11 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
     accept: { 'application/pdf': ['.pdf'], 'image/*': ['.png', '.jpg', '.jpeg'] },
     maxSize: 20 * 1024 * 1024,
   })
+
+  // Pre-load files dropped from outside the modal (e.g. the invoices tab drag zone)
+  useEffect(() => {
+    if (initialFiles && initialFiles.length > 0) onDrop(initialFiles)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Save a single item ────────────────────────────────────────────────────
   const saveItem = async (item, force = false) => {
