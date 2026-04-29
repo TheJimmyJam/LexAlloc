@@ -346,16 +346,6 @@ export async function generateApportionmentReport(apport) {
   doc.line(10, y, W - 10, y)
   y += 6
 
-  // ── Sankey Flow Diagram ─────────────────────────────────────────────────────
-  if (sankeyPng) {
-    const imgW = W - 20
-    const imgH = Math.round(imgW * 390 / 720)
-    if (y + imgH + 14 > doc.internal.pageSize.getHeight() - 15) { doc.addPage(); y = 18 }
-    y = sectionHeading(doc, y, 'Allocation Flow: Invoice → Parties → Carriers')
-    doc.addImage(sankeyPng, 'PNG', 10, y, imgW, imgH)
-    y += imgH + 6
-  }
-
   // ── Section 1: Party Summary ────────────────────────────────────────────────
   y = sectionHeading(doc, y, '1. Party Apportionment Summary')
 
@@ -611,6 +601,20 @@ export async function generateApportionmentReport(apport) {
       1: { cellWidth: 120 },
     },
   })
+
+  // ── Section 5: Allocation Flow Diagram (Sankey) ────────────────────────────
+  // Visual recap of the allocation chain — placed at the end of the report so
+  // it serves as a closing summary of how the invoice flows from the matter
+  // total through each party to each carrier.
+  if (sankeyPng) {
+    y = doc.lastAutoTable.finalY + 8
+    const imgW = W - 20
+    const imgH = Math.round(imgW * 390 / 720)
+    if (y + imgH + 14 > doc.internal.pageSize.getHeight() - 15) { doc.addPage(); y = 18 }
+    y = sectionHeading(doc, y, '5. Allocation Flow: Invoice → Parties → Carriers')
+    doc.addImage(sankeyPng, 'PNG', 10, y, imgW, imgH)
+    y += imgH + 6
+  }
 
   // ── Add chrome to every page ─────────────────────────────────────────────────
   const totalPages = doc.internal.getNumberOfPages()
