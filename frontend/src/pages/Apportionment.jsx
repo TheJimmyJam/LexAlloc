@@ -7,7 +7,7 @@ import { generateApportionmentReport } from '../lib/generateApportionmentReport.
 import DemandLetterModal from '../components/DemandLetterModal.jsx'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { ArrowLeft, Printer, Download, ChevronDown, ChevronRight, Shield, Users, Calendar, DollarSign, X, CheckCircle2, AlertTriangle, Mail, FileDown, Bell, Clock, BookOpen, PlugZap, Lock, Unlock, Pencil } from 'lucide-react'
-import { format, parseISO, differenceInCalendarDays } from 'date-fns'
+import { format, parseISO, differenceInCalendarDays, addDays } from 'date-fns'
 import { useState, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 // recharts removed — replaced by custom SankeyDiagram
@@ -516,7 +516,7 @@ export default function Apportionment() {
       if (!iaIds.length) return {}
       const { data } = await supabase
         .from('la_payment_reminders')
-        .select('insurer_apportionment_id, days_threshold, triggered_by, sent_at, status')
+        .select('insurer_apportionment_id, days_threshold, triggered_by, sent_at, status, schedule_type')
         .in('insurer_apportionment_id', iaIds)
         .eq('status', 'sent')
         .order('sent_at', { ascending: false })
@@ -551,6 +551,29 @@ export default function Apportionment() {
   const daysOutstanding = (demandedAt) => {
     if (!demandedAt) return null
     return differenceInCalendarDays(new Date(), new Date(demandedAt))
+  }
+
+  // Compute the next auto-reminder date based on the collection schedule logic
+  const nextFollowUp = (ia, iaReminders, days) => {
+    if (!['demanded', 'partially_paid', 'disputed'].includes(ia.payment_status)) return null
+    if (days === null) return null
+    const lastSent = iaReminders[0]?.sent_at ? new Date(iaReminders[0].sent_at) : null
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    if (days >= 90) {
+      // Weekly cadence
+      if (!lastSent) return today
+      const next = addDays(lastSent, 7)
+      return next <= today ? today : next
+    } else if (days >= 60) {
+      // Biweekly cadence
+      if (!lastSent) return today
+      const next = addDays(lastSent, 14)
+      return next <= today ? today : next
+    } else {
+      // Monthly cadence — 1st of next month
+      const now = new Date()
+      return new Date(now.getFullYear(), now.getMonth() + 1, 1)
+    }
   }
 
   // ── Accounting push ─────────────────────────────────────────────────────────
@@ -1256,9 +1279,20 @@ export default function Apportionment() {
                               {/* Last reminder sent */}
                               {lastReminder && (
                                 <span className="text-xs text-slate-400 leading-none">
-                                  {lastReminder.triggered_by === 'manual' ? 'Manual' : `${lastReminder.days_threshold}d`} · {format(new Date(lastReminder.sent_at), 'MMM d')}
+                                  Last: {lastReminder.triggered_by === 'manual' ? 'manual' : (lastReminder.schedule_type || `${lastReminder.days_threshold}d`)} · {format(new Date(lastReminder.sent_at), 'MMM d')}
                                 </span>
                               )}
+                              {/* Next auto follow-up */}
+                              {(() => {
+                                const next = nextFollowUp(ia, iaReminders, days)
+                                if (!next) return null
+                                const isOverdue = next <= new Date(new Date().setHours(0,0,0,0))
+                                return (
+                                  <span className={`text-xs leading-none font-medium ${isOverdue ? 'text-amber-600' : 'text-slate-400'}`}>
+                                    {isOverdue ? '⚡ Follow-up due' : `Next: ${format(next, 'MMM d')}`}
+                                  </span>
+                                )
+                              })()}
                               {/* Push to Books buttons (shown when paid + provider connected) */}
                               {isPaid && availableProviders.length > 0 && (
                                 <div className="flex items-center gap-1 mt-0.5">
