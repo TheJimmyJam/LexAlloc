@@ -17,7 +17,7 @@ const SUPABASE_URL          = Deno.env.get('SUPABASE_URL')               ?? ''
 const SERVICE_KEY           = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')  ?? ''
 const RESEND_API_KEY        = Deno.env.get('RESEND_API_KEY')             ?? ''
 const RESEND_FROM           = Deno.env.get('RESEND_FROM_EMAIL')          ?? 'noreply@lexalloc.app'
-const FRONTEND_URL          = Deno.env.get('FRONTEND_URL')               ?? 'https://lexalloc.netlify.app'
+const FRONTEND_URL          = Deno.env.get('FRONTEND_URL')               ?? 'https://lexalloc.com'
 
 const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: '2024-04-10', httpClient: Stripe.createFetchHttpClient() })
 const db     = createClient(SUPABASE_URL, SERVICE_KEY)
