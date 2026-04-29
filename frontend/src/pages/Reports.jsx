@@ -1123,12 +1123,12 @@ function CollectionsAgingReport({ rows }) {
       <div className="card p-5">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <h3 className="font-semibold text-slate-900">Outstanding Balance by Aging Bucket</h3>
-          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-1">
             {[['insurer', 'By Insurer'], ['firm', 'By Firm']].map(([key, label]) => (
               <button
                 key={key}
                 onClick={() => setGroupBy(key)}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${groupBy === key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${groupBy === key ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
               >{label}</button>
             ))}
           </div>
@@ -1728,13 +1728,13 @@ export default function Reports() {
             <p className="text-sm text-slate-500">Aggregated views across matters, obligations, and payments</p>
           </div>
         </div>
-        <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 self-start sm:self-auto">
+        <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-xl p-1 self-start sm:self-auto">
           {DATE_PRESETS.map((p, i) => (
             <button
               key={i}
               onClick={() => setPreset(i)}
               className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
-                preset === i ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                preset === i ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
               }`}
             >
               {p.label}
@@ -1743,7 +1743,7 @@ export default function Reports() {
         </div>
       </div>
 
-      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-6 overflow-x-auto">
+      <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-xl p-1 mb-6 overflow-x-auto">
         {TABS.map(t => {
           const Icon = t.icon
           return (
@@ -1751,7 +1751,7 @@ export default function Reports() {
               key={t.key}
               onClick={() => setTab(t.key)}
               className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium flex-1 justify-center transition-colors whitespace-nowrap ${
-                tab === t.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                tab === t.key ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
               <Icon className="h-4 w-4 flex-shrink-0" />
