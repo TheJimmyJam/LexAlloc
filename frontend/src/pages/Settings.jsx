@@ -17,6 +17,12 @@ function fmtMoney(n) {
   return `$${n.toFixed(0)}`
 }
 
+function formatPhone(v) {
+  const d = (v || '').replace(/\D/g, '').slice(0, 10)
+  if (d.length <= 3) return d
+  if (d.length <= 6) return `${d.slice(0,3)}.${d.slice(3)}`
+  return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6)}`
+}
 const validatePhone = v => !v || v.replace(/\D/g, '').length === 10 || 'Must be 10 digits'
 import toast from 'react-hot-toast'
 
@@ -30,7 +36,7 @@ const ROLE_COLORS = {
 function FirmEditModal({ orgId, firm, onClose }) {
   const qc = useQueryClient()
   const isEdit = !!firm
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({
+  const { register, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm({
     defaultValues: isEdit ? {
       name:          firm.name,
       phone:         firm.phone         || '',
@@ -96,7 +102,8 @@ function FirmEditModal({ orgId, firm, onClose }) {
               <div>
                 <label className="form-label">Phone</label>
                 <input className={`form-input ${errors.phone ? 'border-red-400' : ''}`} placeholder="xxx.xxx.xxxx"
-                  {...register('phone', { validate: validatePhone })} />
+                  {...register('phone', { validate: validatePhone })}
+                  onBlur={e => setValue('phone', formatPhone(e.target.value))} />
                 {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone.message}</p>}
               </div>
               <div>
@@ -412,7 +419,8 @@ function InsurerEditModal({ orgId, insurer, onClose }) {
               <div>
                 <label className="form-label">Phone</label>
                 <input className={`form-input ${errors.phone ? 'border-red-400' : ''}`} placeholder="xxx.xxx.xxxx"
-                  {...register('phone', { validate: validatePhone })} />
+                  {...register('phone', { validate: validatePhone })}
+                  onBlur={e => setValue('phone', formatPhone(e.target.value))} />
                 {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone.message}</p>}
               </div>
               <div>
@@ -513,7 +521,10 @@ function InsurerEditModal({ orgId, insurer, onClose }) {
                     </div>
                     <div>
                       <label className="form-label text-xs">Phone</label>
-                      <input className="form-input" value={repPhone} onChange={e => setRepPhone(e.target.value)} placeholder="xxx.xxx.xxxx" />
+                      <input className="form-input" value={repPhone}
+                        onChange={e => setRepPhone(e.target.value)}
+                        onBlur={e => setRepPhone(formatPhone(e.target.value))}
+                        placeholder="xxx.xxx.xxxx" />
                     </div>
                   </div>
                   <div className="flex gap-2 justify-end">
