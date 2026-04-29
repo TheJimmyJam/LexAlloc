@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { api } from '../lib/api.js'
 import { APPORTIONMENT_METHODS, autoApportion } from '../lib/apportionment.js'
+import { autoSendDemandLetters } from '../lib/autoSendDemandLetters.js'
 import DateInput from './DateInput.jsx'
 import toast from 'react-hot-toast'
 
@@ -408,6 +409,22 @@ export default function InvoiceUploadModal({ matterId, onClose }) {
           invoice_number:   parsed.invoice_number,
           method:           effectiveMethod,
           apportionment_id: apportId,
+        }).catch(() => {})
+
+        // Auto-generate and send demand letters — fire and forget
+        autoSendDemandLetters({
+          apportionmentId: apportId,
+          orgName:         profile?.la_organizations?.name || '',
+          download:        false,
+        }).then(({ sent, skipped, errors, total }) => {
+          if (total === 0) return
+          if (errors.length > 0) {
+            toast.error(`Demand letter email failed: ${errors[0].msg}`, { duration: 8000 })
+          } else if (sent > 0) {
+            const skipNote = skipped > 0 ? ` · ${skipped} skipped (no email on file)` : ''
+            toast.success(`${total} demand letter${total !== 1 ? 's' : ''} sent to insurers${skipNote}`, { duration: 6000 })
+          }
+          // skipped-only case: no toast, tracked in DB silently
         }).catch(() => {})
       }
     } catch (err) {
