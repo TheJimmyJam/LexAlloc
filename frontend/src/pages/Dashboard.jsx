@@ -3,11 +3,57 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
-import { FolderOpen, FileText, DollarSign, TrendingUp, Plus, ArrowRight, ChevronRight } from 'lucide-react'
+import { FolderOpen, FileText, DollarSign, TrendingUp, Plus, ArrowRight, ChevronRight, Briefcase, ChevronDown, Upload } from 'lucide-react'
+import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
 import { formatCurrency } from '../lib/calculations.js'
 import { format, parseISO } from 'date-fns'
 import OnboardingWizard from '../components/OnboardingWizard.jsx'
 import OnboardingChecklist from '../components/OnboardingChecklist.jsx'
+
+function FirmCard({ firm, statusColors }) {
+  const [expanded, setExpanded] = useState(true)
+  const matters = firm.la_matters || []
+
+  return (
+    <div className="card overflow-hidden">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-slate-50 transition-colors text-left"
+      >
+        <div className="flex items-center gap-2.5">
+          <Briefcase className="h-4 w-4 text-brand-500 flex-shrink-0" />
+          <span className="font-semibold text-slate-900 text-sm">{firm.name}</span>
+          <span className="text-xs text-slate-400 font-normal">
+            {matters.length} matter{matters.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+        <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+      </button>
+
+      {expanded && (
+        matters.length === 0 ? (
+          <div className="px-5 py-4 text-sm text-slate-400 border-t border-slate-100">No matters assigned yet.</div>
+        ) : (
+          <div className="border-t border-slate-100 divide-y divide-slate-50">
+            {matters.map(m => (
+              <Link
+                key={m.id}
+                to={`/matters/${m.id}`}
+                className="flex items-center justify-between px-5 py-3 hover:bg-slate-50/80 transition-colors"
+              >
+                <div className="min-w-0 mr-4">
+                  <p className="text-sm font-medium text-slate-800 truncate">{m.name}</p>
+                  {m.matter_number && <p className="text-xs text-slate-400 mt-0.5">#{m.matter_number}</p>}
+                </div>
+                <span className={`badge ${statusColors[m.status] || 'bg-slate-100 text-slate-500'} flex-shrink-0 capitalize`}>{m.status}</span>
+              </Link>
+            ))}
+          </div>
+        )
+      )}
+    </div>
+  )
+}
 
 function StatCard({ icon: Icon, label, value, gradient, to }) {
   return (
@@ -52,6 +98,7 @@ export default function Dashboard() {
   // ── Wizard state ────────────────────────────────────────────────────────────
   const [showWizard,          setShowWizard]          = useState(false)
   const [checklistDismissed,  setChecklistDismissed]  = useState(false)
+  const [showUploadInvoice,   setShowUploadInvoice]   = useState(false)
 
   // ── Sync checklist dismissed state once orgId is available ──────────────────
   // useState initializer runs before profile loads (orgId is undefined), so we
@@ -131,6 +178,19 @@ export default function Dashboard() {
         .eq('org_id', orgId)
         .order('created_at', { ascending: false })
         .limit(5)
+      return data || []
+    },
+  })
+
+  const { data: firmsWithMatters } = useQuery({
+    queryKey: ['dashboard-firms', orgId],
+    enabled: !!orgId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('la_firms')
+        .select('id, name, la_matters(id, name, matter_number, status)')
+        .eq('org_id', orgId)
+        .order('name')
       return data || []
     },
   })
@@ -268,12 +328,31 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Firms */}
+      {firmsWithMatters && firmsWithMatters.length > 0 && (
+        <div className="mt-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              <Briefcase className="h-4 w-4 text-slate-400" /> Firms
+            </h2>
+            <Link to="/settings" className="text-brand-600 hover:text-brand-700 text-xs font-medium flex items-center gap-1 transition-colors">
+              Manage firms <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+          <div className="space-y-3">
+            {firmsWithMatters.map(firm => (
+              <FirmCard key={firm.id} firm={firm} statusColors={statusColors} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Quick Actions */}
       <div className="mt-6 card p-5">
         <h2 className="text-sm font-semibold text-slate-900 mb-3">Quick Actions</h2>
         <div className="flex flex-wrap gap-3">
           <button onClick={() => setShowWizard(true)} className="btn-primary"><Plus className="h-4 w-4" /> New Matter</button>
-          <Link to="/matters" className="btn-secondary"><FileText className="h-4 w-4" /> Upload Invoice</Link>
+          <button onClick={() => setShowUploadInvoice(true)} className="btn-secondary"><Upload className="h-4 w-4" /> Upload Invoice</button>
         </div>
       </div>
 
@@ -282,6 +361,13 @@ export default function Dashboard() {
         <OnboardingWizard
           profile={profile}
           onComplete={handleWizardComplete}
+        />
+      )}
+
+      {/* Global invoice upload — no matterId: modal matches/creates matter automatically */}
+      {showUploadInvoice && (
+        <InvoiceUploadModal
+          onClose={() => setShowUploadInvoice(false)}
         />
       )}
     </div>
