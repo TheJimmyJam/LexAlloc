@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth.jsx'
@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase.js'
 import {
   User, Lock, Building2, Shield, ShieldCheck, ShieldOff, QrCode,
   Loader2, CheckCircle2, X, Briefcase, Plus, Trash2, FolderOpen, Landmark,
-  ChevronDown, ChevronRight, ExternalLink, Mail, Phone, MapPin, UserPlus, Pencil,
+  ChevronDown, ChevronRight, ExternalLink, Mail, Phone, MapPin, UserPlus, Pencil, Search,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -524,9 +524,13 @@ function InsurerEditModal({ orgId, insurer, onClose }) {
 }
 
 // ── Insurers Tab ──────────────────────────────────────────────────────────────
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
+
 function InsurersTab({ orgId }) {
   const qc = useQueryClient()
-  const [editModal, setEditModal] = useState(null) // null | 'new' | insurer object
+  const [editModal,  setEditModal]  = useState(null)  // null | 'new' | insurer object
+  const [search,     setSearch]     = useState('')
+  const sectionRefs = useRef({})
 
   const { data: insurers = [], isLoading } = useQuery({
     queryKey: ['insurers', orgId],
@@ -541,7 +545,31 @@ function InsurersTab({ orgId }) {
     },
   })
 
-  const deleteInsurer = async (insurer) => {
+  // Filter by search query
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return q ? insurers.filter(i => i.name.toLowerCase().includes(q)) : insurers
+  }, [insurers, search])
+
+  // Group filtered insurers by first letter
+  const grouped = useMemo(() => {
+    const map = {}
+    for (const ins of filtered) {
+      const letter = ins.name[0]?.toUpperCase() || '#'
+      if (!map[letter]) map[letter] = []
+      map[letter].push(ins)
+    }
+    return map
+  }, [filtered])
+
+  const activeLetters = useMemo(() => new Set(Object.keys(grouped)), [grouped])
+
+  const scrollToLetter = (letter) => {
+    sectionRefs.current[letter]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  const deleteInsurer = async (e, insurer) => {
+    e.stopPropagation()
     const usageCount = insurer.la_insurer_policy_periods?.length || 0
     if (usageCount > 0) {
       toast.error(`Can't delete — assigned to ${usageCount} policy period${usageCount > 1 ? 's' : ''}. Remove those first.`)
@@ -556,96 +584,139 @@ function InsurersTab({ orgId }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-slate-500">Manage carriers, their contact info, and claims representatives.</p>
-        <button onClick={() => setEditModal('new')} className="btn-primary">
+      {/* ── Toolbar ── */}
+      <div className="flex items-center gap-3 mb-5">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            className="form-input pl-9"
+            placeholder="Search insurers…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+        <button onClick={() => setEditModal('new')} className="btn-primary flex-shrink-0">
           <Plus className="h-4 w-4" /> Add Insurer
         </button>
       </div>
 
-      <div className="card overflow-hidden">
-        {isLoading ? (
-          <div className="p-8 text-center"><Loader2 className="h-5 w-5 animate-spin text-slate-300 mx-auto" /></div>
-        ) : insurers.length === 0 ? (
-          <div className="p-10 text-center text-slate-400">
-            <Landmark className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-            <p>No insurers yet.</p>
-            <button onClick={() => setEditModal('new')} className="btn-primary mt-4">
-              <Plus className="h-4 w-4" /> Add First Insurer
-            </button>
-          </div>
-        ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50">
-                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3">Insurer</th>
-                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3 hidden md:table-cell">Contact</th>
-                <th className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Reps</th>
-                <th className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">Matters</th>
-                <th className="px-4 py-3 w-20"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {insurers.map(insurer => {
-                const repCount    = insurer.la_insurer_claims_reps?.length || 0
-                const matterCount = insurer.la_insurer_policy_periods?.length || 0
-                return (
-                  <tr key={insurer.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-3.5">
-                      <p className="font-medium text-slate-800">{insurer.name}</p>
-                      {insurer.payment_portal_url && (
-                        <a href={insurer.payment_portal_url} target="_blank" rel="noreferrer"
-                          className="text-xs text-brand-600 hover:underline flex items-center gap-1 mt-0.5">
-                          <ExternalLink className="h-3 w-3" /> Payment portal
-                        </a>
-                      )}
-                    </td>
-                    <td className="px-4 py-3.5 hidden md:table-cell">
-                      <div className="space-y-0.5">
+      {/* ── A–Z index strip ── */}
+      <div className="flex flex-wrap gap-0.5 mb-5">
+        {ALPHABET.map(letter => (
+          <button
+            key={letter}
+            onClick={() => scrollToLetter(letter)}
+            disabled={!activeLetters.has(letter)}
+            className={`w-7 h-7 rounded text-xs font-semibold transition-colors ${
+              activeLetters.has(letter)
+                ? 'bg-brand-600 text-white hover:bg-brand-700'
+                : 'bg-slate-100 text-slate-300 cursor-default'
+            }`}
+          >
+            {letter}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Content ── */}
+      {isLoading ? (
+        <div className="py-16 text-center"><Loader2 className="h-6 w-6 animate-spin text-slate-300 mx-auto" /></div>
+      ) : insurers.length === 0 ? (
+        <div className="py-16 text-center text-slate-400">
+          <Landmark className="h-10 w-10 mx-auto mb-3 text-slate-300" />
+          <p className="font-medium">No insurers yet</p>
+          <button onClick={() => setEditModal('new')} className="btn-primary mt-4">
+            <Plus className="h-4 w-4" /> Add First Insurer
+          </button>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="py-12 text-center text-slate-400">
+          <p>No insurers match <strong className="text-slate-600">"{search}"</strong></p>
+          <button onClick={() => setSearch('')} className="text-xs text-brand-600 hover:underline mt-2 block mx-auto">Clear search</button>
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {ALPHABET.filter(l => grouped[l]).map(letter => (
+            <div key={letter} ref={el => sectionRefs.current[letter] = el}>
+              {/* Letter header */}
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-xl font-extrabold text-slate-800 w-8 flex-shrink-0">{letter}</span>
+                <div className="flex-1 h-px bg-slate-200" />
+                <span className="text-xs text-slate-400">{grouped[letter].length}</span>
+              </div>
+
+              {/* Cards grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {grouped[letter].map(insurer => {
+                  const repCount    = insurer.la_insurer_claims_reps?.length    || 0
+                  const matterCount = insurer.la_insurer_policy_periods?.length || 0
+                  return (
+                    <button
+                      key={insurer.id}
+                      onClick={() => setEditModal(insurer)}
+                      className="text-left card p-4 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-150 group"
+                    >
+                      {/* Name row */}
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Landmark className="h-4 w-4 text-brand-500 flex-shrink-0 mt-0.5" />
+                          <p className="font-semibold text-slate-900 text-sm leading-snug line-clamp-2 group-hover:text-brand-700 transition-colors">
+                            {insurer.name}
+                          </p>
+                        </div>
+                        <button
+                          onClick={e => deleteInsurer(e, insurer)}
+                          className="p-1 rounded text-slate-200 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0 opacity-0 group-hover:opacity-100"
+                          title="Delete"
+                        ><Trash2 className="h-3.5 w-3.5" /></button>
+                      </div>
+
+                      {/* Contact info */}
+                      <div className="space-y-1 mb-3">
                         {insurer.contact_email && (
-                          <a href={`mailto:${insurer.contact_email}`} className="text-xs text-slate-500 flex items-center gap-1 hover:text-brand-600">
-                            <Mail className="h-3 w-3 flex-shrink-0" />{insurer.contact_email}
-                          </a>
-                        )}
-                        {insurer.phone && (
-                          <p className="text-xs text-slate-500 flex items-center gap-1">
-                            <Phone className="h-3 w-3 flex-shrink-0" />{insurer.phone}
+                          <p className="text-xs text-slate-500 flex items-center gap-1.5 truncate">
+                            <Mail className="h-3 w-3 flex-shrink-0 text-slate-400" />{insurer.contact_email}
                           </p>
                         )}
-                        {insurer.city && (
-                          <p className="text-xs text-slate-400 flex items-center gap-1">
+                        {insurer.phone && (
+                          <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                            <Phone className="h-3 w-3 flex-shrink-0 text-slate-400" />{insurer.phone}
+                          </p>
+                        )}
+                        {(insurer.city || insurer.state) && (
+                          <p className="text-xs text-slate-400 flex items-center gap-1.5">
                             <MapPin className="h-3 w-3 flex-shrink-0" />{[insurer.city, insurer.state].filter(Boolean).join(', ')}
                           </p>
                         )}
                       </div>
-                    </td>
-                    <td className="px-4 py-3.5 text-center">
-                      <span className="text-sm text-slate-500">{repCount}</span>
-                    </td>
-                    <td className="px-4 py-3.5 text-center">
-                      <span className="text-sm text-slate-500">{matterCount}</span>
-                    </td>
-                    <td className="px-4 py-3.5 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => setEditModal(insurer)}
-                          className="p-1.5 rounded-md text-slate-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
-                          title="Edit insurer"
-                        ><Pencil className="h-3.5 w-3.5" /></button>
-                        <button
-                          onClick={() => deleteInsurer(insurer)}
-                          className="p-1.5 rounded-md text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
-                          title="Delete insurer"
-                        ><Trash2 className="h-4 w-4" /></button>
+
+                      {/* Footer badges */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {repCount > 0 && (
+                          <span className="badge bg-brand-50 text-brand-700 text-xs">
+                            {repCount} rep{repCount !== 1 ? 's' : ''}
+                          </span>
+                        )}
+                        {matterCount > 0 && (
+                          <span className="badge bg-slate-100 text-slate-600 text-xs">
+                            {matterCount} matter{matterCount !== 1 ? 's' : ''}
+                          </span>
+                        )}
+                        {insurer.payment_portal_url && (
+                          <span className="badge bg-green-50 text-green-700 text-xs flex items-center gap-1">
+                            <ExternalLink className="h-2.5 w-2.5" /> Portal
+                          </span>
+                        )}
                       </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {editModal !== null && (
         <InsurerEditModal
