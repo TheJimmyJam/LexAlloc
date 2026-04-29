@@ -130,32 +130,30 @@ export async function generateDemandLetterBlob(data) {
     pp.billing_address.split('\n').forEach(function(line) { addresseeParas.push(p(line)) })
   }
 
-  // ── Re: block ─────────────────────────────────────────────────────────────────
-  // Order: Matter (bold) | Law Firm | Policy No. (bold) | Claim No. (bold) | Firm Invoice Number (bold)
-  const matterName = (apport.matters && apport.matters.name)          ? apport.matters.name           : 'Matter'
-  const matterNum  = (apport.matters && apport.matters.matter_number) ? ' (Matter No. ' + apport.matters.matter_number + ')' : ''
+  // ── Re: block — labeled fields ────────────────────────────────────────────────
+  const matterName = (apport.matters && apport.matters.name) ? apport.matters.name : 'Matter'
+  const firmLabel  = invoice.billing_firm || (apport.matters && apport.matters.firm_name) || '-'
 
-  const reEntries = []
-  reEntries.push({ text: matterName + matterNum, bold: true, first: true })
-  if (invoice.billing_firm) {
-    reEntries.push({ text: invoice.billing_firm, bold: false })
-  }
-  if (ia.insurers && ia.insurers.policy_number) {
-    reEntries.push({ text: 'Policy No. ' + ia.insurers.policy_number, bold: true })
-  }
-  if (pp && pp.claim_number) {
-    reEntries.push({ text: 'Claim No. ' + pp.claim_number, bold: true })
-  }
-  reEntries.push({ text: 'Firm Invoice Number: ' + (invoice.invoice_number || '-') + ' dated ' + fmtDate(invoice.invoice_date), bold: true })
+  const reLines = [
+    { label: 'Case Name:',             value: matterName },
+    { label: 'Firm:',                  value: firmLabel },
+    { label: 'Firm Matter No.:',       value: (apport.matters && apport.matters.matter_number) || '' },
+    { label: 'Firm Invoice No.:',      value: invoice.invoice_number || '' },
+    { label: 'LexAlloc Invoice No.:', value: '' },
+    { label: 'Insurer Claim No.:',     value: (pp && pp.claim_number) || '' },
+  ]
 
-  const reParas = reEntries.map(function(entry) {
+  const TAB_POS = 2900  // value column left-aligns here
+
+  const reParas = reLines.map(function(line) {
     return new Paragraph({
-      spacing: { before: 0, after: 0 },
+      spacing: { before: 0, after: 80 },
       children: [
-        new TextRun({ text: entry.first ? 'Re:\t' : '\t', bold: entry.first, font: 'Arial', size: 20 }),
-        new TextRun({ text: entry.text, bold: entry.bold, font: 'Arial', size: 20 }),
+        new TextRun({ text: line.label, bold: true, font: 'Arial', size: 20 }),
+        new TextRun({ text: '\t', font: 'Arial', size: 20 }),
+        new TextRun({ text: line.value, font: 'Arial', size: 20 }),
       ],
-      tabStops: [{ type: TabStopType.LEFT, position: 520 }],
+      tabStops: [{ type: TabStopType.LEFT, position: TAB_POS }],
     })
   })
 
