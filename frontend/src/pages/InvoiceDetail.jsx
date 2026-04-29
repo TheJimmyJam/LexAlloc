@@ -123,7 +123,9 @@ export default function InvoiceDetail() {
       qc.invalidateQueries({ queryKey: ['invoice', invoiceId] })
       qc.invalidateQueries({ queryKey: ['matter-invoices', matterId] })
       qc.invalidateQueries({ queryKey: ['matter-apportionments', matterId] })
-      navigate(`/matters/${matterId}/apportionments/${apportId}`)
+      // First-time run (not a force re-run) → auto-send demand letters on arrival
+      const dest = `/matters/${matterId}/apportionments/${apportId}`
+      navigate(force ? dest : `${dest}?send=1`)
     } catch (err) {
       toast.error(err.message)
     } finally {
