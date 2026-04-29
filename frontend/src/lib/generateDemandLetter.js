@@ -1,7 +1,7 @@
 import {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
   AlignmentType, BorderStyle, WidthType, ShadingType, VerticalAlign,
-  TabStopType, TabStopPosition,
+  TabStopType, TabStopPosition, ImageRun,
 } from 'docx'
 import { format, parseISO } from 'date-fns'
 
@@ -18,25 +18,23 @@ function fmtDate(d) {
 
 // US Letter with 1-inch margins = 9360 DXA content width
 const W = 9360
-const BORDER = { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' }
+const BORDER  = { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' }
 const BORDERS = { top: BORDER, bottom: BORDER, left: BORDER, right: BORDER }
 
-function cellBase(width, isHeader) {
+function cellBase(width, isHeader, customFill) {
   return {
     borders: BORDERS,
     width: { size: width, type: WidthType.DXA },
-    shading: isHeader
-      ? { fill: 'EDF0F5', type: ShadingType.CLEAR }
-      : { fill: 'FFFFFF', type: ShadingType.CLEAR },
+    shading: { fill: customFill || (isHeader ? 'EDF0F5' : 'FFFFFF'), type: ShadingType.CLEAR },
     margins: { top: 80, bottom: 80, left: 120, right: 120 },
     verticalAlign: VerticalAlign.CENTER,
   }
 }
 
 function td(text, width, options) {
-  const { bold = false, isHeader = false, align = AlignmentType.LEFT, color = '1a1a1a', size = 20 } = options || {}
+  const { bold = false, isHeader = false, align = AlignmentType.LEFT, color = '1a1a1a', size = 20, customFill } = options || {}
   return new TableCell({
-    ...cellBase(width, isHeader),
+    ...cellBase(width, isHeader, customFill),
     children: [new Paragraph({
       alignment: align,
       children: [new TextRun({ text: String(text != null ? text : '-'), bold, font: 'Arial', size, color })]
@@ -66,76 +64,108 @@ function p(text, options) {
 
 function blank(before) { return p('', { before: before || 0 }) }
 
+// Fetch logo as ArrayBuffer for embedding in docx
+async function fetchLogoBuffer(logoUrl) {
+  try {
+    const url = logoUrl ||
+      (typeof window !== 'undefined' ? window.location.origin + '/logo-icon.png' : null)
+    if (!url) return null
+    const resp = await fetch(url)
+    if (!resp.ok) return null
+    return await resp.arrayBuffer()
+  } catch {
+    return null
+  }
+}
+
 // --- Method-specific body text -----------------------------------------------
 
 function calcDescription(method, ia, pa) {
-  const pct = fmtPct(ia.percentage)
+  const pct         = fmtPct(ia.percentage)
   const insurerName = (ia.insurers && ia.insurers.name) ? ia.insurers.name : 'the insurer'
-  const partyName = (pa.parties && pa.parties.name) ? pa.parties.name : 'this party'
+  const partyName   = (pa.parties  && pa.parties.name)  ? pa.parties.name  : 'this party'
 
   if (method === 'equal_shares') {
     const n = (pa.insurer_apportionments && pa.insurer_apportionments.length) ? pa.insurer_apportionments.length : 1
-    return 'Defense costs for ' + partyName + ' have been allocated equally among ' + n +
+    return 'Costs for ' + partyName + ' have been allocated equally among ' + n +
       ' carrier' + (n !== 1 ? 's' : '') + ', resulting in an equal share of ' +
       pct + ' for ' + insurerName + '.'
   }
   if (method === 'limits_proportional') {
-    const pp = ia.insurer_policy_periods
+    const pp    = ia.insurer_policy_periods
     const limit = (pp && pp.policy_limit) ? fmt(pp.policy_limit) : '[policy limit on file]'
-    return 'Defense costs for ' + partyName + ' have been allocated proportionally based on ' +
+    return 'Costs for ' + partyName + ' have been allocated proportionally based on ' +
       'each carrier\'s policy limits. ' + insurerName + '\'s policy limit of ' + limit +
       ' represents ' + pct + ' of the total limits across all triggered policies for this party.'
   }
   // pro_rata_time_on_risk
-  const days = (ia.days_on_risk != null) ? ia.days_on_risk : '-'
-  const total = (ia.total_days != null) ? ia.total_days : '-'
-  return 'Defense costs for ' + partyName + ' have been allocated on a pro-rata time-on-risk ' +
+  const days  = (ia.days_on_risk != null) ? ia.days_on_risk : '-'
+  const total = (ia.total_days   != null) ? ia.total_days   : '-'
+  return 'Costs for ' + partyName + ' have been allocated on a pro-rata time-on-risk ' +
     'basis. ' + insurerName + '\'s policy was on-risk for ' + days + ' of the ' + total +
-    ' days in the applicable service period, representing ' + pct + ' of the total exposure.'
+    ' days in the applicable coverage period, representing ' + pct + ' of the total exposure.'
 }
 
 // --- Main generator ----------------------------------------------------------
 
 export async function generateDemandLetterBlob(data) {
-  const { apport, invoice, pa, ia, orgName } = data
-  const pp     = ia.insurer_policy_periods
-  const today  = format(new Date(), 'MMMM d, yyyy')
-  const method = apport.calculation_method || 'pro_rata_time_on_risk'
+  const { apport, invoice, pa, ia, orgName, logoUrl } = data
+  const pp       = ia.insurer_policy_periods
+  const today    = format(new Date(), 'MMMM d, yyyy')
+  const method   = apport.calculation_method || 'pro_rata_time_on_risk'
+  const firmName = orgName || '[Law Firm Name]'
 
-  // Addressee block
+  // Logo
+  const logoBuffer = await fetchLogoBuffer(logoUrl)
+
+  // ── Addressee block — contact first, then company, then address ──────────────
   const addresseeParas = []
-  if (ia.insurers && ia.insurers.name) {
-    addresseeParas.push(p(ia.insurers.name, { bold: true }))
-  }
   if (pp && pp.claims_rep_name) {
-    addresseeParas.push(p(pp.claims_rep_name))
+    addresseeParas.push(p(pp.claims_rep_name, { bold: true }))
+  }
+  if (ia.insurers && ia.insurers.name) {
+    addresseeParas.push(p(ia.insurers.name))
   }
   if (pp && pp.billing_address) {
-    pp.billing_address.split('\n').forEach(function(line) {
-      addresseeParas.push(p(line))
-    })
+    pp.billing_address.split('\n').forEach(function(line) { addresseeParas.push(p(line)) })
   }
 
-  // Re: block
-  const matterName = (apport.matters && apport.matters.name) ? apport.matters.name : 'Matter'
+  // ── Re: block ─────────────────────────────────────────────────────────────────
+  // Order: Matter (bold) | Law Firm | Policy No. (bold) | Claim No. (bold) | Firm Invoice Number (bold)
+  const matterName = (apport.matters && apport.matters.name)          ? apport.matters.name           : 'Matter'
   const matterNum  = (apport.matters && apport.matters.matter_number) ? ' (Matter No. ' + apport.matters.matter_number + ')' : ''
-  const reLines = [matterName + matterNum]
-  if (pp && pp.claim_number)             { reLines.push('Claim No. ' + pp.claim_number) }
-  if (ia.insurers && ia.insurers.policy_number) { reLines.push('Policy No. ' + ia.insurers.policy_number) }
-  reLines.push('Invoice No. ' + (invoice.invoice_number || '-') + ' dated ' + fmtDate(invoice.invoice_date))
 
-  const reParas = reLines.map(function(line, i) {
+  const reEntries = []
+  reEntries.push({ text: matterName + matterNum, bold: true, first: true })
+  if (invoice.billing_firm) {
+    reEntries.push({ text: invoice.billing_firm, bold: false })
+  }
+  if (ia.insurers && ia.insurers.policy_number) {
+    reEntries.push({ text: 'Policy No. ' + ia.insurers.policy_number, bold: true })
+  }
+  if (pp && pp.claim_number) {
+    reEntries.push({ text: 'Claim No. ' + pp.claim_number, bold: true })
+  }
+  reEntries.push({ text: 'Firm Invoice Number: ' + (invoice.invoice_number || '-') + ' dated ' + fmtDate(invoice.invoice_date), bold: true })
+
+  const reParas = reEntries.map(function(entry) {
     return new Paragraph({
       spacing: { before: 0, after: 0 },
       children: [
-        new TextRun({ text: i === 0 ? 'Re:\t' : '\t', bold: i === 0, font: 'Arial', size: 20 }),
-        new TextRun({ text: line, font: 'Arial', size: 20 }),
+        new TextRun({ text: entry.first ? 'Re:\t' : '\t', bold: entry.first, font: 'Arial', size: 20 }),
+        new TextRun({ text: entry.text, bold: entry.bold, font: 'Arial', size: 20 }),
       ],
       tabStops: [{ type: TabStopType.LEFT, position: 520 }],
     })
   })
 
-  // Invoice summary table
+  // ── Service period ────────────────────────────────────────────────────────────
+  var servicePeriodText = fmtDate(invoice.service_start)
+  if (invoice.service_end && invoice.service_end !== invoice.service_start) {
+    servicePeriodText += ' through ' + fmtDate(invoice.service_end)
+  }
+
+  // ── Invoice summary table — Service Period replaces Billing Firm ──────────────
   const invoiceTable = new Table({
     width: { size: W, type: WidthType.DXA },
     columnWidths: [2340, 2340, 2340, 2340],
@@ -143,43 +173,83 @@ export async function generateDemandLetterBlob(data) {
       new TableRow({ children: [
         th('Invoice Number', 2340),
         th('Invoice Date',   2340),
-        th('Billing Firm',   2340),
+        th('Service Period', 2340),
         th('Total Amount',   2340),
       ]}),
       new TableRow({ children: [
-        td(invoice.invoice_number || '-',   2340),
-        td(fmtDate(invoice.invoice_date),   2340),
-        td(invoice.billing_firm || '-',     2340),
-        tdR(fmt(invoice.total_amount),      2340),
+        td(invoice.invoice_number || '-', 2340),
+        td(fmtDate(invoice.invoice_date), 2340),
+        td(servicePeriodText,             2340),
+        tdR(fmt(invoice.total_amount),    2340),
       ]}),
     ]
   })
 
-  // Obligation table labels
-  var torLabel = (ia.insurers && ia.insurers.name ? ia.insurers.name : 'Insurer') +
-    ' time-on-risk (' + (ia.days_on_risk != null ? ia.days_on_risk : '-') +
-    ' / ' + (ia.total_days != null ? ia.total_days : '-') + ' days)'
+  // ── Obligation table — party as folder header, all insurers listed below ──────
+  var partyName   = (pa.parties && pa.parties.name) ? pa.parties.name : 'Party'
+  var allInsurers = (pa.insurer_apportionments && pa.insurer_apportionments.length > 0)
+    ? pa.insurer_apportionments
+    : [ia]
 
-  var totalDueLabel = 'Total due from ' + ((ia.insurers && ia.insurers.name) ? ia.insurers.name : 'Insurer')
+  const FOLDER_FILL = 'C8D3E0'   // medium blue-gray for the party folder row
+  const FOLDER_COLOR = '2E4057'  // dark navy text
 
   var obligationRows = []
+
+  // Header row
   obligationRows.push(new TableRow({ children: [
     th('Description', 5200),
     th('Percentage',  2080),
     th('Amount',      2080),
   ]}))
+
+  // Party folder row — shaded, bold, acts as group header
   obligationRows.push(new TableRow({ children: [
-    td(((pa.parties && pa.parties.name) ? pa.parties.name : 'Party') + ' share of invoice', 5200),
-    tdR(fmtPct(pa.percentage), 2080),
-    tdR(fmt(pa.amount),        2080),
+    new TableCell({
+      ...cellBase(5200, false, FOLDER_FILL),
+      children: [new Paragraph({
+        children: [new TextRun({ text: partyName + ' share of invoice', bold: true, font: 'Arial', size: 20, color: FOLDER_COLOR })]
+      })]
+    }),
+    new TableCell({
+      ...cellBase(2080, false, FOLDER_FILL),
+      children: [new Paragraph({
+        alignment: AlignmentType.RIGHT,
+        children: [new TextRun({ text: fmtPct(pa.percentage), bold: true, font: 'Arial', size: 20, color: FOLDER_COLOR })]
+      })]
+    }),
+    new TableCell({
+      ...cellBase(2080, false, FOLDER_FILL),
+      children: [new Paragraph({
+        alignment: AlignmentType.RIGHT,
+        children: [new TextRun({ text: fmt(pa.amount), bold: true, font: 'Arial', size: 20, color: FOLDER_COLOR })]
+      })]
+    }),
   ]}))
-  if (method === 'pro_rata_time_on_risk') {
+
+  // All insurer rows — indented under the party folder; highlight the target insurer
+  allInsurers.forEach(function(eachIa) {
+    const eachName = (eachIa.insurers && eachIa.insurers.name) ? eachIa.insurers.name : 'Insurer'
+    const isTarget = eachIa.id === ia.id
+
+    var descText = '    ' + eachName   // indent
+    if (method === 'pro_rata_time_on_risk') {
+      descText += ' – ' +
+        (eachIa.days_on_risk != null ? eachIa.days_on_risk : '-') +
+        ' / ' +
+        (eachIa.total_days   != null ? eachIa.total_days   : '-') +
+        ' days'
+    }
+
     obligationRows.push(new TableRow({ children: [
-      td(torLabel, 5200),
-      tdR(fmtPct(ia.percentage), 2080),
-      tdR('', 2080),
+      td(descText,                isTarget ? 5200 : 5200, { bold: isTarget }),
+      tdR(fmtPct(eachIa.percentage), 2080,               { bold: isTarget }),
+      tdR(fmt(eachIa.amount),        2080,               { bold: isTarget }),
     ]}))
-  }
+  })
+
+  // Total due row
+  var totalDueLabel = 'Total due from ' + ((ia.insurers && ia.insurers.name) ? ia.insurers.name : 'Insurer')
   obligationRows.push(new TableRow({ children: [
     new TableCell({
       borders: BORDERS,
@@ -211,22 +281,16 @@ export async function generateDemandLetterBlob(data) {
     rows: obligationRows,
   })
 
-  // Service period text
-  var servicePeriodText = fmtDate(invoice.service_start)
-  if (invoice.service_end && invoice.service_end !== invoice.service_start) {
-    servicePeriodText += ' through ' + fmtDate(invoice.service_end)
-  }
-
-  var partyName = (pa.parties && pa.parties.name) ? pa.parties.name : 'The insured party'
+  // ── Body text ─────────────────────────────────────────────────────────────────
   var salutation = (pp && pp.claims_rep_name) ? 'Dear ' + pp.claims_rep_name + ':' : 'Dear Sir or Madam:'
   var paymentAmt = fmt(ia.amount)
-  var firmName = orgName || '[Law Firm Name]'
 
-  var openingPara = 'This letter constitutes a formal demand for payment of defense costs incurred in ' +
-    'connection with the above-referenced matter. Please review the following apportionment ' +
-    'calculation and remit payment in the amount set forth below.'
+  // Opening: first sentence deleted; "for the above captioned matter" added to remaining sentence
+  var openingPara = 'Please review the following apportionment calculation and remit payment ' +
+    'in the amount set forth below for the above captioned matter.'
 
-  var partySharePara = partyName + ' bears ' + fmtPct(pa.percentage) + ' of the defense obligation ' +
+  // Party share: "defense" removed
+  var partySharePara = partyName + ' bears ' + fmtPct(pa.percentage) + ' of the obligation ' +
     'for this invoice, corresponding to a total party obligation of ' + fmt(pa.amount) + '.'
 
   var paymentPara = 'Payment of ' + paymentAmt + ' is requested within thirty (30) days of the ' +
@@ -238,71 +302,76 @@ export async function generateDemandLetterBlob(data) {
   var referencePara = 'Please reference the matter name, claim number, and invoice number on all ' +
     'correspondence and remittances to ensure proper application of payment.'
 
-  const children = [
-    // Letterhead
-    new Paragraph({
-      spacing: { before: 0, after: 0 },
-      border: { bottom: { style: BorderStyle.SINGLE, size: 8, color: '2E4057', space: 1 } },
-      children: [
-        new TextRun({ text: firmName, bold: true, font: 'Arial', size: 28, color: '2E4057' }),
-        new TextRun('\t'),
-        new TextRun({ text: today, font: 'Arial', size: 20, color: '555555' }),
-      ],
-      tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }],
-    }),
+  // ── Assemble document ─────────────────────────────────────────────────────────
+  const children = []
 
-    blank(200),
-  ].concat(addresseeParas).concat([
-    blank(200),
-  ]).concat(reParas).concat([
-    blank(240),
-    p(salutation, { after: 200 }),
-    p(openingPara, { after: 0 }),
-    blank(0),
-    sectionRule('Invoice Summary'),
-    invoiceTable,
-    blank(80),
-    new Paragraph({
-      spacing: { before: 0, after: 0 },
-      children: [
-        new TextRun({ text: 'Service Period: ', bold: true, font: 'Arial', size: 20 }),
-        new TextRun({ text: servicePeriodText, font: 'Arial', size: 20 }),
-      ]
-    }),
-    blank(0),
-    sectionRule('Allocated Obligation'),
-    p(partySharePara, { after: 180 }),
-    p(calcDescription(method, ia, pa), { after: 180 }),
-    obligationTable,
-    blank(0),
-    sectionRule('Payment Instructions'),
-    p(paymentPara, { after: 180 }),
-    p('[PAYMENT INSTRUCTIONS / REMITTANCE ADDRESS]', { bold: true, color: 'AA2200', after: 180 }),
-    p(referencePara, { after: 0 }),
-    blank(0),
-    p(closingPara, { after: 240 }),
-    p('Very truly yours,', { after: 0 }),
-    blank(0),
-    blank(0),
-    blank(0),
-    new Paragraph({
-      spacing: { before: 0, after: 0 },
-      border: { bottom: { style: BorderStyle.SINGLE, size: 2, color: '555555', space: 1 } },
-      children: [new TextRun({ text: '', font: 'Arial', size: 20 })]
-    }),
-    p(firmName, { bold: true }),
-    p('[Attorney Name]'),
-    p('[Phone] | [Email]'),
-    new Paragraph({
-      spacing: { before: 400, after: 0 },
-      alignment: AlignmentType.CENTER,
-      border: { top: { style: BorderStyle.SINGLE, size: 2, color: 'CCCCCC', space: 1 } },
-      children: [new TextRun({
-        text: 'ATTORNEY WORK PRODUCT - PRIVILEGED AND CONFIDENTIAL',
-        font: 'Arial', size: 16, color: '888888', italics: true,
+  // Logo (if available)
+  if (logoBuffer) {
+    children.push(new Paragraph({
+      spacing: { before: 0, after: 100 },
+      children: [new ImageRun({
+        data: logoBuffer,
+        transformation: { width: 60, height: 60 },
+        type: 'png',
       })]
-    }),
-  ])
+    }))
+  }
+
+  // Letterhead: firm name left, date right-aligned
+  children.push(new Paragraph({
+    spacing: { before: 0, after: 0 },
+    border: { bottom: { style: BorderStyle.SINGLE, size: 8, color: '2E4057', space: 1 } },
+    children: [
+      new TextRun({ text: firmName, bold: true, font: 'Arial', size: 28, color: '2E4057' }),
+      new TextRun('\t'),
+      new TextRun({ text: today, font: 'Arial', size: 20, color: '555555' }),
+    ],
+    tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }],
+  }))
+
+  children.push(blank(200))
+  addresseeParas.forEach(function(ap) { children.push(ap) })
+  children.push(blank(200))
+  reParas.forEach(function(rp) { children.push(rp) })
+  children.push(blank(240))
+  children.push(p(salutation, { after: 200 }))
+  children.push(p(openingPara, { after: 0 }))
+  children.push(blank(0))
+  children.push(sectionRule('Invoice Summary'))
+  children.push(invoiceTable)
+  children.push(blank(0))
+  children.push(sectionRule('Allocated Obligation'))
+  children.push(p(partySharePara, { after: 180 }))
+  children.push(p(calcDescription(method, ia, pa), { after: 180 }))
+  children.push(obligationTable)
+  children.push(blank(0))
+  children.push(sectionRule('Payment Instructions'))
+  children.push(p(paymentPara, { after: 180 }))
+  children.push(p('[PAYMENT INSTRUCTIONS / REMITTANCE ADDRESS]', { bold: true, color: 'AA2200', after: 180 }))
+  children.push(p(referencePara, { after: 0 }))
+  children.push(blank(0))
+  children.push(p(closingPara, { after: 240 }))
+  children.push(p('Very truly yours,', { after: 0 }))
+  children.push(blank(0))
+  children.push(blank(0))
+  children.push(blank(0))
+  children.push(new Paragraph({
+    spacing: { before: 0, after: 0 },
+    border: { bottom: { style: BorderStyle.SINGLE, size: 2, color: '555555', space: 1 } },
+    children: [new TextRun({ text: '', font: 'Arial', size: 20 })]
+  }))
+  children.push(p(firmName, { bold: true }))
+  children.push(p('Michael Mason'))
+  children.push(p('Mason@LexAlloc.com'))
+  children.push(new Paragraph({
+    spacing: { before: 400, after: 0 },
+    alignment: AlignmentType.CENTER,
+    border: { top: { style: BorderStyle.SINGLE, size: 2, color: 'CCCCCC', space: 1 } },
+    children: [new TextRun({
+      text: 'ATTORNEY WORK PRODUCT - PRIVILEGED AND CONFIDENTIAL',
+      font: 'Arial', size: 16, color: '888888', italics: true,
+    })]
+  }))
 
   const doc = new Document({
     styles: {
@@ -315,7 +384,7 @@ export async function generateDemandLetterBlob(data) {
           margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 }
         }
       },
-      children: children,
+      children,
     }]
   })
 
