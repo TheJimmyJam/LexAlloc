@@ -1771,17 +1771,41 @@ export default function AdminPanel() {
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-slate-200 mb-6">
-        {TABS.filter(t => !t.dbAdminOnly || isPlatformAdmin).map(({ key, label, icon: Icon }) => (
-          <button key={key} onClick={() => setTab(key)}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-              tab === key ? 'border-brand-600 text-brand-600' : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}>
-            <Icon className="h-4 w-4" />{label}
-          </button>
-        ))}
-      </div>
+      {/* ── Two-column layout: vertical sidebar nav on the left, content on
+            the right. Stacks on small screens. With 10 sub-sections the old
+            horizontal tab strip overflowed off-screen. ───────────────────── */}
+      <div className="flex flex-col lg:flex-row gap-6">
+
+        {/* Sidebar nav */}
+        <aside className="lg:w-56 lg:flex-shrink-0">
+          <nav className="flex flex-col gap-0.5 lg:sticky lg:top-6 bg-white lg:bg-transparent border lg:border-0 border-slate-200 rounded-xl p-2 lg:p-0">
+            {TABS.filter(t => !t.dbAdminOnly || isPlatformAdmin).map(({ key, label, icon: Icon, dbAdminOnly }) => {
+              const active = tab === key
+              return (
+                <button
+                  key={key}
+                  onClick={() => setTab(key)}
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-left transition-colors ${
+                    active
+                      ? 'bg-brand-50 text-brand-700'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <Icon className={`h-4 w-4 flex-shrink-0 ${active ? 'text-brand-600' : 'text-slate-400'}`} />
+                  <span className="flex-1 truncate">{label}</span>
+                  {dbAdminOnly && (
+                    <span className="text-[9px] font-semibold uppercase tracking-wider text-violet-600 bg-violet-50 rounded px-1 py-0.5">
+                      DB
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </nav>
+        </aside>
+
+        {/* Tab-content column */}
+        <div className="flex-1 min-w-0">
 
       {/* ── Profile Tab ── */}
       {tab === 'profile' && (
@@ -2755,6 +2779,9 @@ export default function AdminPanel() {
           </div>
         </div>
       )}
+
+        </div> {/* /flex-1 tab-content column */}
+      </div> {/* /two-column layout */}
 
       {/* Create API Key Modal */}
       {showCreateKey && (
