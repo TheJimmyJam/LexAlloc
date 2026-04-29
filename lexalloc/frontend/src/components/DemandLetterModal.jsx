@@ -53,15 +53,10 @@ function LetterPreview({ data }) {
 
   return (
     <div style={s()}>
-      {/* Logo */}
-      <div style={{ marginBottom: '6px' }}>
+      {/* Letterhead: logo left, date right */}
+      <div style={{ borderBottom: '2.5px solid #2E4057', paddingBottom: '8px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
         <img src="/logo-icon.png" alt="Logo" style={{ width: '52px', height: '52px', objectFit: 'contain' }}
           onError={e => { e.target.style.display = 'none' }} />
-      </div>
-
-      {/* Letterhead: firm name left, date right */}
-      <div style={{ borderBottom: '2.5px solid #2E4057', paddingBottom: '8px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-        <strong style={{ fontSize: '17px', color: '#2E4057' }}>{firmName}</strong>
         <span style={{ color: '#666', fontSize: '12px' }}>{today}</span>
       </div>
 
