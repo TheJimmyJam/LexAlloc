@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { supabase } from '../lib/supabase.js'
-import { FolderOpen, FileText, DollarSign, TrendingUp, Plus, ArrowRight, ChevronRight, Briefcase, ChevronDown } from 'lucide-react'
+import { FolderOpen, FileText, DollarSign, TrendingUp, Plus, ArrowRight, ChevronRight, Briefcase, ChevronDown, Upload } from 'lucide-react'
+import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
 import { formatCurrency } from '../lib/calculations.js'
 import { format, parseISO } from 'date-fns'
 import OnboardingWizard from '../components/OnboardingWizard.jsx'
@@ -97,6 +98,7 @@ export default function Dashboard() {
   // ── Wizard state ────────────────────────────────────────────────────────────
   const [showWizard,          setShowWizard]          = useState(false)
   const [checklistDismissed,  setChecklistDismissed]  = useState(false)
+  const [showUploadInvoice,   setShowUploadInvoice]   = useState(false)
 
   // ── Sync checklist dismissed state once orgId is available ──────────────────
   // useState initializer runs before profile loads (orgId is undefined), so we
@@ -350,7 +352,7 @@ export default function Dashboard() {
         <h2 className="text-sm font-semibold text-slate-900 mb-3">Quick Actions</h2>
         <div className="flex flex-wrap gap-3">
           <button onClick={() => setShowWizard(true)} className="btn-primary"><Plus className="h-4 w-4" /> New Matter</button>
-          <Link to="/matters" className="btn-secondary"><FileText className="h-4 w-4" /> Upload Invoice</Link>
+          <button onClick={() => setShowUploadInvoice(true)} className="btn-secondary"><Upload className="h-4 w-4" /> Upload Invoice</button>
         </div>
       </div>
 
@@ -359,6 +361,13 @@ export default function Dashboard() {
         <OnboardingWizard
           profile={profile}
           onComplete={handleWizardComplete}
+        />
+      )}
+
+      {/* Global invoice upload — no matterId: modal matches/creates matter automatically */}
+      {showUploadInvoice && (
+        <InvoiceUploadModal
+          onClose={() => setShowUploadInvoice(false)}
         />
       )}
     </div>
