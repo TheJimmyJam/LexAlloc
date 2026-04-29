@@ -16,9 +16,12 @@ import { logAudit } from '../lib/audit.js'
 function CreateMatterModal({ isTemplate = false, onClose }) {
   const { profile } = useAuth()
   const qc = useQueryClient()
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm()
+  const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm()
+  const [addingFirm, setAddingFirm] = useState(false)
+  const [newFirmName, setNewFirmName] = useState('')
+  const [savingFirm, setSavingFirm] = useState(false)
 
-  const { data: firms = [] } = useQuery({
+  const { data: firms = [], refetch: refetchFirms } = useQuery({
     queryKey: ['firms', profile?.org_id],
     enabled: !!profile?.org_id && !isTemplate,
     queryFn: async () => {
@@ -26,6 +29,40 @@ function CreateMatterModal({ isTemplate = false, onClose }) {
       return data || []
     },
   })
+
+  const firmIdWatch = watch('firm_id')
+
+  const handleFirmChange = (e) => {
+    const val = e.target.value
+    setValue('firm_id', val)
+    if (val === '__new__') {
+      setAddingFirm(true)
+      setNewFirmName('')
+    } else {
+      setAddingFirm(false)
+    }
+  }
+
+  const handleSaveNewFirm = async () => {
+    if (!newFirmName.trim()) return
+    setSavingFirm(true)
+    const { data: newFirm, error } = await supabase.from('la_firms')
+      .insert({ org_id: profile.org_id, name: newFirmName.trim() })
+      .select().single()
+    if (error) { toast.error(error.message); setSavingFirm(false); return }
+    await refetchFirms()
+    setValue('firm_id', newFirm.id)
+    setAddingFirm(false)
+    setNewFirmName('')
+    setSavingFirm(false)
+    toast.success(`Firm "${newFirm.name}" created!`)
+  }
+
+  const handleCancelNewFirm = () => {
+    setAddingFirm(false)
+    setNewFirmName('')
+    setValue('firm_id', '')
+  }
 
   const onSubmit = async (values) => {
     const selectedFirm = firms.find(f => f.id === values.firm_id)
@@ -68,11 +105,47 @@ function CreateMatterModal({ isTemplate = false, onClose }) {
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
           {!isTemplate && (
             <div>
-              <label className="form-label">Firm</label>
-              <select className="form-input" {...register('firm_id')}>
-                <option value="">— No firm —</option>
+              <label className="form-label">Firm *</label>
+              <select
+                className={`form-input ${errors.firm_id ? 'border-red-400' : ''}`}
+                {...register('firm_id', {
+                  required: 'Firm is required',
+                  validate: v => v !== '__new__' || 'Please save or cancel the new firm first',
+                })}
+                onChange={handleFirmChange}
+              >
+                <option value="">— Select a firm —</option>
                 {firms.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                <option value="__new__">+ Add new firm…</option>
               </select>
+              {errors.firm_id && <p className="text-red-500 text-xs mt-1">{errors.firm_id.message}</p>}
+              {addingFirm && (
+                <div className="mt-2 flex gap-2 items-center">
+                  <input
+                    className="form-input flex-1"
+                    placeholder="New firm name…"
+                    value={newFirmName}
+                    onChange={e => setNewFirmName(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleSaveNewFirm())}
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveNewFirm}
+                    disabled={!newFirmName.trim() || savingFirm}
+                    className="btn-primary px-3 py-2 text-xs whitespace-nowrap"
+                  >
+                    {savingFirm ? 'Saving…' : 'Save Firm'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCancelNewFirm}
+                    className="btn-secondary px-3 py-2 text-xs"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </div>
           )}
           {!isTemplate && (
