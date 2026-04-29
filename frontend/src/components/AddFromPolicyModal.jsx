@@ -57,7 +57,8 @@ export default function AddFromPolicyModal({ matterId, parties = [], onClose }) 
 
     try {
       const ext  = file.name.split('.').pop()
-      const path = `policy-docs/${profile.org_id}/${Date.now()}.${ext}`
+      // Storage RLS requires the FIRST folder segment to equal org_id.
+      const path = `${profile.org_id}/policy-docs/${Date.now()}.${ext}`
       const { error: upErr } = await supabase.storage
         .from('la_documents').upload(path, file, { upsert: true })
       if (upErr) throw new Error(upErr.message)
