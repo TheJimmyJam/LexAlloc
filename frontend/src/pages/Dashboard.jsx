@@ -7,7 +7,6 @@ import { FolderOpen, FileText, DollarSign, TrendingUp, Plus, ArrowRight, Chevron
 import InvoiceUploadModal from '../components/InvoiceUploadModal.jsx'
 import { formatCurrency } from '../lib/calculations.js'
 import { format, parseISO } from 'date-fns'
-import OnboardingWizard from '../components/OnboardingWizard.jsx'
 import OnboardingChecklist from '../components/OnboardingChecklist.jsx'
 
 const STATUS_LABELS = { active: 'Active', closed: 'Closed', on_hold: 'On Hold', pending: 'On Hold' }
@@ -97,8 +96,7 @@ export default function Dashboard() {
 
   const orgId = profile?.org_id
 
-  // ── Wizard / checklist state ────────────────────────────────────────────────
-  const [showWizard,         setShowWizard]         = useState(false)
+  // ── Checklist state ─────────────────────────────────────────────────────────
   const [checklistDismissed, setChecklistDismissed] = useState(false)
   const [showUploadInvoice,  setShowUploadInvoice]  = useState(false)
 
@@ -109,7 +107,7 @@ export default function Dashboard() {
     queryFn:  async () => {
       const { data } = await supabase
         .from('la_organizations')
-        .select('onboarding_wizard_seen, onboarding_checklist_dismissed')
+        .select('onboarding_checklist_dismissed')
         .eq('id', orgId)
         .single()
       return data
@@ -142,24 +140,6 @@ export default function Dashboard() {
       }
     },
   })
-
-  // ── Auto-launch wizard for new orgs ─────────────────────────────────────────
-  useEffect(() => {
-    if (!statsLoaded || !orgId || orgFlags === undefined) return
-    if (stats.matters === 0 && !orgFlags?.onboarding_wizard_seen) {
-      setShowWizard(true)
-    }
-  }, [statsLoaded, stats?.matters, orgId, orgFlags])
-
-  // ── Wizard completed / dismissed ────────────────────────────────────────────
-  const handleWizardComplete = useCallback(async () => {
-    setShowWizard(false)
-    if (orgId) {
-      await supabase.from('la_organizations')
-        .update({ onboarding_wizard_seen: true })
-        .eq('id', orgId)
-    }
-  }, [orgId])
 
   // ── Checklist dismiss ────────────────────────────────────────────────────────
   const handleDismissChecklist = useCallback(async () => {
@@ -224,7 +204,7 @@ export default function Dashboard() {
       label:       'Create your first matter',
       done:        stats.matters > 0,
       actionLabel: 'Create now',
-      actionOnClick: () => setShowWizard(true),
+      actionTo:    '/matters?new=1',
     },
     {
       id:          'party',
@@ -270,7 +250,6 @@ export default function Dashboard() {
         <OnboardingChecklist
           steps={checklistSteps}
           onDismiss={handleDismissChecklist}
-          onLaunchWizard={() => setShowWizard(true)}
         />
       )}
 
@@ -296,12 +275,12 @@ export default function Dashboard() {
             {recentMatters?.length === 0 && (
               <div className="p-6 text-center text-slate-400 text-sm">
                 No matters yet.{' '}
-                <button
-                  onClick={() => setShowWizard(true)}
+                <Link
+                  to="/matters?new=1"
                   className="text-brand-600 hover:underline"
                 >
                   Create your first matter
-                </button>
+                </Link>
               </div>
             )}
             {recentMatters?.map((m) => (
@@ -376,14 +355,6 @@ export default function Dashboard() {
           <button onClick={() => setShowUploadInvoice(true)} className="btn-secondary"><Upload className="h-4 w-4" /> Upload Invoice</button>
         </div>
       </div>
-
-      {/* Onboarding wizard */}
-      {showWizard && profile && (
-        <OnboardingWizard
-          profile={profile}
-          onComplete={handleWizardComplete}
-        />
-      )}
 
       {/* Global invoice upload — no matterId: modal matches/creates matter automatically */}
       {showUploadInvoice && (
