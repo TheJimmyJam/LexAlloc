@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, ExternalLink, Settings2, RefreshCcw, ChevronRight, Loader2, Key, Copy, Eye, EyeOff, Code, Terminal, Palette, Globe, Image, Wand2, User, Lock, ShieldCheck, ShieldOff, QrCode, Layers, Banknote } from 'lucide-react'
+import { Shield, Users, Building2, Plus, X, Trash2, Mail, UserCheck, UserPlus, ArrowRightLeft, Database, Plug, CheckCircle2, AlertCircle, AlertTriangle, ExternalLink, Settings2, RefreshCcw, ChevronRight, Loader2, Key, Copy, Eye, EyeOff, Code, Terminal, Palette, Globe, Image, Wand2, User, Lock, ShieldCheck, ShieldOff, QrCode, Layers, Banknote } from 'lucide-react'
 import DuplicateMattersTool from '../components/DuplicateMattersTool.jsx'
 import BankingTab from '../components/BankingTab.jsx'
 import { applyPalette } from '../context/BrandingContext.jsx'
@@ -1000,8 +1000,11 @@ export default function AdminPanel() {
     resetPwd()
   }
 
-  const handleDisable2FA = async () => {
-    if (!confirm('Disable two-factor authentication? Your account will be less secure.')) return
+  const [show2FADisableConfirm, setShow2FADisableConfirm] = useState(false)
+
+  const handleDisable2FA = () => setShow2FADisableConfirm(true)
+
+  const confirmDisable2FA = async () => {
     setDisabling2FA(true)
     try {
       const { data: factors, error: fErr } = await supabase.auth.mfa.listFactors()
@@ -1010,6 +1013,7 @@ export default function AdminPanel() {
       if (error) { toast.error('Failed to disable 2FA: ' + error.message); return }
       await refreshMfaLevel()
       toast.success('Two-factor authentication disabled.')
+      setShow2FADisableConfirm(false)
     } finally {
       setDisabling2FA(false)
     }
@@ -2930,6 +2934,105 @@ export default function AdminPanel() {
           }}
         />
       )}
+
+      {/* 2FA disable warning modal */}
+      {show2FADisableConfirm && (
+        <Disable2FAWarningModal
+          onCancel={() => setShow2FADisableConfirm(false)}
+          onConfirm={confirmDisable2FA}
+          loading={disabling2FA}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Disable 2FA warning modal ────────────────────────────────────────────────
+function Disable2FAWarningModal({ onCancel, onConfirm, loading }) {
+  const [acknowledged, setAcknowledged] = useState(false)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden ring-1 ring-red-200">
+        {/* Red gradient header with pulsing icon */}
+        <div className="bg-gradient-to-br from-red-500 to-red-700 px-6 py-7 text-center relative overflow-hidden">
+          <div className="absolute inset-0 opacity-20" style={{
+            backgroundImage: 'radial-gradient(circle at 20% 30%, white 1px, transparent 1px)',
+            backgroundSize: '24px 24px',
+          }} />
+          <div className="relative flex flex-col items-center gap-3">
+            <div className="w-16 h-16 rounded-full bg-white/15 ring-4 ring-white/25 flex items-center justify-center">
+              <AlertTriangle className="h-9 w-9 text-white" strokeWidth={2.5} />
+            </div>
+            <h3 className="text-xl font-bold text-white tracking-tight">Disable Two-Factor Authentication?</h3>
+            <p className="text-sm text-red-50/90 leading-relaxed max-w-xs">
+              This is a security-critical change. Read carefully before continuing.
+            </p>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 space-y-4">
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3.5">
+            <div className="flex items-start gap-3">
+              <ShieldOff className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-red-900 leading-relaxed">
+                <p className="font-semibold mb-1">What you're giving up</p>
+                <p className="text-red-800/90">
+                  Without 2FA, your account is protected by a password alone. A leaked or guessed password is enough for an attacker to read every matter, invoice, and demand letter on your account.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-amber-900 leading-relaxed">
+                <p className="font-semibold mb-1">LexAlloc holds privileged client data</p>
+                <p className="text-amber-800/90">
+                  Privileged communications, settlement figures, and policy details should always sit behind 2FA. Most malpractice carriers and SOC 2 auditors require it.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Acknowledgement checkbox */}
+          <label className="flex items-start gap-3 px-2 py-1 cursor-pointer select-none group">
+            <input
+              type="checkbox"
+              checked={acknowledged}
+              onChange={(e) => setAcknowledged(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"
+            />
+            <span className="text-sm text-slate-700 leading-snug group-hover:text-slate-900">
+              I understand this weakens my account security and I want to proceed anyway.
+            </span>
+          </label>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            className="btn-secondary"
+          >
+            Keep 2FA on
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={!acknowledged || loading}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 active:bg-red-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm"
+          >
+            {loading ? (
+              <><Loader2 className="h-4 w-4 animate-spin" /> Disabling…</>
+            ) : (
+              <><ShieldOff className="h-4 w-4" /> Disable Anyway</>
+            )}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
