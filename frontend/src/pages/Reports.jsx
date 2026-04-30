@@ -1,6 +1,6 @@
 import { useState, useMemo, Fragment } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 import { differenceInDays, parseISO, subDays, format } from 'date-fns'
 import { jsPDF } from 'jspdf'
@@ -1011,11 +1011,21 @@ function SettlementReport({ data }) {
 // AR Aging / Collections tab
 // ═══════════════════════════════════════════════════════════════════════════════
 function CollectionsAgingReport({ rows }) {
-  const [groupBy,      setGroupBy]      = useState('insurer') // 'insurer' | 'firm'
-  const [filterBucket, setFilterBucket] = useState('all')
-  const [sortKey,      setSortKey]      = useState('days')
-  const [sortDir,      setSortDir]      = useState('desc')
-  const [search,       setSearch]       = useState('')
+  const [groupBy,         setGroupBy]         = useState('insurer') // 'insurer' | 'firm'
+  const [filterBucket,    setFilterBucket]    = useState('all')
+  const [sortKey,         setSortKey]         = useState('days')
+  const [sortDir,         setSortDir]         = useState('desc')
+  const [search,          setSearch]          = useState('')
+  const [expandedMatters, setExpandedMatters] = useState(() => new Set())
+
+  function toggleExpand(key) {
+    setExpandedMatters(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   const today = useMemo(() => new Date(), [])
 
@@ -1029,9 +1039,10 @@ function CollectionsAgingReport({ rows }) {
       daysSinceDemand,
       balance,
       bucket,
-      insurer:   r.la_insurers?.name                        || 'Unknown Insurer',
+      insurer:   r.la_insurers?.name                            || 'Unknown Insurer',
       firm:      r.la_apportionments?.la_invoices?.billing_firm || 'Unknown Firm',
-      matter:    r.la_apportionments?.la_matters?.name      || 'Unknown Matter',
+      matter:    r.la_apportionments?.la_matters?.name          || 'Unknown Matter',
+      matterId:  r.la_apportionments?.la_matters?.id            || null,
       matterNum: r.la_apportionments?.la_matters?.matter_number || '',
     }
   }), [rows, today])
@@ -1059,7 +1070,7 @@ function CollectionsAgingReport({ rows }) {
       .map(d => ({ ...d, name: d.name.length > 22 ? d.name.slice(0, 20) + '…' : d.name }))
   }, [enriched, groupBy])
 
-  // ── Table rows ────────────────────────────────────────────────────────────
+  // ── Filtered + searched flat rows (used for export + grouping) ───────────
   const tableRows = useMemo(() => {
     let rows = filterBucket === 'all' ? enriched : enriched.filter(r => r.bucket === filterBucket)
     if (search) {
@@ -1071,15 +1082,50 @@ function CollectionsAgingReport({ rows }) {
         (r.lexalloc_invoice_number || '').toLowerCase().includes(q)
       )
     }
-    return [...rows].sort((a, b) => {
+    return rows
+  }, [enriched, filterBucket, search])
+
+  // ── Group rows by matter, then sort matters by chosen key ────────────────
+  const matterGroups = useMemo(() => {
+    const map = new Map()
+    for (const r of tableRows) {
+      const key = r.matterId || `__noid__${r.matter}`
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          matterId:  r.matterId,
+          matter:    r.matter,
+          matterNum: r.matterNum,
+          records:   [],
+        })
+      }
+      map.get(key).records.push(r)
+    }
+
+    // Sort records inside each matter (default: oldest first)
+    const groups = Array.from(map.values()).map(g => {
+      const balance     = g.records.reduce((s, r) => s + r.balance, 0)
+      const oldestDays  = g.records.reduce((m, r) => Math.max(m, r.daysSinceDemand), 0)
+      // Worst bucket present in this matter — drives the card's accent color
+      const bucketRank  = { '0-30': 0, '31-60': 1, '61-90': 2, '90+': 3 }
+      const worstBucket = g.records.reduce((w, r) =>
+        (bucketRank[r.bucket] ?? 0) > (bucketRank[w] ?? 0) ? r.bucket : w
+      , '0-30')
+      const sortedRecords = [...g.records].sort((a, b) => b.daysSinceDemand - a.daysSinceDemand)
+      return { ...g, balance, oldestDays, worstBucket, count: g.records.length, records: sortedRecords }
+    })
+
+    // Sort matters
+    groups.sort((a, b) => {
       let cmp = 0
-      if (sortKey === 'days')    cmp = b.daysSinceDemand - a.daysSinceDemand
-      if (sortKey === 'balance') cmp = b.balance - a.balance
+      if (sortKey === 'days')    cmp = b.oldestDays - a.oldestDays
+      if (sortKey === 'balance') cmp = b.balance    - a.balance
       if (sortKey === 'matter')  cmp = a.matter.localeCompare(b.matter)
-      if (sortKey === 'insurer') cmp = a.insurer.localeCompare(b.insurer)
       return sortDir === 'desc' ? cmp : -cmp
     })
-  }, [enriched, filterBucket, search, sortKey, sortDir])
+
+    return groups
+  }, [tableRows, sortKey, sortDir])
 
   function toggleSort(key) {
     if (sortKey === key) setSortDir(d => d === 'desc' ? 'asc' : 'desc')
@@ -1184,7 +1230,7 @@ function CollectionsAgingReport({ rows }) {
         </ResponsiveContainer>
       </div>
 
-      {/* ── Table ── */}
+      {/* ── Toolbar (search / sort / export) ── */}
       <div className="card overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b border-slate-100 flex-wrap gap-3">
           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -1197,82 +1243,155 @@ function CollectionsAgingReport({ rows }) {
               className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 flex-1 min-w-0 focus:outline-none focus:ring-2 focus:ring-brand-300"
             />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide hidden sm:inline">Sort</span>
+            {[['days', 'Oldest'], ['balance', 'Balance'], ['matter', 'Matter']].map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => toggleSort(key)}
+                className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${
+                  sortKey === key
+                    ? 'border-brand-300 bg-brand-50 text-brand-700'
+                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {label} <SortIcon col={key} />
+              </button>
+            ))}
             {filterBucket !== 'all' && (
-              <button onClick={() => setFilterBucket('all')} className="text-xs text-brand-600 hover:underline">
-                Clear filter
+              <button onClick={() => setFilterBucket('all')} className="text-xs text-brand-600 hover:underline px-2">
+                Clear bucket
               </button>
             )}
+            <button onClick={() => setExpandedMatters(new Set(matterGroups.map(g => g.key)))} className="text-xs text-slate-500 hover:text-slate-700 px-2">Expand all</button>
+            <button onClick={() => setExpandedMatters(new Set())} className="text-xs text-slate-500 hover:text-slate-700 px-2">Collapse all</button>
             <button onClick={handleExportXLSX} className="flex items-center gap-1.5 text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600">
               <FileSpreadsheet className="h-3.5 w-3.5" /> Export
             </button>
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm tabular-nums">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50">
-                <th className="text-left px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
-                  <button onClick={() => toggleSort('matter')} className="flex items-center">Matter <SortIcon col="matter" /></button>
-                </th>
-                <th className="text-left px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
-                  <button onClick={() => toggleSort('insurer')} className="flex items-center">Insurer <SortIcon col="insurer" /></button>
-                </th>
-                <th className="text-left px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Firm</th>
-                <th className="text-left px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell">Inv #</th>
-                <th className="text-right px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
-                  <button onClick={() => toggleSort('balance')} className="flex items-center ml-auto">Balance <SortIcon col="balance" /></button>
-                </th>
-                <th className="text-right px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
-                  <button onClick={() => toggleSort('days')} className="flex items-center ml-auto">Days <SortIcon col="days" /></button>
-                </th>
-                <th className="text-center px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Bucket</th>
-                <th className="text-center px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {tableRows.length === 0 && (
-                <tr><td colSpan={8} className="text-center py-12 text-slate-400">No records match your filters.</td></tr>
-              )}
-              {tableRows.map(r => {
-                const bucket = AGING_BUCKETS.find(b => b.key === r.bucket)
-                return (
-                  <tr key={r.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-3 py-2.5">
-                      <p className="font-medium text-slate-800 truncate max-w-[160px]">{r.matter}</p>
-                      {r.matterNum && <p className="text-xs text-slate-400">{r.matterNum}</p>}
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-700 truncate max-w-[140px]">{r.insurer}</td>
-                    <td className="px-3 py-2.5 text-slate-500 hidden md:table-cell truncate max-w-[120px]">{r.firm}</td>
-                    <td
-                      className="px-3 py-2.5 text-slate-400 font-mono text-xs hidden lg:table-cell whitespace-nowrap"
-                      title={r.lexalloc_invoice_number || ''}
-                    >
-                      {r.lexalloc_invoice_number ? truncateMiddle(r.lexalloc_invoice_number, 9, 7) : '—'}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-semibold text-slate-900 whitespace-nowrap">{formatCurrency(r.balance)}</td>
-                    <td className="px-3 py-2.5 text-right">
-                      <span className={`font-bold ${r.daysSinceDemand >= 90 ? 'text-red-600' : r.daysSinceDemand >= 60 ? 'text-orange-500' : r.daysSinceDemand >= 30 ? 'text-amber-500' : 'text-slate-700'}`}>
-                        {r.daysSinceDemand}d
+        {/* ── Matter cards ── */}
+        <div className="p-4 space-y-2">
+          {matterGroups.length === 0 && (
+            <div className="text-center py-12 text-slate-400 text-sm">No records match your filters.</div>
+          )}
+          {matterGroups.map(g => {
+            const isOpen     = expandedMatters.has(g.key)
+            const worst      = AGING_BUCKETS.find(b => b.key === g.worstBucket)
+            const accentBg   = worst?.bg     || 'bg-slate-50'
+            const accentBdr  = worst?.border || 'border-slate-200'
+            return (
+              <div key={g.key} className={`rounded-xl border-2 ${accentBdr} ${accentBg} overflow-hidden transition-all`}>
+                {/* ── Card header (always visible) ── */}
+                <button
+                  onClick={() => toggleExpand(g.key)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/40 transition-colors text-left"
+                >
+                  <div className={`flex-shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`}>
+                    <ChevronRight className="h-4 w-4 text-slate-500" />
+                  </div>
+
+                  <FolderOpen className="h-4 w-4 text-slate-500 flex-shrink-0" />
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      {g.matterId ? (
+                        <Link
+                          to={`/matters/${g.matterId}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="font-semibold text-slate-900 hover:text-brand-700 hover:underline truncate"
+                        >
+                          {g.matter}
+                        </Link>
+                      ) : (
+                        <span className="font-semibold text-slate-900 truncate">{g.matter}</span>
+                      )}
+                      {g.matterNum && (
+                        <span className="text-xs text-slate-400 font-mono">{g.matterNum}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Stats cluster */}
+                  <div className="flex items-center gap-3 flex-shrink-0 tabular-nums">
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-white/70 text-slate-700 border border-slate-200">
+                      {g.count} record{g.count !== 1 ? 's' : ''}
+                    </span>
+                    <div className="hidden sm:flex flex-col items-end leading-tight">
+                      <span className="text-[10px] text-slate-500 uppercase tracking-wide">Balance</span>
+                      <span className="text-sm font-bold text-slate-900">{formatCurrency(g.balance)}</span>
+                    </div>
+                    <div className="hidden md:flex flex-col items-end leading-tight">
+                      <span className="text-[10px] text-slate-500 uppercase tracking-wide">Oldest</span>
+                      <span className={`text-sm font-bold ${g.oldestDays >= 90 ? 'text-red-600' : g.oldestDays >= 60 ? 'text-orange-500' : g.oldestDays >= 30 ? 'text-amber-500' : 'text-slate-700'}`}>
+                        {g.oldestDays}d
                       </span>
-                    </td>
-                    <td className="px-3 py-2.5 text-center">
-                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${bucket?.badge || ''}`}>{bucket?.label || r.bucket}</span>
-                    </td>
-                    <td className="px-3 py-2.5 text-center hidden sm:table-cell">
-                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full capitalize ${STATUS_COLORS[r.payment_status] || 'bg-slate-100 text-slate-600'}`}>
-                        {(r.payment_status || '—').replace('_', ' ')}
+                    </div>
+                    {worst && (
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${worst.badge} hidden lg:inline-flex`}>
+                        {worst.label}
                       </span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                    )}
+                  </div>
+                </button>
+
+                {/* ── Expanded inner table ── */}
+                {isOpen && (
+                  <div className="bg-white border-t border-slate-200 overflow-x-auto">
+                    <table className="w-full text-sm tabular-nums">
+                      <thead>
+                        <tr className="border-b border-slate-100 bg-slate-50">
+                          <th className="text-left px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Insurer</th>
+                          <th className="text-left px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Firm</th>
+                          <th className="text-left px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell">Inv #</th>
+                          <th className="text-right px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Balance</th>
+                          <th className="text-right px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Days</th>
+                          <th className="text-center px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Bucket</th>
+                          <th className="text-center px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {g.records.map(r => {
+                          const bucket = AGING_BUCKETS.find(b => b.key === r.bucket)
+                          return (
+                            <tr key={r.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="px-3 py-2.5 text-slate-700 truncate max-w-[180px]">{r.insurer}</td>
+                              <td className="px-3 py-2.5 text-slate-500 hidden md:table-cell truncate max-w-[140px]">{r.firm}</td>
+                              <td
+                                className="px-3 py-2.5 text-slate-400 font-mono text-xs hidden lg:table-cell whitespace-nowrap"
+                                title={r.lexalloc_invoice_number || ''}
+                              >
+                                {r.lexalloc_invoice_number ? truncateMiddle(r.lexalloc_invoice_number, 9, 7) : '—'}
+                              </td>
+                              <td className="px-3 py-2.5 text-right font-semibold text-slate-900 whitespace-nowrap">{formatCurrency(r.balance)}</td>
+                              <td className="px-3 py-2.5 text-right">
+                                <span className={`font-bold ${r.daysSinceDemand >= 90 ? 'text-red-600' : r.daysSinceDemand >= 60 ? 'text-orange-500' : r.daysSinceDemand >= 30 ? 'text-amber-500' : 'text-slate-700'}`}>
+                                  {r.daysSinceDemand}d
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5 text-center">
+                                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${bucket?.badge || ''}`}>{bucket?.label || r.bucket}</span>
+                              </td>
+                              <td className="px-3 py-2.5 text-center hidden sm:table-cell">
+                                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full capitalize ${STATUS_COLORS[r.payment_status] || 'bg-slate-100 text-slate-600'}`}>
+                                  {(r.payment_status || '—').replace('_', ' ')}
+                                </span>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
 
         <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-400">
+          {matterGroups.length} matter{matterGroups.length !== 1 ? 's' : ''} ·{' '}
           {tableRows.length} record{tableRows.length !== 1 ? 's' : ''} ·{' '}
           {formatCurrency(tableRows.reduce((s, r) => s + r.balance, 0))} outstanding
           {filterBucket !== 'all' && ` · filtered to ${AGING_BUCKETS.find(b => b.key === filterBucket)?.sublabel}`}
