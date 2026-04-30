@@ -8,9 +8,8 @@ import { Check, ChevronDown, ChevronUp, Sparkles, X, ArrowRight } from 'lucide-r
  * Props:
  *   steps  — array of { id, label, done, actionLabel, actionTo, actionOnClick }
  *   onDismiss — called when user dismisses the card
- *   onLaunchWizard — called when user clicks "Relaunch wizard"
  */
-export default function OnboardingChecklist({ steps = [], onDismiss, onLaunchWizard }) {
+export default function OnboardingChecklist({ steps = [], onDismiss }) {
   const [collapsed, setCollapsed] = useState(false)
 
   const doneCount  = steps.filter(s => s.done).length
@@ -124,23 +123,14 @@ export default function OnboardingChecklist({ steps = [], onDismiss, onLaunchWiz
       )}
 
       {/* Footer actions */}
-      {!collapsed && (
+      {!collapsed && allDone && (
         <div className="px-5 pb-4 flex items-center justify-between">
-          {allDone ? (
-            <button
-              onClick={onDismiss}
-              className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
-            >
-              Dismiss
-            </button>
-          ) : (
-            <button
-              onClick={onLaunchWizard}
-              className="text-xs text-brand-600 hover:text-brand-800 font-medium transition-colors"
-            >
-              Relaunch setup wizard →
-            </button>
-          )}
+          <button
+            onClick={onDismiss}
+            className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            Dismiss
+          </button>
         </div>
       )}
     </div>
